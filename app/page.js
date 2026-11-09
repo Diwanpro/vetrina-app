@@ -6,37 +6,13 @@ import { supabase } from '@/lib/supabase'
 
 function Logo() {
   return (
-    <svg
-      width="48"
-      height="48"
-      viewBox="0 0 48 48"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path
-        d="M12 8 H36"
-        stroke="#D4AF37"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M16 8 C16 8 18 14 24 14 C30 14 32 8 32 8"
-        stroke="#D4AF37"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        fill="none"
-      />
-      <circle cx="24" cy="8" r="2.2" fill="#D4AF37" />
-      <path
-        d="M15 20 L24 40 L33 20"
-        stroke="#D4AF37"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-    </svg>
+    <img
+      src="/vetrina_logo_main.png"
+      alt="Vetrina"
+      width="150"
+      height="150"
+      className="w-[150px] h-auto rounded-2xl shadow-[0_8px_24px_rgba(212,175,55,0.28)]"
+    />
   )
 }
 
@@ -77,8 +53,8 @@ export default function LoginPage() {
       <div className="w-full max-w-md mx-auto bg-card rounded-2xl border border-white/5 px-5 py-8 shadow-[0_8px_32px_rgba(0,0,0,0.45)]">
         <div className="flex flex-col items-center mb-7">
           <Logo />
-          <h1 className="mt-3 text-3xl font-bold tracking-wide text-gold">
-            Vetrina
+          <h1 className="mt-3 text-3xl font-bold tracking-[0.18em] text-gold">
+            VETRINA
           </h1>
           <p className="mt-1 text-[10px] tracking-[0.28em] uppercase text-neutral-500">
             ATTIA WEB SOLUTION
