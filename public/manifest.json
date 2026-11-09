@@ -1,0 +1,19 @@
+{
+  "name": "Vetrina",
+  "short_name": "Vetrina",
+  "description": "نظام إدارة متجر الملابس - Attia Web Solution",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "dir": "rtl",
+  "lang": "ar",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

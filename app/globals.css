@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --gold: #d4af37;
+  --surface: #121212;
+  --card: #1a1a1a;
+}
+
+html,
+body {
+  background-color: #121212;
+  color: #e5e5e5;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-tajawal), sans-serif;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #e5e5e5;
+  -webkit-box-shadow: 0 0 0px 1000px #1a1a1a inset;
+  transition: background-color 5000s ease-in-out 0s;
+}
