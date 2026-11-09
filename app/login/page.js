@@ -1,14 +1,8 @@
-'use client'
+import LoginForm from '@/components/LoginForm'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
-export default function LoginRedirect() {
-  const router = useRouter()
-
-  useEffect(() => {
-    router.replace('/')
-  }, [router])
-
-  return null
+export default function LoginPage() {
+  return <LoginForm />
 }

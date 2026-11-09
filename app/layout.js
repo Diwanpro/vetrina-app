@@ -12,7 +12,6 @@ export const metadata = {
   title: 'Vetrina | Attia Web Solution',
   description: 'نظام إدارة متجر الملابس - Vetrina',
   manifest: '/manifest.json',
-  themeColor: '#121212',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
