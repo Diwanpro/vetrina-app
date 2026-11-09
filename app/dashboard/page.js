@@ -45,7 +45,17 @@ export default function DashboardPage() {
       let inventoryQuery = supabase.from('inventory').select('id, quantity').lt('quantity', 5)
       if (ctx.storeId) inventoryQuery = inventoryQuery.eq('store_id', ctx.storeId)
 
-      const [{ data: sales }, { data: lowStock }] = await Promise.all([salesQuery, inventoryQuery])
+      let itemsQuery = supabase
+        .from('sale_items')
+        .select('quantity, final_price, created_at, product_variants(cost_price_avg), sales!inner(store_id, created_at)')
+        .gte('created_at', from)
+      if (ctx.storeId) itemsQuery = itemsQuery.eq('sales.store_id', ctx.storeId)
+
+      const [{ data: sales }, { data: lowStock }, { data: items }] = await Promise.all([
+        salesQuery,
+        inventoryQuery,
+        itemsQuery,
+      ])
       if (cancelled) return
 
       const rows = sales || []
@@ -55,7 +65,12 @@ export default function DashboardPage() {
         .filter((r) => r.payment_method === 'cash')
         .reduce((s, r) => s + Number(r.total_amount || 0), 0)
       const average = invoices ? totalSales / invoices : 0
-      const profit = totalSales * 0.2
+      const profit = (items || []).reduce((sum, item) => {
+        const cost = Number(item.product_variants?.cost_price_avg || 0)
+        const qty = Number(item.quantity || 0)
+        const price = Number(item.final_price || 0)
+        return sum + (price - cost) * qty
+      }, 0)
 
       setStats({
         cash,
@@ -93,7 +108,7 @@ export default function DashboardPage() {
           <KpiCard
             title="الربح المحسوب"
             value={formatDzd(stats.profit)}
-            subtitle="هامش تقديري 20% من مبيعات اليوم"
+            subtitle="(السعر النهائي − سعر التكلفة) × الكمية"
             icon={IconProfit}
           />
           <KpiCard

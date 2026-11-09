@@ -42,6 +42,7 @@ export default function ProductsPage() {
     description: '',
     category: CATEGORIES[0],
     base_price: '',
+    cost_price: '',
     imageFile: null,
     imagePreview: '',
   })
@@ -146,11 +147,13 @@ export default function ProductsPage() {
       return
     }
 
+    const costPrice = Number(form.cost_price || 0)
     const variants = filledCells.map((cell) => ({
       product_id: product.id,
       color: cell.color,
       size: cell.size,
       sku: `${form.name.trim().slice(0, 8)}-${cell.color}-${cell.size}`.replace(/\s+/g, ''),
+      cost_price_avg: costPrice,
     }))
 
     const { data: createdVariants, error: vErr } = await supabase
@@ -182,7 +185,7 @@ export default function ProductsPage() {
     }
 
     setOpen(false)
-    setForm({ name: '', description: '', category: CATEGORIES[0], base_price: '', imageFile: null, imagePreview: '' })
+    setForm({ name: '', description: '', category: CATEGORIES[0], base_price: '', cost_price: '', imageFile: null, imagePreview: '' })
     setMatrix(emptyMatrix())
     setNewColor('')
     loadProducts()
@@ -271,19 +274,19 @@ export default function ProductsPage() {
                   className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
                 />
               </label>
+              <label className="block">
+                <span className="mb-1 block text-xs text-neutral-400">التصنيف</span>
+                <select
+                  value={form.category}
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
+                >
+                  {CATEGORIES.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </label>
               <div className="grid grid-cols-2 gap-2">
-                <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">التصنيف</span>
-                  <select
-                    value={form.category}
-                    onChange={(e) => setForm({ ...form, category: e.target.value })}
-                    className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                  >
-                    {CATEGORIES.map((c) => (
-                      <option key={c}>{c}</option>
-                    ))}
-                  </select>
-                </label>
                 <label className="block">
                   <span className="mb-1 block text-xs text-neutral-400">سعر البيع</span>
                   <input
@@ -293,6 +296,16 @@ export default function ProductsPage() {
                     onChange={(e) => setForm({ ...form, base_price: e.target.value })}
                     className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
                     required
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-neutral-400">سعر التكلفة</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.cost_price}
+                    onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
+                    className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
                   />
                 </label>
               </div>
