@@ -126,8 +126,9 @@ export default function PosPage() {
       sale_id: sale.id,
       variant_id: i.variantId,
       quantity: i.qty,
+      original_price: i.price,
+      final_price: i.price,
       unit_price: i.price,
-      final_price: i.price * i.qty,
       subtotal: i.price * i.qty,
     }))
 
