@@ -1,6 +1,4 @@
-import Sidebar from '@/components/dashboard/Sidebar'
-import BottomNav from '@/components/dashboard/BottomNav'
-import TopBar from '@/components/dashboard/TopBar'
+import DashboardShell from '@/components/dashboard/DashboardShell'
 import KpiCard from '@/components/dashboard/KpiCard'
 import SalesChart from '@/components/dashboard/SalesChart'
 import { IconCash, IconSales, IconProfit, IconBalance, IconAlert } from '@/components/dashboard/icons'
@@ -9,13 +7,8 @@ export const dynamic = 'force-dynamic'
 
 export default function DashboardPage() {
   return (
-    <div className="min-h-screen bg-surface flex">
-      <Sidebar active="/dashboard" />
-
-      <div className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
-        <TopBar />
-
-        <main className="p-3 md:p-4 space-y-3">
+    <DashboardShell active="/dashboard">
+        <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
             <KpiCard
               title="النقد في الصندوق"
@@ -51,10 +44,7 @@ export default function DashboardPage() {
           </div>
 
           <SalesChart />
-        </main>
-      </div>
-
-      <BottomNav active="/dashboard" />
-    </div>
+        </div>
+    </DashboardShell>
   )
 }

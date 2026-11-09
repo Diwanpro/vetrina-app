@@ -11,8 +11,8 @@ import {
 
 export const NAV_ITEMS = [
   { href: '/dashboard', label: 'لوحة التحكم', icon: IconDashboard },
-  { href: '/pos', label: 'نقطة البيع', icon: IconPos },
-  { href: '/products', label: 'المنتجات', icon: IconProducts },
+  { href: '/dashboard/pos', label: 'نقطة البيع', icon: IconPos },
+  { href: '/dashboard/products', label: 'المنتجات', icon: IconProducts },
   { href: '/sales', label: 'المبيعات', icon: IconSales },
   { href: '/credit', label: 'الكريدي', icon: IconCredit },
   { href: '/suppliers', label: 'الموردون', icon: IconSuppliers },
