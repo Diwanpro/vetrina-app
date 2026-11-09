@@ -6,16 +6,21 @@ import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
 
 const CATEGORIES = ['ملابس', 'أحذية', 'إكسسوارات']
-const COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
+const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
 const SIZES = ['S', 'M', 'L', 'XL']
+
+function emptyRow() {
+  const row = {}
+  SIZES.forEach((s) => {
+    row[s] = ''
+  })
+  return row
+}
 
 function emptyMatrix() {
   const m = {}
-  COLORS.forEach((c) => {
-    m[c] = {}
-    SIZES.forEach((s) => {
-      m[c][s] = ''
-    })
+  DEFAULT_COLORS.forEach((c) => {
+    m[c] = emptyRow()
   })
   return m
 }
@@ -38,8 +43,10 @@ export default function ProductsPage() {
     category: CATEGORIES[0],
     base_price: '',
     imageFile: null,
+    imagePreview: '',
   })
   const [matrix, setMatrix] = useState(emptyMatrix())
+  const [newColor, setNewColor] = useState('')
 
   async function loadProducts() {
     setLoading(true)
@@ -57,16 +64,30 @@ export default function ProductsPage() {
     loadProducts()
   }, [])
 
+  const colorRows = Object.keys(matrix)
+
   const filledCells = useMemo(() => {
     const cells = []
-    COLORS.forEach((color) => {
+    Object.keys(matrix).forEach((color) => {
       SIZES.forEach((size) => {
-        const qty = Number(matrix[color][size])
+        const qty = Number(matrix[color]?.[size])
         if (qty > 0) cells.push({ color, size, qty })
       })
     })
     return cells
   }, [matrix])
+
+  function addCustomColor() {
+    const color = newColor.trim()
+    if (!color) return
+    if (matrix[color]) {
+      setError('هذا اللون موجود مسبقاً')
+      return
+    }
+    setError('')
+    setMatrix((prev) => ({ ...prev, [color]: emptyRow() }))
+    setNewColor('')
+  }
 
   async function handleSave(e) {
     e.preventDefault()
@@ -87,16 +108,20 @@ export default function ProductsPage() {
     setSaving(true)
     let images = []
     if (form.imageFile) {
-      const ext = form.imageFile.name.split('.').pop() || 'jpg'
-      const path = `${ctx.tenantId}/${Date.now()}.${ext}`
-      const { error: upErr } = await supabase.storage.from('products').upload(path, form.imageFile)
+      const ext = (form.imageFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const path = `${ctx.tenantId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+      const { error: upErr } = await supabase.storage.from('products').upload(path, form.imageFile, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: form.imageFile.type || 'image/jpeg',
+      })
       if (upErr) {
         setSaving(false)
-        setError('فشل رفع الصورة')
+        setError(upErr.message || 'فشل رفع الصورة')
         return
       }
       const { data: pub } = supabase.storage.from('products').getPublicUrl(path)
-      images = [pub.publicUrl]
+      if (pub?.publicUrl) images = [pub.publicUrl]
     }
 
     const { data: product, error: pErr } = await supabase
@@ -107,6 +132,7 @@ export default function ProductsPage() {
         description: form.description.trim() || null,
         category: form.category,
         base_price: Number(form.base_price),
+        type: 'variable',
         images,
         image_url: images[0] || null,
         is_active: true,
@@ -156,8 +182,9 @@ export default function ProductsPage() {
     }
 
     setOpen(false)
-    setForm({ name: '', description: '', category: CATEGORIES[0], base_price: '', imageFile: null })
+    setForm({ name: '', description: '', category: CATEGORIES[0], base_price: '', imageFile: null, imagePreview: '' })
     setMatrix(emptyMatrix())
+    setNewColor('')
     loadProducts()
   }
 
@@ -274,13 +301,38 @@ export default function ProductsPage() {
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={(e) => setForm({ ...form, imageFile: e.target.files?.[0] || null })}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null
+                    setForm({
+                      ...form,
+                      imageFile: file,
+                      imagePreview: file ? URL.createObjectURL(file) : '',
+                    })
+                  }}
                   className="w-full text-xs text-neutral-400"
                 />
+                {form.imagePreview && (
+                  <img src={form.imagePreview} alt="" className="mt-2 h-20 w-20 rounded-lg object-cover" />
+                )}
               </label>
 
               <div>
                 <p className="mb-1.5 text-xs text-neutral-400">المخزون حسب اللون والمقاس</p>
+                <div className="mb-2 flex gap-2">
+                  <input
+                    value={newColor}
+                    onChange={(e) => setNewColor(e.target.value)}
+                    placeholder="لون جديد"
+                    className="flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomColor}
+                    className="shrink-0 rounded-lg border border-gold/40 px-3 py-2 text-xs text-gold"
+                  >
+                    إضافة لون
+                  </button>
+                </div>
                 <div className="overflow-x-auto rounded-lg border border-white/10">
                   <table className="w-full text-center text-xs">
                     <thead className="bg-[#1f1f1f] text-neutral-400">
@@ -292,7 +344,7 @@ export default function ProductsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {COLORS.map((color) => (
+                      {colorRows.map((color) => (
                         <tr key={color} className="border-t border-white/5">
                           <td className="p-2 text-neutral-300 whitespace-nowrap">{color}</td>
                           {SIZES.map((size) => (
