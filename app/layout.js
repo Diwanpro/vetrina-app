@@ -8,6 +8,9 @@ const tajawal = Tajawal({
   display: 'swap',
 })
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export const metadata = {
   title: 'Vetrina | Attia Web Solution',
   description: 'نظام إدارة متجر الملابس - Vetrina',
