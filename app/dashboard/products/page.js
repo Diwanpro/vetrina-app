@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { variantBarcodes } from '@/lib/engine'
+import { useEffect, useRef, useState } from 'react'
+import VoiceInput from '@/components/VoiceInput'
+import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
 import { fetchAllRows } from '@/lib/cash'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import { SIZE_TYPES, sizesForType, emptySizeRow, emptySizeMatrix, filledSizeCells } from '@/lib/product-sizes'
@@ -19,6 +20,9 @@ export default function ProductsPage() {
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const barcodeTask = useRef(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [ctx, setCtx] = useState({ tenantId: null, storeId: null })
@@ -51,7 +55,35 @@ export default function ProductsPage() {
     finally { setLoading(false) }
   }
 
-  useEffect(() => { loadProducts() }, [])
+  useEffect(() => { loadProducts(); return () => { barcodeTask.current += 1 } }, [])
+
+  async function allocateBarcodes(count) {
+    if (!count) return []
+    const context = await getAppContext()
+    if (!context.storeId || !context.tenantId) throw new Error('تعذر تحديد المتجر')
+    const { data, error } = await supabase.rpc('engine_generate_barcodes', {
+      p_store: context.storeId, p_tenant: context.tenantId, p_count: count,
+    })
+    if (error) throw error
+    return data
+  }
+  async function regenerateBarcode() {
+    const task = ++barcodeTask.current
+    setGenerating(true); setError('')
+    try {
+      const [code] = await allocateBarcodes(1)
+      if (task === barcodeTask.current) setForm(prev => ({ ...prev, barcode: code }))
+    } catch (err) { if (task === barcodeTask.current) setError(err.message || 'تعذر توليد الباركود') }
+    finally { if (task === barcodeTask.current) setGenerating(false) }
+  }
+  function openProductForm() {
+    setOpen(true); setError('')
+    if (!form.barcode) regenerateBarcode()
+  }
+  function closeProductForm() {
+    if (saving) return
+    barcodeTask.current += 1; setGenerating(false); setOpen(false)
+  }
 
   const colorRows = Object.keys(matrix)
 
@@ -78,13 +110,13 @@ export default function ProductsPage() {
 
   async function handleSave(e) {
     e.preventDefault()
-    if (saving) return
+    if (saving || generating) return
     setError('')
     let filledCells
     let barcodes
     try {
       filledCells = filledSizeCells(matrix, sizes)
-      barcodes = variantBarcodes(form.barcode, filledCells.length)
+      if (form.barcode.trim() && !/^[\x21-\x7E]{1,48}$/.test(form.barcode.trim())) throw new Error('الباركود يجب أن يحتوي على حروف لاتينية أو أرقام أو رموز دون مسافات (حتى 48 حرفاً)')
     } catch (err) {
       setError(err.message)
       return
@@ -103,6 +135,16 @@ export default function ProductsPage() {
     }
 
     setSaving(true)
+    try {
+      const first = form.barcode.trim() || (await allocateBarcodes(1))[0]
+      barcodes = [first, ...await allocateBarcodes(filledCells.length - 1)]
+      // Check external/scanned codes before creating a product. The database
+      // UNIQUE constraint remains the final protection against concurrent writes.
+      const { data: duplicates, error: lookupError } = await supabase.from('product_variants')
+        .select('id').in('barcode', barcodes).limit(1)
+      if (lookupError) throw lookupError
+      if (duplicates?.length) throw new Error('هذا الباركود مستخدم مسبقاً. امسح رمزاً آخر أو اضغط توليد جديد.')
+    } catch (err) { setSaving(false); setError(err.message); return }
     let images = []
     if (form.imageFile) {
       const ext = (form.imageFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
@@ -195,7 +237,7 @@ export default function ProductsPage() {
         <h1 className="text-base font-medium text-neutral-100">المنتجات</h1>
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={openProductForm}
           className="rounded-lg bg-gold px-3 py-2 text-sm font-medium text-[#121212]"
         >
           إضافة منتج
@@ -251,7 +293,7 @@ export default function ProductsPage() {
           >
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-medium text-neutral-100">إضافة منتج</h2>
-              <button type="button" onClick={() => setOpen(false)} className="text-xs text-neutral-400">
+              <button type="button" onClick={closeProductForm} className="text-xs text-neutral-400">
                 إغلاق
               </button>
             </div>
@@ -266,22 +308,33 @@ export default function ProductsPage() {
                   required
                 />
               </label>
-              <label className="block">
-                <span className="mb-1 block text-xs text-neutral-400">الوصف</span>
-                <textarea
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  rows={2}
-                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs text-neutral-400">الباركود الأساسي (اختياري)</span>
-                <input dir="ltr" maxLength={48} value={form.barcode} disabled={saving}
-                  onChange={e => setForm({ ...form, barcode: e.target.value })}
-                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold" />
-                <span className="mt-1 block text-[11px] text-neutral-500">لمقاس واحد يُحفظ كما هو؛ لعدة مقاسات تضاف لاحقة مثل -01 لكل مقاس. اتركه فارغاً لتوليد رموز فريدة تلقائياً.</span>
-              </label>
+              <div>
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <label htmlFor="product-description" className="text-xs text-neutral-400">وصف المنتج</label>
+                  <VoiceInput value={form.description} onChange={text => setForm(prev => ({ ...prev, description: text }))} disabled={saving} />
+                </div>
+                <textarea id="product-description" value={form.description} disabled={saving} maxLength={4000}
+                  onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))} rows={3}
+                  placeholder="اكتب تفاصيل المنتج أو أمْلِها بالصوت…"
+                  className="w-full resize-y rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold" />
+              </div>
+              <div>
+                <label htmlFor="product-barcode" className="mb-2 block text-xs text-neutral-400">الباركود · يُولّد تلقائياً</label>
+                <div className="flex gap-2">
+                  <input id="product-barcode" dir="ltr" maxLength={48} value={form.barcode} disabled={saving || generating}
+                    placeholder={generating ? 'جاري التوليد…' : 'الباركود'}
+                    onChange={e => setForm(prev => ({ ...prev, barcode: e.target.value }))}
+                    className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm outline-none focus:border-gold disabled:opacity-50" />
+                  <button type="button" disabled={saving || generating} onClick={() => setScanning(true)} title="مسح الباركود بالكاميرا" aria-label="مسح الباركود بالكاميرا"
+                    className="rounded-lg border border-gold/30 bg-gold/10 px-3 text-gold disabled:opacity-50">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 8v8M10 8v8M14 8v8M17 8v8" /></svg>
+                  </button>
+                </div>
+                <div className="mt-2 flex items-start justify-between gap-3">
+                  <p className="text-[11px] text-neutral-500">رمز رقمي فريد من 12 خانة افتراضياً. يُحفظ الرمز الظاهر لأول مقاس، وتُولّد رموز مستقلة لباقي المقاسات.</p>
+                  <button type="button" disabled={saving || generating} onClick={regenerateBarcode} className="shrink-0 text-xs text-gold disabled:opacity-50">توليد جديد</button>
+                </div>
+              </div>
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">نوع المقاس</span>
                 <select value={sizeType} disabled={saving} onChange={e => changeSizeType(e.target.value)}
@@ -410,7 +463,7 @@ export default function ProductsPage() {
 
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || generating}
               className="mt-4 w-full rounded-lg bg-gold py-2.5 text-sm font-medium text-[#121212] disabled:opacity-60"
             >
               {saving ? 'جاري الحفظ...' : 'حفظ المنتج'}
@@ -418,6 +471,10 @@ export default function ProductsPage() {
           </form>
         </div>
       )}
+      {scanning && <BarcodeScanner confirmLabel="استخدام الباركود" onClose={() => setScanning(false)} onScan={code => {
+        if (!/^[\x21-\x7E]{1,48}$/.test(code)) throw new Error('الباركود غير صالح لهذا الحقل')
+        setForm(prev => ({ ...prev, barcode: code }))
+      }} />}
     </DashboardShell>
   )
 }
