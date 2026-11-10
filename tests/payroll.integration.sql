@@ -1,0 +1,54 @@
+-- Admin-only, rollback-only integration checks. Never leaves test staff or payments.
+BEGIN;
+CREATE TEMP TABLE payroll_rls_before AS SELECT oid,relrowsecurity FROM pg_class WHERE relnamespace='public'::regnamespace AND relkind='r';
+DO $$
+DECLARE u public.users; branch uuid; other_branch uuid; employee uuid; s uuid; req uuid:=gen_random_uuid(); advance uuid; pay uuid; report jsonb; caught boolean; opening integer:=10000;
+BEGIN
+ SELECT * INTO u FROM public.users WHERE role='owner' AND auth_id IS NOT NULL AND coalesce(is_active,true) LIMIT 1;
+ IF u.id IS NULL THEN RAISE EXCEPTION 'Owner fixture missing'; END IF;
+ PERFORM set_config('request.jwt.claim.sub',u.auth_id::text,true);
+ UPDATE public.tenants SET is_active=false,subscription_end_date=now()-interval '1 day' WHERE id=u.tenant_id;
+ PERFORM public.engine_activate('VETRINA-LIFETIME');
+ IF NOT EXISTS(SELECT 1 FROM public.tenants WHERE id=u.tenant_id AND is_active=true AND subscription_end_date IS NULL) THEN RAISE EXCEPTION 'Lifetime activation failed'; END IF;
+ branch:=public.engine_add_store('__payroll_test__',''); other_branch:=public.engine_add_store('__payroll_other__','');
+ INSERT INTO public.users(tenant_id,store_id,username,role) VALUES(u.tenant_id,branch,'__payroll_'||gen_random_uuid()::text,'employee') RETURNING id INTO employee;
+ IF jsonb_array_length(public.engine_employees(branch))<>1 OR jsonb_array_length(public.engine_employees(other_branch))<>0 THEN RAISE EXCEPTION 'Employee scope failed'; END IF;
+ caught:=false;
+ BEGIN PERFORM public.engine_employee_payment(employee,'advance',200,'test',req); EXCEPTION WHEN OTHERS THEN caught:=true; END;
+ IF NOT caught THEN RAISE EXCEPTION 'Closed cash accepted'; END IF;
+ INSERT INTO public.shifts(store_id,user_id,expected_cash,actual_cash,status,closed_at) VALUES(branch,u.id,opening,opening,'open',null) RETURNING id INTO s;
+ advance:=public.engine_employee_payment(employee,'advance',200,'test',req);
+ IF advance IS DISTINCT FROM public.engine_employee_payment(employee,'advance',200,'test',req) THEN RAISE EXCEPTION 'Retry failed'; END IF;
+ pay:=public.engine_employee_payment(employee,'payroll',300,'2026-11',gen_random_uuid());
+ IF (SELECT total_employee_payments FROM public.shifts WHERE id=s)<>500 THEN RAISE EXCEPTION 'Cash deduction failed'; END IF;
+ caught:=false;
+ BEGIN PERFORM public.engine_employee_payment(employee,'advance',201,'test',req); EXCEPTION WHEN OTHERS THEN caught:=true; END;
+ IF NOT caught THEN RAISE EXCEPTION 'Changed retry accepted'; END IF;
+ caught:=false;
+ BEGIN PERFORM public.engine_employee_payment(employee,'advance',20000,'test',gen_random_uuid()); EXCEPTION WHEN OTHERS THEN caught:=true; END;
+ IF NOT caught OR (SELECT total_employee_payments FROM public.shifts WHERE id=s)<>500 THEN RAISE EXCEPTION 'Insufficient cash rollback failed'; END IF;
+ INSERT INTO public.sales(store_id,user_id,total_amount,payment_method,created_at) VALUES(branch,u.id,1000,'cash',now());
+ INSERT INTO public.expenses(store_id,amount,description) VALUES(branch,100,'test');
+ INSERT INTO public.supplier_payments(store_id,tenant_id,amount,paid_by) VALUES(branch,u.tenant_id,50,u.id);
+ report:=public.engine_accounting(branch,now()-interval '1 day',now()+interval '1 day');
+ IF (report->>'sales')::bigint<>1000 OR (report->>'expenses')::bigint<>100 OR (report->>'salaries')::bigint<>300 OR (report->>'advances')::bigint<>200 OR (report->>'netProfit')::bigint<>400 OR (report->>'supplierPayments')::bigint<>50 THEN RAISE EXCEPTION 'Accounting failed: %',report; END IF;
+ IF (public.engine_accounting(other_branch,null,now()+interval '1 day')->>'sales')::bigint<>0 THEN RAISE EXCEPTION 'Other branch leakage'; END IF;
+ caught:=false;
+ BEGIN PERFORM public.engine_close_shift(s,10500,11000,-500,'test'); EXCEPTION WHEN OTHERS THEN caught:=true; END;
+ IF NOT caught THEN RAISE EXCEPTION 'Stale cash close accepted'; END IF;
+ -- Same-transaction now() is the exact sale timestamp; upper bound excludes it.
+ PERFORM public.engine_close_shift(s,9500,9500,0,null);
+ IF NOT EXISTS(SELECT 1 FROM public.shifts WHERE id=s AND status='closed' AND expected_cash=9500 AND difference=0) THEN RAISE EXCEPTION 'Close failed'; END IF;
+ UPDATE public.users SET role='manager',store_id=branch WHERE id=u.id;
+ caught:=false;
+ BEGIN PERFORM public.engine_accounting(branch,null,now()+interval '1 day'); EXCEPTION WHEN OTHERS THEN caught:=true; END;
+ IF NOT caught THEN RAISE EXCEPTION 'Manager accounting accepted'; END IF;
+ caught:=false;
+ BEGIN PERFORM public.engine_employee_payment(employee,'advance',10,'denied',gen_random_uuid()); EXCEPTION WHEN OTHERS THEN caught:=true; END;
+ IF NOT caught THEN RAISE EXCEPTION 'Manager payroll accepted'; END IF;
+ caught:=false;
+ BEGIN PERFORM public.engine_employees(null); EXCEPTION WHEN OTHERS THEN caught:=true; END;
+ IF NOT caught THEN RAISE EXCEPTION 'Manager employee list accepted'; END IF;
+ IF EXISTS(SELECT 1 FROM payroll_rls_before b JOIN pg_class c ON c.oid=b.oid WHERE c.relrowsecurity<>b.relrowsecurity) THEN RAISE EXCEPTION 'RLS changed'; END IF;
+END $$;
+ROLLBACK;
