@@ -16,8 +16,8 @@ test('licensing parses positive bounded branch limits, rejects wrong modes and m
   assert.equal(canAddBranch('1', 2), false)
 })
 test('HR details require nonblank names, enum salary type and whole nonnegative DZD', () => {
-  const form = { firstName: 'أحمد', lastName: 'علي', salaryType: 'fixed', salaryAmount: '30000' }
-  for (const salaryType of ['fixed', 'commission', 'daily']) assert.doesNotThrow(() => validateHr({ ...form, salaryType }))
+  const form = { firstName: 'أحمد', lastName: 'علي', salaryType: 'fixed', salaryAmount: '30000', commissionPercentage: '5' }
+  for (const salaryType of ['fixed', 'commission', 'fixed_commission', 'daily']) assert.doesNotThrow(() => validateHr({ ...form, salaryType }))
   for (const patch of [{ salaryAmount: null }, { firstName: ' ' }, { lastName: '' }, { firstName: 'a'.repeat(101) }, { salaryType: 'bad' }, { salaryAmount: '' }, { salaryAmount: '-1' }, { salaryAmount: '1.5' }, { salaryAmount: '2147483648' }]) assert.throws(() => validateHr({ ...form, ...patch }))
 })
 test('receipts are optional, restricted to safe formats and capped at 5MB', () => {
