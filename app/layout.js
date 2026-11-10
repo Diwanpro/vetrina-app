@@ -34,7 +34,7 @@ export default function RootLayout({ children }) {
     <html lang="ar" dir="rtl" className={tajawal.variable}>
       <head>
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/icon.svg" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
       <body className="font-tajawal bg-surface min-h-screen antialiased">
         {children}

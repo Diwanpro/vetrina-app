@@ -1,10 +1,15 @@
+'use client'
+
+import { useDashboardSession } from './SessionProvider'
+import { routeAllowed } from '@/lib/access'
 import { NAV_ITEMS } from './navItems'
 
 export default function BottomNav({ active = '/dashboard' }) {
+  const ctx = useDashboardSession()
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/5 bg-[#161616]/95 backdrop-blur">
       <div className="flex overflow-x-auto">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter(item => ctx && routeAllowed(ctx.role, item.href)).map((item) => {
           const Icon = item.icon
           const isActive = item.href === active
           return (

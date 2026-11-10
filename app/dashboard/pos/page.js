@@ -1,6 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { isNetworkError } from '@/lib/access'
+import { cacheCatalog, cachedCatalog, syncPending } from '@/lib/sync'
+import { persistLocalSale, localRows } from '@/lib/local-db'
 import { logAction } from '@/lib/audit'
 import { meetsFloor, validMoney, FLOOR_PRICE_MESSAGE } from '@/lib/cash'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
@@ -22,6 +25,7 @@ function firstImage(product) {
 
 export default function PosPage() {
   const [products, setProducts] = useState([])
+  const saleSaving = useRef(false)
   const [scanning, setScanning] = useState(false)
   const [loading, setLoading] = useState(true)
   const [ctx, setCtx] = useState({ tenantId: null, storeId: null, user: null })
@@ -47,12 +51,19 @@ export default function PosPage() {
       const context = await getAppContext()
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
+      if (!navigator.onLine || context.offline) { setProducts(await cachedCatalog(context)); return }
+      await syncPending().catch(() => {})
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, base_price, images, image_url, product_variants(id, color, size, min_price, barcode, inventory(quantity, store_id))')
-        .eq('tenant_id', context.tenantId).eq('is_active', true)
+        .select('id, name, base_price, images, image_url, product_variants!inner(id, color, size, min_price, barcode, inventory!inner(quantity, store_id))')
+        .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).eq('is_active', true)
         .order('created_at', { ascending: false }).order('id'))
-      setProducts(rows)
-    } catch (err) { setError(err.message) }
+      setProducts(await cacheCatalog(context, rows))
+    } catch (err) {
+      if (isNetworkError(err)) {
+        try { const context = await getAppContext(); setProducts(await cachedCatalog(context)); setError('تعذر الوصول للخادم؛ تستخدم الكتالوج المحلي المحفوظ.') }
+        catch (cacheError) { setError(cacheError.message) }
+      } else setError(err.message)
+    }
     finally { setLoading(false) }
   }
 
@@ -107,20 +118,12 @@ export default function PosPage() {
   async function scanBarcode(code) {
     const context = await getAppContext()
     if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
-    const query = () => supabase.from('product_variants')
-      .select('id, color, size, min_price, barcode, inventory(quantity, store_id), products!inner(id, name, base_price, tenant_id, is_active)')
-      .eq('products.tenant_id', context.tenantId).eq('products.is_active', true)
-    let result = await query().eq('barcode', code).maybeSingle()
-    // Legacy printed labels encode variant UUID when no barcode was assigned.
-    if (!result.error && !result.data && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(code)) {
-      result = await query().eq('id', code).maybeSingle()
-    }
-    if (result.error) throw result.error
-    if (!result.data) throw new Error('لم يتم العثور على باركود مطابق في هذه المؤسسة')
-    const variant = result.data
+    const product = products.find(product => product.product_variants?.some(variant => variant.barcode === code || variant.id === code))
+    const variant = product?.product_variants.find(variant => variant.barcode === code || variant.id === code)
+    if (!variant) throw new Error('الباركود غير موجود في كتالوج هذا الفرع. حدّث الكتالوج أثناء الاتصال.')
     const qty = (variant.inventory || []).filter(row => row.store_id === context.storeId)
       .reduce((sum, row) => sum + Number(row.quantity || 0), 0)
-    addVariant(variant.products, variant, qty)
+    addVariant(product, variant, qty)
     setDone('تمت إضافة المقاس إلى السلة'); setError('')
     setTimeout(() => setDone(''), 2500)
   }
@@ -140,8 +143,13 @@ export default function PosPage() {
     }
     setPriceBusy(true)
     try {
-      const { data, error } = await supabase.from('product_variants').select('min_price').eq('id', editing.variantId).single()
-      if (error) throw error
+      let data = { min_price: editing.minPrice }
+      if (navigator.onLine && !ctx.offline) {
+        const result = await supabase.from('product_variants').select('min_price, products!inner(tenant_id), inventory!inner(store_id)')
+          .eq('id', editing.variantId).eq('products.tenant_id', ctx.tenantId).eq('inventory.store_id', ctx.storeId).single()
+        if (result.error) throw result.error
+        data = result.data
+      }
       if (!meetsFloor(newPrice, data.min_price)) throw new Error(FLOOR_PRICE_MESSAGE)
       if (newPrice !== editing.price) {
         await logAction('pos_price_changed', {
@@ -158,86 +166,24 @@ export default function PosPage() {
   }
 
   async function completeSale() {
-    setError('')
-    if (!cart.length || saving || priceBusy) return
-    if (!ctx.storeId) {
-      setError('لم يتم العثور على المتجر')
-      return
-    }
-    setSaving(true)
-    // Refresh floors at checkout too: another user may have changed them.
+    if (!cart.length || saleSaving.current || priceBusy) return
+    saleSaving.current = true; setSaving(true); setError('')
     try {
-      const { data: variants, error: floorError } = await supabase.from('product_variants')
-        .select('id, min_price').in('id', cart.map(item => item.variantId))
-      if (floorError) throw floorError
-      if (!variants || cart.some(item => {
-        const variant = variants.find(v => v.id === item.variantId)
-        return !variant || !meetsFloor(item.price, variant.min_price)
-      })) throw new Error(FLOOR_PRICE_MESSAGE)
-    } catch (err) {
-      setError(err.message)
-      setSaving(false)
-      return
-    }
-
-    const { data: sale, error: sErr } = await supabase
-      .from('sales')
-      .insert({
-        store_id: ctx.storeId,
-        user_id: ctx.staffId || null,
-        total_amount: totals.amount,
-        payment_method: payment,
-        status: 'completed',
-      })
-      .select('id')
-      .single()
-
-    if (sErr || !sale) {
-      setSaving(false)
-      setError(sErr?.message || 'فشل إنشاء الفاتورة')
-      return
-    }
-
-    const items = cart.map((i) => ({
-      sale_id: sale.id,
-      variant_id: i.variantId,
-      quantity: i.qty,
-      original_price: i.originalPrice,
-      final_price: i.price,
-      unit_price: i.price,
-      subtotal: i.price * i.qty,
-    }))
-
-    const { error: iErr } = await supabase.from('sale_items').insert(items)
-    if (iErr) {
-      setSaving(false)
-      setError(iErr.message)
-      return
-    }
-
-    for (const item of cart) {
-      const { data: inv } = await supabase
-        .from('inventory')
-        .select('id, quantity')
-        .eq('variant_id', item.variantId)
-        .eq('store_id', ctx.storeId)
-        .maybeSingle()
-      if (inv) {
-        await supabase
-          .from('inventory')
-          .update({ quantity: Math.max(0, Number(inv.quantity) - item.qty) })
-          .eq('id', inv.id)
+      const current = await getAppContext()
+      if (current.locked || current.storeId !== ctx.storeId || current.user.id !== ctx.user.id) throw new Error('تغير الحساب أو الفرع. أعد تحميل نقطة البيع.')
+      const row = await persistLocalSale(current, cart, payment)
+      // The local transaction is durable before clearing the cart, even online.
+      setCart([]); setCheckout(false); setCashPaid(''); setCreditPaid('')
+      setDone('تم حفظ الفاتورة محلياً؛ بانتظار المزامنة')
+      if (navigator.onLine) {
+        await syncPending().catch(() => {})
+        const saved = (await localRows()).find(value => value.local_id === row.local_id)
+        setDone(saved?.status === 'synced' ? 'تم البيع والمزامنة بنجاح' : 'الفاتورة محفوظة محلياً؛ راجع حالة المزامنة في الإعدادات')
       }
-    }
-
-    setSaving(false)
-    setCart([])
-    setCheckout(false)
-    setCashPaid('')
-    setCreditPaid('')
-    setDone('تمت عملية البيع بنجاح')
-    loadProducts()
-    setTimeout(() => setDone(''), 2500)
+      await loadProducts()
+      setTimeout(() => setDone(''), 5000)
+    } catch (err) { setError(err.message || 'تعذر حفظ الفاتورة؛ السلة لم تُمسح') }
+    finally { saleSaving.current = false; setSaving(false) }
   }
 
   return (
@@ -377,9 +323,14 @@ export default function PosPage() {
             <ul className="mb-3 max-h-60 overflow-y-auto space-y-2 text-xs text-neutral-300">
               {cart.map((i) => (
                 <li key={i.variantId} className="flex justify-between">
-                  <span>
-                    {i.name} · {i.color}/{i.size} × {i.qty}
-                  </span>
+                  <div>
+                    <span>{i.name} · {i.color}/{i.size} × {i.qty}</span>
+                    <div className="mt-2 flex items-center gap-3">
+                      <button type="button" aria-label={`إنقاص كمية ${i.name}`} disabled={saving || i.qty <= 1} onClick={() => setCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">−</button>
+                      <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving || i.qty >= i.max} onClick={() => setCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">+</button>
+                      <button type="button" disabled={saving} onClick={() => { setCart(prev => prev.filter(item => item.variantId !== i.variantId)); if (cart.length === 1) setCheckout(false) }} className="text-red-300">حذف</button>
+                    </div>
+                  </div>
                   <div className="text-left">
                     <span className="block text-gold">{formatDzd(i.price * i.qty)}</span>
                     <button type="button" disabled={saving || priceBusy} className="mt-1 text-gold underline disabled:opacity-50"
