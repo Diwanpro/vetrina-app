@@ -15,6 +15,11 @@ export const metadata = {
   title: 'Vetrina | Attia Web Solution',
   description: 'نظام إدارة متجر الملابس - Vetrina',
   manifest: '/manifest.json',
+  icons: {
+    icon: [{ url: '/logo.png', type: 'image/png' }],
+    shortcut: ['/logo.png'],
+    apple: [{ url: '/logo.png', type: 'image/png' }],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -33,8 +38,8 @@ export default function RootLayout({ children }) {
   return (
     <html lang="ar" dir="rtl" className={tajawal.variable}>
       <head>
-        <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <link rel="icon" href="/logo.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/logo.png" />
       </head>
       <body className="font-tajawal bg-surface min-h-screen antialiased">
         {children}
