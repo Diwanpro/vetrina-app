@@ -9,7 +9,7 @@ BEGIN
   SELECT * INTO u FROM public.users WHERE role='owner' AND auth_id IS NOT NULL AND coalesce(is_active,true) LIMIT 1;
   IF u.id IS NULL THEN RAISE EXCEPTION 'No owner fixture'; END IF;
   PERFORM set_config('request.jwt.claim.sub',u.auth_id::text,true);
-  UPDATE public.tenants SET is_active=true WHERE id=u.tenant_id;
+  UPDATE public.tenants SET is_active=true,branches_limit=2147483647 WHERE id=u.tenant_id;
   a:=public.engine_add_store('__phase3_A__',''); b:=public.engine_add_store('__phase3_B__','');
   session:=public.engine_session();
   IF NOT EXISTS(SELECT 1 FROM jsonb_array_elements(session->'stores') AS s WHERE s->>'id'=b::text) THEN RAISE EXCEPTION 'Owner branch listing failed'; END IF;
@@ -46,7 +46,7 @@ BEGIN
   IF NOT caught THEN RAISE EXCEPTION 'Manager cross-branch financial read accepted'; END IF;
   UPDATE public.users SET role='employee' WHERE id=u.id;
   caught:=false;
-  BEGIN PERFORM public.engine_activate('VETRINA-LIFETIME'); EXCEPTION WHEN OTHERS THEN caught:=true; END;
+  BEGIN PERFORM public.engine_activate('VTR-2147483647-test'); EXCEPTION WHEN OTHERS THEN caught:=true; END;
   IF NOT caught THEN RAISE EXCEPTION 'Employee activation accepted'; END IF;
   UPDATE public.users SET role='owner' WHERE id=u.id;
   UPDATE public.tenants SET is_active=false,subscription_end_date=now()-interval '1 day' WHERE id=u.tenant_id;
@@ -56,7 +56,7 @@ BEGIN
   caught:=false;
   BEGIN PERFORM public.engine_activate('invalid'); EXCEPTION WHEN OTHERS THEN caught:=true; END;
   IF NOT caught THEN RAISE EXCEPTION 'Invalid key accepted'; END IF;
-  PERFORM public.engine_activate('VETRINA-LIFETIME');
+  PERFORM public.engine_activate('VTR-2147483647-test');
   IF NOT (SELECT is_active FROM public.tenants WHERE id=u.tenant_id) THEN RAISE EXCEPTION 'Activation failed'; END IF;
   IF EXISTS(SELECT 1 FROM phase3_rls_before old JOIN pg_class current ON current.oid=old.oid WHERE current.relrowsecurity IS DISTINCT FROM old.relrowsecurity) THEN RAISE EXCEPTION 'RLS flags changed'; END IF;
 END $$;

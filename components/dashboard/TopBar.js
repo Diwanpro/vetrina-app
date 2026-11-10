@@ -5,6 +5,7 @@ import { useDashboardSession } from './SessionProvider'
 import { changeBranch } from '@/lib/app-context'
 import { pendingRows } from '@/lib/local-db'
 import { syncPending } from '@/lib/sync'
+import ExpenseButton from './ExpenseButton'
 import ShiftManager from './ShiftManager'
 
 export default function TopBar() {
@@ -34,6 +35,7 @@ export default function TopBar() {
       }} className="max-w-48 rounded-lg border border-gold/20 bg-[#1c1c1c] px-2 py-2 text-xs text-gold"><option value="all">كل الفروع</option>{!ctx.stores.length && <option value="">لا توجد فروع</option>}{ctx.stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
         : <span className="text-xs text-neutral-400">{ctx.stores.find(store => store.id === ctx.storeId)?.name}</span>}
       {pending.length > 0 && <button disabled={!online || syncing} onClick={async () => { setSyncing(true); setError(''); try { await syncPending() } catch (err) { setError(err.message) } finally { setSyncing(false) } }} className="rounded-lg border border-gold/20 px-2 py-2 text-xs text-gold disabled:opacity-40">{syncing ? 'جاري المزامنة...' : 'مزامنة الآن'}</button>}
+      <ExpenseButton />
       {ctx.storeId && online && pending.length === 0 && <ShiftManager />}
     </div>
     {(error || pending.some(row => row.status === 'error')) && <p role="alert" className="px-4 pb-2 text-xs text-red-300">{error || 'توجد فواتير تحتاج مراجعة؛ افتح الإعدادات للاطلاع على سبب تعذر المزامنة.'}</p>}
