@@ -11,3 +11,6 @@ Gateway JWT verification is disabled intentionally to support current Supabase k
 
 ## HR contract (commercial pass)
 POST now requires `firstName`, `lastName`, `salaryType` (`fixed`, `commission`, `daily`) and `salaryAmount` (integer, 0–2147483647 DZD), plus username/PIN/role/storeId. Server validates all fields before Auth creation. Registration uses `engine_register_employee_hr`; bare registration execute permission was revoked from authenticated clients. Salary amount is contractual DZD (including commission), not a percentage or an automatic payroll calculation.
+
+## Percentage payroll update
+Salary types are now `fixed`, `commission`, `fixed_commission`, `daily`. `commissionPercentage` is a numeric 0–100 with at most two decimal places (default 0 for backward-compatible callers). Commission-only contracts persist zero salary amount; fixed/daily contracts persist zero commission percentage. The old statement that commission amount is DZD is superseded: new commission is a percentage, with `salaryAmount` used only for fixed/base/daily rates. The authorized migration adds the percentage column; no historic rate is guessed.
