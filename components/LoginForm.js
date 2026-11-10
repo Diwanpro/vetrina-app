@@ -54,7 +54,6 @@ export default function LoginForm() {
       try {
         const device = await describeDevice()
         await registerDeviceSession(supabase, {
-          userId: authData?.user?.id,
           fingerprint: device.fingerprint,
           deviceName: device.name,
         })

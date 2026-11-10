@@ -99,3 +99,56 @@ test('validates inputs and sorts newest-first for display', () => {
   assert.deepEqual(sortSessions([row('1', 'A', true, '2026-01-01T00:00:00Z'), row('2', 'B', true, '2026-05-01T00:00:00Z')]).map(r => r.id), ['2', '1'])
   assert.deepEqual(sortSessions(null), [])
 })
+
+// ---------------------------------------------------------------- RPC layer
+// The client must never write user_sessions directly: the cap is enforced in
+// SQL and the table is read-only for authenticated clients. These tests assert
+// the wrappers go through the RPCs and never touch .insert/.update/.upsert.
+function fakeSupabase(handler, calls = []) {
+  return {
+    calls,
+    from(table) {
+      calls.push({ kind: 'from', table })
+      return {
+        select: () => ({ eq: async () => ({ data: [], error: null }) }),
+        update: () => { calls.push({ kind: 'update', table }); throw new Error('direct update attempted') },
+        upsert: () => { calls.push({ kind: 'upsert', table }); throw new Error('direct upsert attempted') },
+        insert: () => { calls.push({ kind: 'insert', table }); throw new Error('direct insert attempted') },
+      }
+    },
+    async rpc(name, args) { calls.push({ kind: 'rpc', name, args }); return handler(name, args) },
+  }
+}
+const { registerDeviceSession, deactivateSession, deactivateCurrentDevice, touchDeviceSession } = sessions
+
+test('registerDeviceSession goes through engine_session_register only', async () => {
+  const calls = []
+  const sb = fakeSupabase(() => ({ data: { ok: true, action: 'evict', session: { id: 's1' }, evicted: { id: 's0' } }, error: null }), calls)
+  const out = await registerDeviceSession(sb, { fingerprint: 'a'.repeat(64), deviceName: 'Chrome on Android' })
+  assert.equal(out.action, 'evict')
+  assert.deepEqual(out.evicted, { id: 's0' })
+  assert.deepEqual(calls.map(c => c.kind), ['rpc'])
+  assert.equal(calls[0].name, 'engine_session_register')
+  assert.deepEqual(calls[0].args, { p_fingerprint: 'a'.repeat(64), p_device_name: 'Chrome on Android' })
+})
+
+test('registerDeviceSession surfaces server errors and rejects a missing fingerprint', async () => {
+  await assert.rejects(() => registerDeviceSession(fakeSupabase(() => ({ data: null, error: null })), { fingerprint: '' }), /بصمة/)
+  await assert.rejects(
+    () => registerDeviceSession(fakeSupabase(() => ({ data: null, error: { message: 'denied' } })), { fingerprint: 'x'.repeat(20) }),
+    /denied/)
+  await assert.rejects(
+    () => registerDeviceSession(fakeSupabase(() => ({ data: { ok: false, error: 'يرجى تسجيل الدخول' }, error: null })), { fingerprint: 'x'.repeat(20) }),
+    /تسجيل الدخول/)
+})
+
+test('deactivate and touch helpers use the RPCs, never a direct write', async () => {
+  const calls = []
+  const sb = fakeSupabase(name => ({ data: true, error: null }), calls)
+  assert.equal(await deactivateSession(sb, { sessionId: 's1' }), true)
+  assert.equal(await deactivateCurrentDevice(sb, { fingerprint: 'f'.repeat(64) }), true)
+  assert.equal(await touchDeviceSession(sb, { fingerprint: 'f'.repeat(64) }), true)
+  assert.deepEqual(calls.map(c => c.name), ['engine_session_revoke', 'engine_session_signout', 'engine_session_touch'])
+  assert.ok(calls.every(c => c.kind === 'rpc'), 'no direct table writes')
+  await assert.rejects(() => deactivateSession(sb, {}), /جلسة/)
+})

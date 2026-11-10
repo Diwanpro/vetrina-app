@@ -94,12 +94,12 @@ export default function SettingsPage() {
           </div>
           <button disabled={busy} onClick={() => run(async () => {
             setSessionNotice('')
-            await deactivateSession(supabase, { userId: ctx.user.id, sessionId: row.id })
+            await deactivateSession(supabase, { sessionId: row.id })
             if (current) {
               // This device just ended its own session: drop the local session too.
               try {
                 const device = await describeDevice()
-                await deactivateCurrentDevice(supabase, { userId: ctx.user.id, fingerprint: device.fingerprint })
+                await deactivateCurrentDevice(supabase, { fingerprint: device.fingerprint })
               } catch { /* ignore */ }
               await supabase.auth.signOut({ scope: 'local' })
               localStorage.removeItem('vetrina.auth'); location.assign('/login'); return
@@ -122,7 +122,7 @@ export default function SettingsPage() {
       // otherwise the row would stay active and occupy one of the two places.
       try {
         const device = await describeDevice()
-        await deactivateCurrentDevice(supabase, { userId: ctx.user.id, fingerprint: device.fingerprint })
+        await deactivateCurrentDevice(supabase, { fingerprint: device.fingerprint })
       } catch { /* logout must still proceed if bookkeeping fails */ }
       const { error } = await supabase.auth.signOut({ scope: 'local' }); if (error) throw error
       localStorage.removeItem('vetrina.auth'); location.assign('/login')

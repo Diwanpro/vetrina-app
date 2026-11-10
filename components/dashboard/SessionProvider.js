@@ -42,7 +42,7 @@ export default function SessionProvider({ children }) {
     let live = true
     if (!ctx || ctx.offline || !ctx.user?.id) return
     describeDevice()
-      .then(device => { if (live) return registerDeviceSession(supabase, { userId: ctx.user.id, fingerprint: device.fingerprint, deviceName: device.name }) })
+      .then(device => { if (live) return registerDeviceSession(supabase, { fingerprint: device.fingerprint, deviceName: device.name }) })
       .catch(() => { /* bookkeeping only; never surface as a blocker */ })
     return () => { live = false }
   }, [ctx?.user.id, ctx?.offline])
