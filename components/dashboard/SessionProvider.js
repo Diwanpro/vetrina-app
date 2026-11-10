@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation'
 import { getAppContext } from '@/lib/app-context'
 import { routeAllowed } from '@/lib/access'
 import { syncPending } from '@/lib/sync'
+import { describeDevice } from '@/lib/device'
+import { registerDeviceSession } from '@/lib/sessions'
 import { supabase } from '@/lib/supabase'
 import ActivationForm from './ActivationForm'
 
@@ -33,6 +35,18 @@ export default function SessionProvider({ children }) {
     }
     return () => { live = false; clearInterval(timer); window.removeEventListener('online', refresh); window.removeEventListener('focus', refresh); window.removeEventListener('vetrina:auth', refresh) }
   }, [])
+  // App initialisation: register/refresh this device once per signed-in user.
+  // Offline starts are skipped — the registry is server state and must not
+  // block an offline owner from working.
+  useEffect(() => {
+    let live = true
+    if (!ctx || ctx.offline || !ctx.user?.id) return
+    describeDevice()
+      .then(device => { if (live) return registerDeviceSession(supabase, { userId: ctx.user.id, fingerprint: device.fingerprint, deviceName: device.name }) })
+      .catch(() => { /* bookkeeping only; never surface as a blocker */ })
+    return () => { live = false }
+  }, [ctx?.user.id, ctx?.offline])
+
   useEffect(() => {
     if (!ctx || ctx.locked) return
     const sync = () => syncPending().catch(() => {})
