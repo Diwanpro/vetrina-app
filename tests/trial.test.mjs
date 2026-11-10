@@ -5,19 +5,39 @@ import fs from 'node:fs/promises'
 const load = async path =>
   import(`data:text/javascript;base64,${Buffer.from(await fs.readFile(new URL(path, import.meta.url), 'utf8')).toString('base64')}`)
 
-const { trialExpired, trialDaysLeft, subscriptionLocked, TRIAL_DAYS } = await load('../lib/access.js')
+const { trialExpired, trialDaysLeft, trialEndsAt, subscriptionLocked, TRIAL_DAYS, TRIAL_TIME_ZONE } = await load('../lib/access.js')
 const { normalizePhone, phoneToEmail, validateSignup, whatsappLink, WHATSAPP_NUMBER } = await load('../lib/trial.js')
 
 const DAY = 86400000
-const now = new Date('2026-11-10T12:00:00Z')
+const now = new Date('2026-11-10T13:30:00Z') // 14:30 in Algiers
 const daysAgo = d => new Date(now.getTime() - d * DAY).toISOString()
+// Algeria is UTC+1 all year, so local midnight is 23:00Z the day before.
+const algiersMidnight = iso => new Date(iso).toISOString()
 
-test('trial window is 7 days and locks strictly after day 7', () => {
+test('the trial ends at local midnight after its 7th calendar day', () => {
   assert.equal(TRIAL_DAYS, 7)
+  assert.equal(TRIAL_TIME_ZONE, 'Africa/Algiers')
+  // Signing up on Nov 10 makes Nov 10 day 1; the last usable day is Nov 16.
+  assert.equal(trialEndsAt({ trial_start_date: '2026-11-10T13:30:00Z' }).toISOString(), '2026-11-16T23:00:00.000Z')
+})
+
+test('any signup time on the same day gets the same expiry', () => {
+  const early = trialEndsAt({ trial_start_date: '2026-11-09T23:01:00Z' }) // 00:01 Nov 10 Algiers
+  const late = trialEndsAt({ trial_start_date: '2026-11-10T22:59:00Z' }) // 23:59 Nov 10 Algiers
+  assert.equal(early.toISOString(), late.toISOString())
+  assert.equal(early.toISOString(), '2026-11-16T23:00:00.000Z')
+})
+
+test('open until the last second of day 7, closed from midnight', () => {
+  const tenant = { is_active: false, trial_start_date: '2026-11-10T13:30:00Z' }
+  assert.equal(trialExpired(tenant, new Date('2026-11-16T22:59:59Z')), false)
+  assert.equal(trialExpired(tenant, new Date('2026-11-16T23:00:00Z')), true)
+  assert.equal(trialExpired(tenant, new Date('2026-11-17T08:00:00Z')), true)
+})
+
+test('a trial years in the future is not expired, and the window is exactly 7 days', () => {
   assert.equal(trialExpired({ is_active: false, trial_start_date: daysAgo(0) }, now), false)
-  assert.equal(trialExpired({ is_active: false, trial_start_date: daysAgo(6.9) }, now), false)
-  assert.equal(trialExpired({ is_active: false, trial_start_date: daysAgo(7) }, now), false)
-  assert.equal(trialExpired({ is_active: false, trial_start_date: daysAgo(7.01) }, now), true)
+  assert.equal(trialExpired({ is_active: false, trial_start_date: '2026-01-01T10:00:00Z' }, now), true)
 })
 
 test('activated tenants never lock, even with an old trial date', () => {
@@ -50,6 +70,7 @@ test('days left counts down and never goes negative', () => {
   assert.equal(trialDaysLeft({ is_active: false, trial_start_date: daysAgo(0) }, now), 7)
   assert.equal(trialDaysLeft({ is_active: false, trial_start_date: daysAgo(1) }, now), 6)
   assert.equal(trialDaysLeft({ is_active: false, trial_start_date: daysAgo(6) }, now), 1)
+  assert.equal(trialDaysLeft({ is_active: false, trial_start_date: daysAgo(7) }, now), 0)
   assert.equal(trialDaysLeft({ is_active: false, trial_start_date: daysAgo(40) }, now), 0)
 })
 

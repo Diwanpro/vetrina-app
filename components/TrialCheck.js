@@ -1,6 +1,6 @@
 'use client'
 
-import { trialDaysLeft, trialExpired } from '@/lib/access'
+import { trialDaysLeft, trialExpired, trialEndsAt } from '@/lib/access'
 import { whatsappLink, WHATSAPP_NUMBER } from '@/lib/trial'
 import ActivationForm from '@/components/dashboard/ActivationForm'
 
@@ -10,6 +10,7 @@ import ActivationForm from '@/components/dashboard/ActivationForm'
 export default function TrialCheck({ tenant, role, onActivated }) {
   const expired = trialExpired(tenant)
   const daysLeft = trialDaysLeft(tenant)
+  const endsAt = trialEndsAt(tenant)
 
   // Activated tenants and unexpired trials pass straight through.
   if (!expired) return null
@@ -31,6 +32,7 @@ export default function TrialCheck({ tenant, role, onActivated }) {
           <p className="flex justify-between gap-3"><span>المحل</span><span className="text-neutral-200">{tenant?.name || '—'}</span></p>
           <p className="flex justify-between gap-3"><span>بداية التجربة</span><span className="text-neutral-200">{tenant?.trial_start_date ? new Date(tenant.trial_start_date).toLocaleDateString('ar-DZ') : '—'}</span></p>
           <p className="flex justify-between gap-3"><span>المدة</span><span className="text-neutral-200">7 أيام</span></p>
+          <p className="flex justify-between gap-3"><span>انتهت في</span><span className="text-red-300">{endsAt ? endsAt.toLocaleDateString('ar-DZ', { timeZone: 'Africa/Algiers' }) : '—'}</span></p>
           <p className="flex justify-between gap-3"><span>المتبقي</span><span className="text-red-300">{daysLeft === null ? '—' : `${daysLeft} يوم`}</span></p>
         </div>
 
