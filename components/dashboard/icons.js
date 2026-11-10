@@ -116,3 +116,10 @@ export function IconChevron({ className = 'w-4 h-4' }) {
     </svg>
   )
 }
+
+export function IconUsers({ className = 'w-5 h-5' }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="9" cy="8" r="3" /><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 5" /></svg>
+}
+export function IconAccounting({ className = 'w-5 h-5' }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="5" y="2" width="14" height="20" rx="2" /><path d="M8 6h8M8 10h8M8 14h2M14 14h2M8 18h2M14 18h2" /></svg>
+}

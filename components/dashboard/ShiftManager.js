@@ -20,7 +20,7 @@ export default function ShiftManager() {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
   const actual = countCash(counts)
-  const expected = Number(shift?.expected_cash || 0) + cashSales
+  const expected = Number(shift?.expected_cash || 0) + cashSales - Number(shift?.total_employee_payments || 0)
   const difference = actual - expected
 
   async function context() {
@@ -57,7 +57,7 @@ export default function ShiftManager() {
     // Use the shift's actual opening time: avoids double-counting when reopening
     // and retains sales on shifts carried across midnight.
     const rows = await fetchAllRows(supabase.from('sales').select('id, total_amount')
-      .eq('store_id', storeId).eq('payment_method', 'cash')
+      .eq('store_id', storeId).eq('payment_method', 'cash').eq('status', 'completed')
       .gte('created_at', current.start_time).lt('created_at', until).order('id'))
     return rows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0)
   }
@@ -99,20 +99,22 @@ export default function ShiftManager() {
       } else {
         const end = new Date().toISOString()
         const latestSales = await salesForShift(shift, ctx.storeId, end)
-        const latestExpected = Number(shift.expected_cash) + latestSales
+        const current = await readShift(ctx.storeId)
+        if (!current || current.id !== shift.id) throw new Error('تغيرت الوردية. أعد فتح التقفيلة')
+        const latestExpected = Number(shift.expected_cash) + latestSales - Number(current.total_employee_payments || 0)
+        const paymentChanged = Number(current.total_employee_payments || 0) !== Number(shift.total_employee_payments || 0)
+        setShift(current)
         const amounts = cashReconciliation(actual, latestExpected)
         const latestDifference = amounts.difference
         setCashSales(latestSales)
         if (!Number.isSafeInteger(actual)) throw new Error('المبلغ المعدود غير صالح')
-        if (latestSales !== cashSales) throw new Error('تغيرت المبيعات أثناء العد. راجع المبلغ المتوقع وأكد التقفيلة مجدداً.')
+        if (latestSales !== cashSales || paymentChanged) throw new Error('تغيرت حركة الصندوق أثناء العد. راجع المبلغ المتوقع وأكد التقفيلة مجدداً.')
         if (latestDifference !== 0 && !notes.trim()) throw new Error('يجب توضيح سبب الفرق في الملاحظات')
-        const { data, error } = await supabase.from('shifts').update({
-          ...amounts,
-          notes: notes.trim() || null, status: 'closed', end_time: end, closed_at: end,
-          total_cash_sales: latestSales,
-        }).eq('id', shift.id).eq('store_id', ctx.storeId).eq('status', 'open').select('id').maybeSingle()
+        const { error } = await supabase.rpc('engine_close_shift', {
+          p_shift: shift.id, p_actual: amounts.actual_cash, p_expected: amounts.expected_cash,
+          p_difference: amounts.difference, p_notes: notes.trim() || null,
+        })
         if (error) throw error
-        if (!data) throw new Error('تم إغلاق الوردية مسبقاً. أعد تحميل الحالة.')
       }
       setModal(false)
       await refresh()
@@ -136,6 +138,7 @@ export default function ShiftManager() {
           <div className="mb-4 space-y-2 rounded-xl bg-black/20 p-3 text-sm">
             <p>الرصيد الافتتاحي: {formatDzd(shift.expected_cash)}</p>
             <p>المبيعات النقدية منذ فتح الوردية: {formatDzd(cashSales)}</p>
+            <p>الرواتب والسلف المدفوعة: {formatDzd(shift.total_employee_payments || 0)}</p>
             <p className="text-gold">النقد المتوقع: {formatDzd(expected)}</p>
           </div>
           <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
