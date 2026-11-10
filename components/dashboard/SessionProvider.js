@@ -3,12 +3,12 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { getAppContext } from '@/lib/app-context'
-import { routeAllowed } from '@/lib/access'
+import { routeAllowed, trialExpired } from '@/lib/access'
 import { syncPending } from '@/lib/sync'
 import { describeDevice } from '@/lib/device'
 import { registerDeviceSession } from '@/lib/sessions'
 import { supabase } from '@/lib/supabase'
-import ActivationForm from './ActivationForm'
+import TrialCheck from '@/components/TrialCheck'
 
 const SessionContext = createContext(null)
 export function useDashboardSession() { return useContext(SessionContext) }
@@ -74,7 +74,7 @@ export default function SessionProvider({ children }) {
   const needsBranch = ctx.allBranches && !['/dashboard', '/dashboard/settings', '/dashboard/transfers', '/dashboard/users', '/dashboard/accounting'].includes(path)
   return <SessionContext.Provider value={ctx}>
     {attendanceError && !ctx.locked && <p role="alert" className="border-b border-amber-700/30 bg-[#211b12] px-4 py-2 text-sm text-amber-200">{attendanceError}</p>}
-    {ctx.locked ? <main className="flex min-h-screen items-center justify-center bg-surface p-5 text-neutral-100"><section className="w-full max-w-lg rounded-2xl border border-gold/30 bg-card p-6"><p className="mb-3 text-sm text-gold">VETRINA · الاشتراك</p><h1 className="mb-3 text-xl">انتهت الفترة التجريبية</h1><p className="mb-6 text-sm text-neutral-400">الحساب مقفل. البيانات محفوظة؛ فعّل الحساب لاستئناف العمل.</p>{ctx.role === 'owner' ? <ActivationForm onActivated={() => location.reload()} /> : <p className="text-sm text-red-300">تواصل مع المالك لتفعيل الحساب.</p>}<a href="/login" className="mt-5 block text-xs text-neutral-500">العودة لتسجيل الدخول</a></section></main>
+    {ctx.locked ? <TrialCheck tenant={ctx.tenant} role={ctx.role} onActivated={() => location.reload()} />
       : blocked ? <div className="min-h-screen bg-surface p-8 text-neutral-100"><p role="alert">غير مصرح لك بالوصول إلى هذه الصفحة.</p><a href="/dashboard" className="mt-4 block text-gold">العودة للوحة التحكم</a></div>
       : needsBranch ? <div className="min-h-screen bg-surface p-8 text-neutral-100"><p>اختر فرعاً محدداً من لوحة التحكم للعمل في هذه الصفحة.</p><a href="/dashboard" className="mt-4 block text-gold">اختيار الفرع</a></div>
       : <div key={`${ctx.user.id}:${ctx.staffId}:${ctx.role}:${ctx.tenantId}:${ctx.storeId || 'all'}`}>{children}</div>}
