@@ -122,9 +122,13 @@ export default function LoginForm() {
         </div>
       )}
 
-      <p className="absolute bottom-4 left-0 right-0 text-center text-[11px] text-neutral-500">
-        للدعم: 0798726063 | attiawebsite@gmail.com
-      </p>
+      <div className="absolute bottom-4 left-0 right-0 space-y-1.5 px-4 text-center">
+        <p className="text-sm text-neutral-400">
+          ليس لديك حساب؟{' '}
+          <a href="/signup" className="text-gold underline transition hover:text-[#c4a030]">ابدأ تجربتك المجانية</a>
+        </p>
+        <p className="text-[11px] text-neutral-500">للدعم: 0798726063 | attiawebsite@gmail.com</p>
+      </div>
     </main>
   )
 }
