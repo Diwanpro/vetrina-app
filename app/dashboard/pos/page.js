@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { logAction } from '@/lib/audit'
 import { meetsFloor, validMoney, FLOOR_PRICE_MESSAGE } from '@/lib/cash'
+import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
+import { fetchAllRows } from '@/lib/cash'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
@@ -20,6 +22,7 @@ function firstImage(product) {
 
 export default function PosPage() {
   const [products, setProducts] = useState([])
+  const [scanning, setScanning] = useState(false)
   const [loading, setLoading] = useState(true)
   const [ctx, setCtx] = useState({ tenantId: null, storeId: null, user: null })
   const [selected, setSelected] = useState(null)
@@ -40,19 +43,20 @@ export default function PosPage() {
 
   async function loadProducts() {
     setLoading(true)
-    const { data } = await supabase
-      .from('products')
-      .select('id, name, base_price, images, image_url, product_variants(id, color, size, min_price, inventory(quantity, store_id))')
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-    setProducts(data || [])
-    setLoading(false)
+    try {
+      const context = await getAppContext()
+      if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
+      setCtx(context)
+      const rows = await fetchAllRows(supabase.from('products')
+        .select('id, name, base_price, images, image_url, product_variants(id, color, size, min_price, barcode, inventory(quantity, store_id))')
+        .eq('tenant_id', context.tenantId).eq('is_active', true)
+        .order('created_at', { ascending: false }).order('id'))
+      setProducts(rows)
+    } catch (err) { setError(err.message) }
+    finally { setLoading(false) }
   }
 
-  useEffect(() => {
-    getAppContext().then(setCtx)
-    loadProducts()
-  }, [])
+  useEffect(() => { loadProducts() }, [])
 
   const available = useMemo(() => {
     if (!selected) return []
@@ -60,7 +64,7 @@ export default function PosPage() {
       .map((v) => ({
         ...v,
         qty: (v.inventory || [])
-          .filter((i) => !ctx.storeId || i.store_id === ctx.storeId)
+          .filter((i) => ctx.storeId && i.store_id === ctx.storeId)
           .reduce((s, i) => s + Number(i.quantity || 0), 0),
       }))
       .filter((v) => v.qty > 0)
@@ -75,33 +79,50 @@ export default function PosPage() {
     return { count, amount }
   }, [cart])
 
-  function addToCart() {
-    const variant = available.find((v) => v.color === picked.color && v.size === picked.size)
-    if (!variant) return
-    setCart((prev) => {
-      const existing = prev.find((i) => i.variantId === variant.id)
-      if (existing) {
-        return prev.map((i) =>
-          i.variantId === variant.id ? { ...i, qty: Math.min(i.qty + 1, variant.qty) } : i
-        )
-      }
-      return [
-        ...prev,
-        {
-          variantId: variant.id,
-          name: selected.name,
-          color: variant.color,
-          size: variant.size,
-          price: Number(selected.base_price || 0),
-          originalPrice: Number(selected.base_price || 0),
-          minPrice: Number(variant.min_price || 0),
-          qty: 1,
-          max: variant.qty,
-        },
-      ]
+  function addVariant(product, variant, qty) {
+    if (qty <= 0) throw new Error('هذا المقاس غير متوفر في المتجر الحالي')
+    const existing = cart.find(item => item.variantId === variant.id)
+    if (existing && existing.qty >= qty) throw new Error('تمت إضافة كامل المخزون المتاح لهذا المقاس')
+    setCart(prev => {
+      const found = prev.find(item => item.variantId === variant.id)
+      if (found) return prev.map(item => item.variantId === variant.id
+        ? { ...item, qty: Math.min(item.qty + 1, qty), max: qty } : item)
+      return [...prev, {
+        variantId: variant.id, name: product.name, color: variant.color, size: variant.size,
+        price: Number(product.base_price || 0), originalPrice: Number(product.base_price || 0),
+        minPrice: Number(variant.min_price || 0), qty: 1, max: qty,
+      }]
     })
-    setSelected(null)
-    setPicked({ color: '', size: '' })
+  }
+
+  function addToCart() {
+    const variant = available.find(v => v.color === picked.color && v.size === picked.size)
+    if (!variant) return
+    try {
+      addVariant(selected, variant, variant.qty)
+      setSelected(null); setPicked({ color: '', size: '' }); setError('')
+    } catch (err) { setError(err.message) }
+  }
+
+  async function scanBarcode(code) {
+    const context = await getAppContext()
+    if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
+    const query = () => supabase.from('product_variants')
+      .select('id, color, size, min_price, barcode, inventory(quantity, store_id), products!inner(id, name, base_price, tenant_id, is_active)')
+      .eq('products.tenant_id', context.tenantId).eq('products.is_active', true)
+    let result = await query().eq('barcode', code).maybeSingle()
+    // Legacy printed labels encode variant UUID when no barcode was assigned.
+    if (!result.error && !result.data && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(code)) {
+      result = await query().eq('id', code).maybeSingle()
+    }
+    if (result.error) throw result.error
+    if (!result.data) throw new Error('لم يتم العثور على باركود مطابق في هذه المؤسسة')
+    const variant = result.data
+    const qty = (variant.inventory || []).filter(row => row.store_id === context.storeId)
+      .reduce((sum, row) => sum + Number(row.quantity || 0), 0)
+    addVariant(variant.products, variant, qty)
+    setDone('تمت إضافة المقاس إلى السلة'); setError('')
+    setTimeout(() => setDone(''), 2500)
   }
 
   async function applyPrice(event) {
@@ -163,7 +184,7 @@ export default function PosPage() {
       .from('sales')
       .insert({
         store_id: ctx.storeId,
-        user_id: ctx.user?.id || null,
+        user_id: ctx.staffId || null,
         total_amount: totals.amount,
         payment_method: payment,
         status: 'completed',
@@ -223,9 +244,15 @@ export default function PosPage() {
     <DashboardShell active="/dashboard/pos">
       <div className="mb-3 flex items-center justify-between">
         <h1 className="text-base font-medium text-neutral-100">نقطة البيع</h1>
-        <span className="text-xs text-neutral-500">{products.length} منتج</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-neutral-500">{products.length} منتج</span>
+          <button type="button" disabled={saving || !ctx.storeId} onClick={() => setScanning(true)}
+            className="rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 text-sm text-gold disabled:opacity-50">مسح الباركود</button>
+        </div>
       </div>
 
+      {error && !checkout && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
+      {scanning && <BarcodeScanner onScan={scanBarcode} onClose={() => setScanning(false)} />}
       {loading ? (
         <p className="text-sm text-neutral-500">جاري التحميل...</p>
       ) : products.length === 0 ? (

@@ -90,7 +90,7 @@ export default function ShiftManager() {
       if (!shift) {
         if (!validMoney(starting)) throw new Error('أدخل مبلغاً افتتاحياً صحيحاً غير سالب')
         const { error } = await supabase.from('shifts').insert({
-          store_id: ctx.storeId, user_id: ctx.user.id, status: 'open',
+          store_id: ctx.storeId, user_id: ctx.staffId, status: 'open',
           start_time: new Date().toISOString(),
           ...cashReconciliation(starting, starting),
           closed_at: null, end_time: null,
