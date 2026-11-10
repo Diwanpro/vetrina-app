@@ -24,7 +24,7 @@ export default function SuppliersPage() {
     try {
       const ctx = await getAppContext()
       if (!ctx.storeId || !ctx.tenantId) throw new Error('تعذر تحديد المتجر أو المؤسسة')
-      const rows = await fetchAllRows(supabase.from('suppliers').select('id, name, phone, total_debt, supplied_goods')
+      const rows = await fetchAllRows(supabase.rpc('engine_suppliers', { p_store: ctx.storeId, p_tenant: ctx.tenantId }).select('id, name, phone, total_debt, supplied_goods')
         .eq('tenant_id', ctx.tenantId).eq('store_id', ctx.storeId).order('name').order('id'))
       setSuppliers(rows)
     } catch (err) { setError(err.message) }

@@ -1,6 +1,11 @@
+'use client'
+
+import { useDashboardSession } from './SessionProvider'
+import { routeAllowed } from '@/lib/access'
 import { NAV_ITEMS } from './navItems'
 
 export default function Sidebar({ active = '/dashboard' }) {
+  const ctx = useDashboardSession()
   return (
     <aside className="hidden md:flex w-[84px] shrink-0 flex-col items-center border-l border-white/5 bg-[#161616] py-3 min-h-screen sticky top-0">
       <img
@@ -9,7 +14,7 @@ export default function Sidebar({ active = '/dashboard' }) {
         className="w-11 h-11 rounded-xl object-cover shadow-[0_4px_12px_rgba(212,175,55,0.25)] mb-4"
       />
       <nav className="flex flex-col items-center gap-1 w-full px-1.5">
-        {NAV_ITEMS.map((item) => {
+        {NAV_ITEMS.filter(item => ctx && routeAllowed(ctx.role, item.href)).map((item) => {
           const Icon = item.icon
           const isActive = item.href === active
           return (

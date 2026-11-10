@@ -11,7 +11,9 @@ export default function HomePage() {
     let cancelled = false
 
     async function checkSession() {
-      const { data } = await supabase.auth.getSession()
+      if (!navigator.onLine && localStorage.getItem('vetrina.auth')) { router.replace('/dashboard/pos'); return }
+      const { data, error } = await supabase.auth.getSession()
+      if (error) { if (!cancelled) router.replace('/login'); return }
       if (cancelled) return
 
       if (data.session) {
@@ -21,7 +23,7 @@ export default function HomePage() {
       }
     }
 
-    checkSession()
+    checkSession().catch(() => { if (!cancelled) router.replace('/login') })
 
     return () => {
       cancelled = true

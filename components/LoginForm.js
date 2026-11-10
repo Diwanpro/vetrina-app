@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { getAppContext } from '@/lib/app-context'
 import { supabase } from '@/lib/supabase'
 
 function Logo() {
@@ -38,14 +39,17 @@ export default function LoginForm() {
       password: pin,
     })
 
-    setLoading(false)
-
     if (authError) {
+      setLoading(false)
       setError('بيانات الدخول غير صحيحة')
       return
     }
 
-    router.push('/dashboard')
+    try {
+      await getAppContext() // Cache verified profile and check subscription before entry.
+      router.push('/dashboard') // Layout displays the lock screen when expired.
+    } catch (err) { setError(err.message) }
+    finally { setLoading(false) }
   }
 
   return (

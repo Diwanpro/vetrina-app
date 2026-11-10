@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import DashboardShell from '@/components/dashboard/DashboardShell'
+import { scopeQuery } from '@/lib/access'
+import { fetchAllRows } from '@/lib/cash'
+import { localRows, belongsTo } from '@/lib/local-db'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
 
@@ -28,6 +31,7 @@ function shortId(id) {
 
 export default function SalesPage() {
   const [sales, setSales] = useState([])
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
   const [items, setItems] = useState([])
@@ -37,17 +41,17 @@ export default function SalesPage() {
     let cancelled = false
 
     async function load() {
-      const ctx = await getAppContext()
-      let query = supabase
-        .from('sales')
-        .select('id, total_amount, payment_method, created_at, status')
-        .order('created_at', { ascending: false })
-      if (ctx.storeId) query = query.eq('store_id', ctx.storeId)
-      const { data } = await query
-      if (!cancelled) {
-        setSales(data || [])
-        setLoading(false)
-      }
+      try {
+        const ctx = await getAppContext()
+        const local = (await localRows()).filter(row => row.kind === 'sale' && belongsTo(row, ctx))
+        const rows = navigator.onLine ? await fetchAllRows(scopeQuery(supabase.from('sales')
+          .select('id, local_id, total_amount, payment_method, created_at, status, stores!inner(tenant_id)')
+          .order('created_at', { ascending: false }).order('id'), ctx)) : []
+        const pending = local.filter(row => !navigator.onLine || (row.status !== 'synced' && !rows.some(sale => sale.local_id === row.local_id)))
+          .map(row => ({ ...row, id: row.local_id, localRecord: row }))
+        if (!cancelled) setSales([...pending, ...rows])
+      } catch (err) { if (!cancelled) setError(err.message) }
+      finally { if (!cancelled) setLoading(false) }
     }
 
     load()
@@ -59,12 +63,19 @@ export default function SalesPage() {
   async function openSale(sale) {
     setSelected(sale)
     setItemsLoading(true)
-    const { data } = await supabase
-      .from('sale_items')
-      .select('id, quantity, final_price, original_price, product_variants(size, color, products(name))')
-      .eq('sale_id', sale.id)
-    setItems(data || [])
-    setItemsLoading(false)
+    setError('')
+    try {
+      if (sale.localRecord) {
+        setItems(sale.localRecord.items.map((item, index) => ({ ...item, id: index, product_variants: { color: item.color, size: item.size, products: { name: item.name || 'مقاس محفوظ محلياً' } } })))
+      } else {
+        const ctx = await getAppContext()
+        const data = await fetchAllRows(scopeQuery(supabase.from('sale_items')
+          .select('id, quantity, final_price, original_price, sales!inner(store_id, stores!inner(tenant_id)), product_variants!inner(size, color, products!inner(name, tenant_id))')
+          .eq('sale_id', sale.id).eq('product_variants.products.tenant_id', ctx.tenantId).order('id'), ctx, 'sales.store_id', 'sales.stores.tenant_id'))
+        setItems(data)
+      }
+    } catch (err) { setError(err.message); setItems([]) }
+    finally { setItemsLoading(false) }
   }
 
   return (
@@ -74,6 +85,7 @@ export default function SalesPage() {
         <p className="text-xs text-neutral-500">{sales.length} فاتورة</p>
       </div>
 
+      {error && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
       {loading ? (
         <p className="text-sm text-neutral-500">جاري التحميل...</p>
       ) : sales.length === 0 ? (
@@ -90,7 +102,7 @@ export default function SalesPage() {
               className="w-full rounded-xl border border-white/5 bg-card p-3 text-right"
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium text-neutral-100">{shortId(sale.id)}</span>
+                <span className="text-sm font-medium text-neutral-100">{shortId(sale.id)} {sale.localRecord && <span className="text-xs text-amber-300">· {sale.status === 'synced' ? 'محلي' : 'بانتظار المزامنة'}</span>}</span>
                 <span className="text-sm font-bold text-gold">{formatDzd(sale.total_amount)}</span>
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px] text-neutral-500">

@@ -44,8 +44,8 @@ export default function BarcodePrintPage() {
         if (!productId) throw new Error('اختر منتجاً من صفحة المنتجات')
         const ctx = await getAppContext()
         if (!ctx.tenantId || !ctx.storeId) throw new Error('تعذر تحديد المتجر')
-        const rows = await fetchAllRows(supabase.from('product_variants').select('id, color, size, barcode, products!inner(name, tenant_id)')
-          .eq('product_id', productId).eq('products.tenant_id', ctx.tenantId).order('id'))
+        const rows = await fetchAllRows(supabase.from('product_variants').select('id, color, size, barcode, inventory!inner(store_id), products!inner(name, tenant_id)')
+          .eq('product_id', productId).eq('products.tenant_id', ctx.tenantId).eq('inventory.store_id', ctx.storeId).order('id'))
         if (!rows.length) throw new Error('لا توجد مقاسات متاحة لهذا المنتج')
         if (!cancelled) setVariants(rows)
       } catch (err) { if (!cancelled) setError(err.message) }

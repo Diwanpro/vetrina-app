@@ -48,8 +48,8 @@ export default function ProductsPage() {
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, description, category, base_price, images, image_url, product_variants(id, barcode, color, size, inventory(quantity, store_id))')
-        .eq('tenant_id', context.tenantId).order('created_at', { ascending: false }).order('id'))
+        .select('id, name, description, category, base_price, images, image_url, product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
+        .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).order('created_at', { ascending: false }).order('id'))
       setProducts(rows)
     } catch (err) { setError(err.message) }
     finally { setLoading(false) }
@@ -141,7 +141,7 @@ export default function ProductsPage() {
       // Check external/scanned codes before creating a product. The database
       // UNIQUE constraint remains the final protection against concurrent writes.
       const { data: duplicates, error: lookupError } = await supabase.from('product_variants')
-        .select('id').in('barcode', barcodes).limit(1)
+        .select('id, products!inner(tenant_id), inventory!inner(store_id)').eq('products.tenant_id', ctx.tenantId).eq('inventory.store_id', ctx.storeId).in('barcode', barcodes).limit(1)
       if (lookupError) throw lookupError
       if (duplicates?.length) throw new Error('هذا الباركود مستخدم مسبقاً. امسح رمزاً آخر أو اضغط توليد جديد.')
     } catch (err) { setSaving(false); setError(err.message); return }

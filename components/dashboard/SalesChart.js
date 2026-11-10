@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { scopeQuery } from '@/lib/access'
 import { supabase } from '@/lib/supabase'
 import { getAppContext, formatDzd } from '@/lib/app-context'
 import { fetchAllRows } from '@/lib/cash'
@@ -18,11 +19,11 @@ export default function SalesChart() {
       inFlight = true
       try {
         const ctx = await getAppContext()
-        if (!ctx.storeId || !ctx.tenantId) throw new Error('تعذر تحديد المتجر')
+        if (!ctx.storeIds.length || !ctx.tenantId) throw new Error('تعذر تحديد المتجر')
         const now = new Date()
         const { from, to } = sevenDayRange(now)
-        const rows = await fetchAllRows(supabase.from('sales').select('id, total_amount, created_at')
-          .eq('store_id', ctx.storeId).gte('created_at', from).lt('created_at', to).order('id'))
+        const rows = await fetchAllRows(scopeQuery(supabase.from('sales').select('id, total_amount, created_at, stores!inner(tenant_id)')
+          .gte('created_at', from).lt('created_at', to).order('id'), ctx))
         if (!cancelled) { setDays(sevenDaySales(rows, now)); setError('') }
       } catch (err) { if (!cancelled) setError(err.message) }
       finally { inFlight = false; if (!cancelled) setLoading(false) }

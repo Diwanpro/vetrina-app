@@ -6,6 +6,7 @@ import KpiCard from '@/components/dashboard/KpiCard'
 import SalesChart from '@/components/dashboard/SalesChart'
 import { IconCash, IconSales, IconProfit, IconBalance, IconAlert } from '@/components/dashboard/icons'
 import { fetchAllRows, todayRange } from '@/lib/cash'
+import { scopeQuery } from '@/lib/access'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
 
@@ -32,23 +33,23 @@ export default function DashboardPage() {
     async function load() {
       try {
         const ctx = await getAppContext()
-        if (!ctx.user || !ctx.storeId) throw new Error('تعذر تحديد المتجر لعرض الإحصائيات')
+        if (!ctx.user || !ctx.storeIds.length) throw new Error('تعذر تحديد المتجر لعرض الإحصائيات')
         const { from, to } = todayRange()
 
         let salesQuery = supabase
           .from('sales')
-          .select('id, total_amount, payment_method, created_at')
+          .select('id, total_amount, payment_method, created_at, stores!inner(tenant_id)')
           .gte('created_at', from).lt('created_at', to).order('id')
-        if (ctx.storeId) salesQuery = salesQuery.eq('store_id', ctx.storeId)
+        salesQuery = scopeQuery(salesQuery, ctx)
 
-        let inventoryQuery = supabase.from('inventory').select('id', { count: 'exact', head: true }).lt('quantity', 5)
-        if (ctx.storeId) inventoryQuery = inventoryQuery.eq('store_id', ctx.storeId)
+        let inventoryQuery = supabase.from('inventory').select('id, stores!inner(tenant_id)', { count: 'exact', head: true }).lt('quantity', 5)
+        inventoryQuery = scopeQuery(inventoryQuery, ctx)
 
         let itemsQuery = supabase
           .from('sale_items')
-          .select('id, quantity, final_price, product_variants(cost_price_avg), sales!inner(store_id, created_at)')
-          .gte('sales.created_at', from).lt('sales.created_at', to).order('id')
-        if (ctx.storeId) itemsQuery = itemsQuery.eq('sales.store_id', ctx.storeId)
+          .select('id, quantity, final_price, product_variants!inner(cost_price_avg, products!inner(tenant_id)), sales!inner(store_id, created_at, stores!inner(tenant_id))')
+          .gte('sales.created_at', from).lt('sales.created_at', to).eq('product_variants.products.tenant_id', ctx.tenantId).order('id')
+        itemsQuery = scopeQuery(itemsQuery, ctx, 'sales.store_id', 'sales.stores.tenant_id')
 
         const [sales, inventoryResult, items] = await Promise.all([
           fetchAllRows(salesQuery),
@@ -125,8 +126,8 @@ export default function DashboardPage() {
           />
           <KpiCard
             title="الوضعية الصافية"
-            value="0 دج"
-            subtitle="لنا: 0 دج | علينا: 0 دج"
+            value="—"
+            subtitle="تقرير الوضعية الصافية غير متاح بعد"
             icon={IconBalance}
           />
           <KpiCard

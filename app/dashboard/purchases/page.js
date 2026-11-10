@@ -51,10 +51,10 @@ export default function PurchasesPage() {
       const ctx = await getAppContext()
       if (!ctx.storeId || !ctx.tenantId) throw new Error('تعذر تحديد المتجر أو المؤسسة')
       const [supplierRows, variantRows, purchaseResult] = await Promise.all([
-        fetchAllRows(supabase.from('suppliers').select('id, name').eq('tenant_id', ctx.tenantId).eq('store_id', ctx.storeId).order('name').order('id')),
-        fetchAllRows(supabase.from('product_variants').select('id, product_id, color, size, barcode, cost_price_avg, products!inner(id, name, tenant_id, is_active)')
-          .eq('products.tenant_id', ctx.tenantId).eq('products.is_active', true).order('id')),
-        supabase.from('purchases').select('id, supplier_name, description, total_amount, created_at').eq('store_id', ctx.storeId).eq('tenant_id', ctx.tenantId).order('created_at', { ascending: false }).limit(20),
+        fetchAllRows(supabase.rpc('engine_suppliers', { p_store: ctx.storeId, p_tenant: ctx.tenantId }).select('id, name').eq('tenant_id', ctx.tenantId).eq('store_id', ctx.storeId).order('name').order('id')),
+        fetchAllRows(supabase.from('product_variants').select('id, product_id, color, size, barcode, cost_price_avg, inventory!inner(store_id), products!inner(id, name, tenant_id, is_active)')
+          .eq('products.tenant_id', ctx.tenantId).eq('inventory.store_id', ctx.storeId).eq('products.is_active', true).order('id')),
+        supabase.rpc('engine_purchases', { p_store: ctx.storeId, p_tenant: ctx.tenantId }).select('id, supplier_name, description, total_amount, created_at').eq('store_id', ctx.storeId).eq('tenant_id', ctx.tenantId).order('created_at', { ascending: false }).limit(20),
       ])
       if (purchaseResult.error) throw purchaseResult.error
       setSuppliers(supplierRows); setVariants(variantRows); setHistory(purchaseResult.data || [])

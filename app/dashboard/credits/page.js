@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import DashboardShell from '@/components/dashboard/DashboardShell'
+import { scopeQuery } from '@/lib/access'
+import { fetchAllRows, validMoney } from '@/lib/cash'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
 
@@ -37,16 +39,16 @@ export default function CreditsPage() {
 
   async function loadCredits() {
     setLoading(true)
-    const context = await getAppContext()
-    setCtx(context)
-    let query = supabase
-      .from('credits')
-      .select('id, remaining_amount, total_amount, due_date, description, status, created_at, customers(name, phone)')
-      .order('created_at', { ascending: false })
-    if (context.storeId) query = query.eq('store_id', context.storeId)
-    const { data } = await query
-    setCredits(data || [])
-    setLoading(false)
+    try {
+      const context = await getAppContext()
+      setCtx(context)
+      let query = supabase
+        .from('credits')
+        .select('id, remaining_amount, total_amount, due_date, description, status, created_at, customers!inner(name, phone, tenant_id)')
+        .eq('customers.tenant_id', context.tenantId).order('created_at', { ascending: false }).order('id')
+      const data = await fetchAllRows(scopeQuery(query, context))
+      setCredits(data || [])
+    } catch (err) { setError(err.message) } finally { setLoading(false) }
   }
 
   useEffect(() => {
@@ -55,74 +57,82 @@ export default function CreditsPage() {
 
   async function handleSave(e) {
     e.preventDefault()
+    if (saving) return
     setError('')
-    if (!form.name.trim() || !form.amount) {
-      setError('يرجى إدخال اسم الزبون والمبلغ')
-      return
-    }
-    if (!ctx.tenantId || !ctx.storeId) {
-      setError('لم يتم العثور على المتجر أو المؤسسة')
-      return
-    }
-
-    setSaving(true)
-    let customer = null
-    if (form.phone.trim()) {
-      const { data } = await supabase
-        .from('customers')
-        .select('id, name, phone')
-        .eq('tenant_id', ctx.tenantId)
-        .eq('phone', form.phone.trim())
-        .maybeSingle()
-      customer = data
-    }
-    if (!customer) {
-      const { data } = await supabase
-        .from('customers')
-        .select('id, name, phone')
-        .eq('tenant_id', ctx.tenantId)
-        .eq('name', form.name.trim())
-        .maybeSingle()
-      customer = data
-    }
-    if (!customer) {
-      const { data, error: cErr } = await supabase
-        .from('customers')
-        .insert({
-          tenant_id: ctx.tenantId,
-          name: form.name.trim(),
-          phone: form.phone.trim() || null,
-        })
-        .select('id, name, phone')
-        .single()
-      if (cErr || !data) {
-        setSaving(false)
-        setError(cErr?.message || 'فشل حفظ الزبون')
+    try {
+      if (!form.name.trim() || !validMoney(form.amount) || Number(form.amount) <= 0) {
+        setError('يرجى إدخال اسم الزبون والمبلغ')
         return
       }
-      customer = data
-    }
+      if (!ctx.tenantId || !ctx.storeId) {
+        setError('لم يتم العثور على المتجر أو المؤسسة')
+        return
+      }
 
-    const amount = Number(form.amount)
-    const { error: crErr } = await supabase.from('credits').insert({
-      store_id: ctx.storeId,
-      customer_id: customer.id,
-      total_amount: amount,
-      remaining_amount: amount,
-      description: form.description.trim() || null,
-      due_date: form.due_date || null,
-      status: 'active',
-    })
+      setSaving(true)
+      let customer = null
+      if (form.phone.trim()) {
+        const { data, error: lookupError } = await supabase
+          .from('customers')
+          .select('id, name, phone, credits!inner(store_id)')
+          .eq('credits.store_id', ctx.storeId)
+          .eq('tenant_id', ctx.tenantId)
+          .eq('phone', form.phone.trim())
+          .maybeSingle()
+        if (lookupError) throw lookupError
+        customer = data
+      }
+      if (!customer) {
+        const { data, error: lookupError } = await supabase
+          .from('customers')
+          .select('id, name, phone, credits!inner(store_id)')
+          .eq('credits.store_id', ctx.storeId)
+          .eq('tenant_id', ctx.tenantId)
+          .eq('name', form.name.trim())
+          .maybeSingle()
+        if (lookupError) throw lookupError
+        customer = data
+      }
+      if (!customer) {
+        const { data, error: cErr } = await supabase
+          .from('customers')
+          .insert({
+            tenant_id: ctx.tenantId,
+            name: form.name.trim(),
+            phone: form.phone.trim() || null,
+          })
+          .select('id, name, phone')
+          .single()
+        if (cErr || !data) {
+          setSaving(false)
+          setError(cErr?.message || 'فشل حفظ الزبون')
+          return
+        }
+        customer = data
+      }
 
-    setSaving(false)
-    if (crErr) {
-      setError(crErr.message)
-      return
-    }
+      const amount = Number(form.amount)
+      const { error: crErr } = await supabase.from('credits').insert({
+        store_id: ctx.storeId,
+        created_by: ctx.staffId,
+        customer_id: customer.id,
+        total_amount: amount,
+        remaining_amount: amount,
+        description: form.description.trim() || null,
+        due_date: form.due_date || null,
+        status: 'active',
+      })
 
-    setOpen(false)
-    setForm({ name: '', phone: '', amount: '', description: '', due_date: '' })
-    loadCredits()
+      setSaving(false)
+      if (crErr) {
+        setError(crErr.message)
+        return
+      }
+
+      setOpen(false)
+      setForm({ name: '', phone: '', amount: '', description: '', due_date: '' })
+      loadCredits()
+    } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
 
   return (
@@ -138,6 +148,7 @@ export default function CreditsPage() {
         </button>
       </div>
 
+      {!open && error && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
       {loading ? (
         <p className="text-sm text-neutral-500">جاري التحميل...</p>
       ) : credits.length === 0 ? (
