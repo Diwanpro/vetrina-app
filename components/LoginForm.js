@@ -8,11 +8,11 @@ import { supabase } from '@/lib/supabase'
 function Logo() {
   return (
     <img
-      src="/vetrina_logo_main.png"
+      src="/logo.png"
       alt="Vetrina"
-      width="150"
-      height="150"
-      className="w-[150px] h-auto rounded-2xl shadow-[0_8px_24px_rgba(212,175,55,0.28)]"
+      width="200"
+      height="109"
+      className="mx-auto block h-auto w-auto max-h-[120px] max-w-[200px] bg-transparent object-contain"
     />
   )
 }
@@ -57,10 +57,8 @@ export default function LoginForm() {
       <div className="w-full max-w-md mx-auto bg-card rounded-2xl border border-white/5 px-5 py-8 shadow-[0_8px_32px_rgba(0,0,0,0.45)]">
         <div className="flex flex-col items-center mb-7">
           <Logo />
-          <h1 className="mt-3 text-3xl font-bold tracking-[0.18em] text-gold">
-            VETRINA
-          </h1>
-          <p className="mt-1 text-[10px] tracking-[0.28em] uppercase text-neutral-500">
+          <h1 className="sr-only">Vetrina</h1>
+          <p className="mt-4 text-[10px] tracking-[0.28em] uppercase text-neutral-500">
             ATTIA WEB SOLUTION
           </p>
         </div>

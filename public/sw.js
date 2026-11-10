@@ -1,7 +1,7 @@
 /* Shell/assets only. Never cache Supabase, auth requests, API data or mutations. */
-const CACHE = 'vetrina-shell-v3'
+const CACHE = 'vetrina-shell-v4'
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(['/offline.html', '/icon.svg', '/icon-192.png', '/icon-512.png', '/manifest.json'])))
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(['/offline.html', '/logo.png', '/icon-192.png', '/icon-512.png', '/manifest.json'])))
   self.skipWaiting()
 })
 self.addEventListener('activate', event => {
@@ -24,7 +24,7 @@ self.addEventListener('fetch', event => {
       }
       return response
     }).catch(async () => (await caches.match(request, { ignoreSearch: true })) || caches.match('/offline.html')))
-  } else if (url.pathname.startsWith('/_next/static/') || ['/icon.svg', '/icon-192.png', '/icon-512.png', '/manifest.json'].includes(url.pathname)) {
+  } else if (url.pathname.startsWith('/_next/static/') || ['/logo.png', '/icon-192.png', '/icon-512.png', '/manifest.json'].includes(url.pathname)) {
     event.respondWith(caches.match(request).then(cached => cached || fetch(request).then(response => {
       if (response.ok) { const copy = response.clone(); event.waitUntil(caches.open(CACHE).then(cache => cache.put(request, copy))) }
       return response

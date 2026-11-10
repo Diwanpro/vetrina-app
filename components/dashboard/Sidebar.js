@@ -9,9 +9,11 @@ export default function Sidebar({ active = '/dashboard' }) {
   return (
     <aside className="hidden md:flex w-[84px] shrink-0 flex-col items-center border-l border-white/5 bg-[#161616] py-3 min-h-screen sticky top-0">
       <img
-        src="/vetrina_logo_main.png"
+        src="/logo.png"
         alt="Vetrina"
-        className="w-11 h-11 rounded-xl object-cover shadow-[0_4px_12px_rgba(212,175,55,0.25)] mb-4"
+        width="73"
+        height="40"
+        className="h-10 w-auto max-w-full bg-transparent object-contain mb-4"
       />
       <nav className="flex flex-col items-center gap-1 w-full px-1.5">
         {NAV_ITEMS.filter(item => ctx && routeAllowed(ctx.role, item.href)).map((item) => {

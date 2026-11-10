@@ -27,7 +27,7 @@ export default function TopBar() {
   if (!ctx) return null
   return <header className="sticky top-0 z-30 border-b border-white/5 bg-[#141414]/95 backdrop-blur">
     <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 md:px-4">
-      <img src="/vetrina_logo_main.png" alt="Vetrina" className="h-8 w-8 rounded-lg md:hidden" />
+      <img src="/logo.png" alt="Vetrina" width="57" height="31" className="h-8 w-auto shrink-0 bg-transparent object-contain md:hidden" />
       <div className="min-w-0 flex-1"><p className="truncate text-sm text-neutral-100">{new Date().toLocaleDateString('ar-DZ', { weekday: 'long', month: 'long', day: 'numeric' })}</p><p className={`mt-1 text-[11px] ${online ? 'text-neutral-500' : 'text-amber-300'}`}>{online ? 'متصل بالإنترنت' : 'وضع دون اتصال'} · {pending.length} بانتظار المزامنة</p></div>
       {ctx.role === 'owner' ? <label className="text-xs text-neutral-400"><span className="sr-only">اختيار الفرع</span><select aria-label="اختيار الفرع" value={ctx.allBranches ? 'all' : ctx.storeId || ''} onChange={event => {
         if (confirm('تغيير الفرع سيغلق المسودات غير المحفوظة. متابعة؟')) changeBranch(ctx, event.target.value)
