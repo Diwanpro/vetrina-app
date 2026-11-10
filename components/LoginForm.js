@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getAppContext } from '@/lib/app-context'
+import { describeDevice } from '@/lib/device'
+import { registerDeviceSession } from '@/lib/sessions'
 import { supabase } from '@/lib/supabase'
 
 function Logo() {
@@ -34,7 +36,7 @@ export default function LoginForm() {
         ? 'admin@staff.vetrina.dz'
         : `${username.trim().toLowerCase()}@staff.vetrina.dz`
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password: pin,
     })
@@ -47,6 +49,15 @@ export default function LoginForm() {
 
     try {
       await getAppContext() // Cache verified profile and check subscription before entry.
+      // Register this device now that we have an authenticated session, so the
+      // two-device cap is enforced before the user reaches the dashboard.
+      try {
+        const device = await describeDevice()
+        await registerDeviceSession(supabase, {
+          fingerprint: device.fingerprint,
+          deviceName: device.name,
+        })
+      } catch { /* never block login on session bookkeeping */ }
       router.push('/dashboard') // Layout displays the lock screen when expired.
     } catch (err) { setError(err.message) }
     finally { setLoading(false) }

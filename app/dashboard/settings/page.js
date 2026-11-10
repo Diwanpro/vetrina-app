@@ -8,6 +8,8 @@ import { Notice, fieldClass, primaryClass, secondaryClass } from '@/components/d
 import { supabase } from '@/lib/supabase'
 import { canAddBranch } from '@/lib/commercial'
 import { scopeQuery, csvText } from '@/lib/access'
+import { describeDevice } from '@/lib/device'
+import { deactivateCurrentDevice, deactivateSession, listSessions, sortSessions } from '@/lib/sessions'
 import { fetchAllRows } from '@/lib/cash'
 import { localRows, pendingRows } from '@/lib/local-db'
 import { syncPending } from '@/lib/sync'
@@ -25,6 +27,21 @@ export default function SettingsPage() {
   const [address, setAddress] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [sessions, setSessions] = useState([])
+  const [myFingerprint, setMyFingerprint] = useState('')
+  const [sessionNotice, setSessionNotice] = useState('')
+  async function refreshSessions() {
+    if (!ctx?.user?.id) return
+    try {
+      const rows = await listSessions(supabase, ctx.user.id)
+      setSessions(sortSessions(rows.filter(row => row.is_active)))
+    } catch (err) { setError(err.message) }
+  }
+  useEffect(() => {
+    if (!ctx?.user?.id) return
+    describeDevice().then(device => setMyFingerprint(device.fingerprint)).catch(() => {})
+    refreshSessions()
+  }, [ctx?.user?.id])
   useEffect(() => {
     const refresh = () => pendingRows(ctx).then(setRows).catch(err => setError(err.message))
     refresh(); window.addEventListener('vetrina:outbox', refresh)
@@ -65,6 +82,34 @@ export default function SettingsPage() {
         location.reload()
       }) }} className="grid gap-3 sm:grid-cols-2"><label className="text-sm text-neutral-300">اسم الفرع<input required maxLength={200} disabled={busy} value={name} onChange={e => setName(e.target.value)} className={`${fieldClass} mt-1`} /></label><label className="text-sm text-neutral-300">العنوان<input disabled={busy} value={address} onChange={e => setAddress(e.target.value)} className={`${fieldClass} mt-1`} /></label><button disabled={busy} className={primaryClass}>إضافة فرع</button></form>
     </section>}
+    <section className="rounded-2xl border border-white/10 bg-card p-5"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h2 className="text-gold">الأجهزة النشطة · {sessions.length}</h2><button disabled={busy} onClick={() => run(refreshSessions)} className={secondaryClass}>تحديث</button></div>
+      <p className="mb-4 text-xs text-neutral-500">يُسمح بجهازين نشطين. تسجيل الدخول من جهاز ثالث يسجّل خروج أقدم جهاز تلقائياً.</p>
+      <Notice success={sessionNotice} />
+      {!sessions.length ? <p className="text-sm text-neutral-500">لا توجد أجهزة نشطة.</p> : <div className="space-y-2">{sessions.map(row => {
+        const current = Boolean(myFingerprint) && row.device_fingerprint === myFingerprint
+        return <article key={row.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/5 p-3">
+          <div className="min-w-0">
+            <p className="text-sm text-neutral-200">{row.device_name || 'جهاز غير معروف'}{current && <span className="ms-2 rounded-full border border-emerald-700/40 bg-emerald-950/40 px-2 py-0.5 text-[10px] text-emerald-300">هذا الجهاز</span>}</p>
+            <p className="mt-1 text-xs text-neutral-500">{row.last_active ? `آخر نشاط: ${new Date(row.last_active).toLocaleString('ar-DZ')}` : 'لا يوجد نشاط مسجل'}</p>
+          </div>
+          <button disabled={busy} onClick={() => run(async () => {
+            setSessionNotice('')
+            await deactivateSession(supabase, { sessionId: row.id })
+            if (current) {
+              // This device just ended its own session: drop the local session too.
+              try {
+                const device = await describeDevice()
+                await deactivateCurrentDevice(supabase, { fingerprint: device.fingerprint })
+              } catch { /* ignore */ }
+              await supabase.auth.signOut({ scope: 'local' })
+              localStorage.removeItem('vetrina.auth'); location.assign('/login'); return
+            }
+            setSessionNotice('تم تسجيل الخروج من الجهاز')
+            await refreshSessions()
+          })} className="rounded-lg border border-red-800/40 px-3 py-1.5 text-xs text-red-300 disabled:opacity-50">تسجيل الخروج من هذا الجهاز</button>
+        </article>
+      })}</div>}
+    </section>
     {ctx.role !== 'employee' && <section className="rounded-2xl border border-white/10 bg-card p-5"><h2 className="mb-3 text-gold">تصدير البيانات</h2><p className="mb-4 text-xs text-neutral-500">ملفات CSV بترميز UTF-8 حسب الفرع المحدد (أو كل فروع المؤسسة للمالك). المبيعات المصدّرة هنا هي المتزامنة فقط.</p><div className="flex flex-wrap gap-3"><button disabled={busy} onClick={() => run(() => exportData('sales'))} className={secondaryClass}>تصدير المبيعات CSV</button><button disabled={busy} onClick={() => run(() => exportData('products'))} className={secondaryClass}>تصدير المنتجات CSV</button></div></section>}
     <section className="rounded-2xl border border-white/10 bg-card p-5"><h2 className="mb-3 text-gold">المزامنة والفواتير المحلية · {rows.length}</h2><p className="mb-4 text-xs text-neutral-500">لا تُحذف العمليات المتعارضة تلقائياً. صحّح المخزون أو السعر ثم أعد المحاولة. الفواتير محفوظة على هذا الجهاز ولهذا المستخدم فقط.</p>
       <div className="mb-4 flex flex-wrap gap-3"><button disabled={busy} onClick={() => run(syncPending)} className={primaryClass}>إعادة محاولة المزامنة</button><button disabled={busy || !rows.length} onClick={() => download('vetrina-pending-receipts.json', JSON.stringify(rows, null, 2), 'application/json')} className={secondaryClass}>نسخة من العمليات المحلية JSON</button></div>
@@ -73,6 +118,12 @@ export default function SettingsPage() {
     <button disabled={busy} onClick={() => run(async () => {
       const pending = (await localRows()).filter(row => row.auth_id === ctx.user.id && row.status !== 'synced')
       if (pending.length && !confirm('لديك عمليات غير متزامنة محفوظة لهذا المستخدم. ستظل على الجهاز ولن تتم مزامنتها إلا بعد عودتك لهذا الحساب. تسجيل الخروج؟')) return
+      // Release this device's slot before dropping the authenticated session,
+      // otherwise the row would stay active and occupy one of the two places.
+      try {
+        const device = await describeDevice()
+        await deactivateCurrentDevice(supabase, { fingerprint: device.fingerprint })
+      } catch { /* logout must still proceed if bookkeeping fails */ }
       const { error } = await supabase.auth.signOut({ scope: 'local' }); if (error) throw error
       localStorage.removeItem('vetrina.auth'); location.assign('/login')
     })} className="rounded-lg border border-red-800/40 px-4 py-2 text-sm text-red-300">تسجيل الخروج</button>
