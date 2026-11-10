@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { IconChevron } from './icons'
+import ShiftManager from './ShiftManager'
 
 const BRANCHES = ['الفرع الرئيسي', 'فرع وسط المدينة', 'فرع الزيانية']
 
@@ -52,12 +53,7 @@ export default function TopBar() {
           )}
         </div>
 
-        <button
-          type="button"
-          className="shrink-0 rounded-lg bg-[#8B1E1E] px-2.5 py-1.5 text-[11px] font-medium text-red-100"
-        >
-          لم يُفتح اليوم بعد
-        </button>
+        <ShiftManager />
       </div>
     </header>
   )
