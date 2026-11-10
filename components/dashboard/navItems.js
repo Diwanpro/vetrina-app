@@ -16,6 +16,7 @@ export const NAV_ITEMS = [
   { href: '/dashboard/sales', label: 'المبيعات', icon: IconSales },
   { href: '/dashboard/credits', label: 'الكريدي', icon: IconCredit },
   { href: '/dashboard/suppliers', label: 'الموردون', icon: IconSuppliers },
+  { href: '/dashboard/purchases', label: 'المشتريات', icon: IconInventory },
   { href: '/dashboard/inventory', label: 'المخزون', icon: IconInventory },
   { href: '/dashboard/settings', label: 'الإعدادات', icon: IconSettings },
 ]
