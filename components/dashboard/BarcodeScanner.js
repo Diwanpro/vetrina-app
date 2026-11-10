@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Modal, Notice, fieldClass, primaryClass } from './EngineUI'
 
-export default function BarcodeScanner({ onScan, onClose }) {
+export default function BarcodeScanner({ onScan, onClose, confirmLabel = 'إضافة للسلة' }) {
   const id = `scanner-${useId().replace(/[^a-z0-9]/gi, '')}`
   const [error, setError] = useState('')
   const [manual, setManual] = useState('')
@@ -71,7 +71,7 @@ export default function BarcodeScanner({ onScan, onClose }) {
     <Notice error={error} />
     <form onSubmit={e => { e.preventDefault(); detect(manual) }} className="space-y-3">
       <label className="block text-sm">الباركود يدوياً<input autoFocus dir="ltr" disabled={busy} required value={manual} onChange={e => setManual(e.target.value)} className={`${fieldClass} mt-1`} /></label>
-      <button disabled={busy || !manual.trim()} className={`${primaryClass} w-full`}>إضافة للسلة</button>
+      <button disabled={busy || !manual.trim()} className={`${primaryClass} w-full`}>{confirmLabel}</button>
     </form>
   </Modal>
 }

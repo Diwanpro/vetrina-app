@@ -95,7 +95,7 @@ export default function SuppliersPage() {
         {modal.type === 'add' ? <>
           <label className="block text-sm">اسم المورد<input autoFocus required disabled={busy} maxLength={200} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className={`${fieldClass} mt-1`} /></label>
           <label className="block text-sm">الهاتف<input type="tel" disabled={busy} maxLength={50} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className={`${fieldClass} mt-1`} /></label>
-          <label className="block text-sm">السلع الموردة<textarea disabled={busy} maxLength={2000} value={form.supplied_goods} onChange={e => setForm({ ...form, supplied_goods: e.target.value })} className={`${fieldClass} mt-1`} /></label>
+          <label className="block text-sm">السلع الموردة<textarea disabled={busy} rows={5} placeholder={"سراويل: جينز، تشينو\nأحذية: أحذية رياضية"} maxLength={2000} value={form.supplied_goods} onChange={e => setForm({ ...form, supplied_goods: e.target.value })} className={`${fieldClass} mt-1 resize-y`} /></label>
         </> : <>
           <p className="text-sm text-gold">الدين المتبقي: {formatDzd(modal.supplier.total_debt)}</p>
           <label className="block text-sm">مبلغ الدفعة (دج)<input autoFocus required type="number" min="1" max={modal.supplier.total_debt} step="1" disabled={busy} value={amount} onChange={e => setAmount(e.target.value)} className={`${fieldClass} mt-1`} /></label>
