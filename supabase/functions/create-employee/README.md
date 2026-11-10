@@ -8,3 +8,6 @@ Deployment: `supabase functions deploy create-employee --no-verify-jwt --project
 Gateway JWT verification is disabled intentionally to support current Supabase key types; **the function itself always verifies the access token** before privileged operations. Never remove that verification.
 
 `engine_register_employee` independently validates owner access, store, role, username and server-only `app_metadata.created_by_owner`. If profile creation fails, the function attempts to remove the newly-created Auth user. Auth creation and SQL registration span two services, not one transaction: inspect Edge logs if compensation fails; log messages include only the orphan Auth ID, never PIN/token. Duplicate login names are rejected by Auth. After a timeout, refresh employees before retrying. No existing account is adopted, reset, or overwritten.
+
+## HR contract (commercial pass)
+POST now requires `firstName`, `lastName`, `salaryType` (`fixed`, `commission`, `daily`) and `salaryAmount` (integer, 0–2147483647 DZD), plus username/PIN/role/storeId. Server validates all fields before Auth creation. Registration uses `engine_register_employee_hr`; bare registration execute permission was revoked from authenticated clients. Salary amount is contractual DZD (including commission), not a percentage or an automatic payroll calculation.

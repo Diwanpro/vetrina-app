@@ -8,7 +8,7 @@ BEGIN
  IF u.id IS NULL THEN RAISE EXCEPTION 'Owner fixture missing'; END IF;
  PERFORM set_config('request.jwt.claim.sub',u.auth_id::text,true);
  UPDATE public.tenants SET is_active=false,subscription_end_date=now()-interval '1 day' WHERE id=u.tenant_id;
- PERFORM public.engine_activate('VETRINA-LIFETIME');
+ PERFORM public.engine_activate('VTR-2147483647-test');
  IF NOT EXISTS(SELECT 1 FROM public.tenants WHERE id=u.tenant_id AND is_active=true AND subscription_end_date IS NULL) THEN RAISE EXCEPTION 'Lifetime activation failed'; END IF;
  branch:=public.engine_add_store('__payroll_test__',''); other_branch:=public.engine_add_store('__payroll_other__','');
  INSERT INTO public.users(tenant_id,store_id,username,role) VALUES(u.tenant_id,branch,'__payroll_'||gen_random_uuid()::text,'employee') RETURNING id INTO employee;

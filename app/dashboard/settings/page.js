@@ -6,6 +6,7 @@ import ActivationForm from '@/components/dashboard/ActivationForm'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import { supabase } from '@/lib/supabase'
+import { canAddBranch } from '@/lib/commercial'
 import { scopeQuery, csvText } from '@/lib/access'
 import { fetchAllRows } from '@/lib/cash'
 import { localRows, pendingRows } from '@/lib/local-db'
@@ -55,10 +56,11 @@ export default function SettingsPage() {
   }
   return <DashboardShell active="/dashboard/settings"><div className="mx-auto max-w-4xl space-y-5">
     <h1 className="text-xl text-neutral-100">الإعدادات</h1><Notice error={error} />
-    <section className="rounded-2xl border border-gold/20 bg-card p-5"><h2 className="mb-3 text-gold">الاشتراك والتفعيل</h2><p className="mb-4 text-sm text-neutral-400">{ctx.tenant.name} · {ctx.tenant.is_active ? 'الحساب نشط' : 'فترة تجريبية'}{ctx.tenant.subscription_end_date && ` · نهاية الاشتراك: ${new Date(ctx.tenant.subscription_end_date).toLocaleDateString('ar-DZ')}`}</p>{ctx.role === 'owner' ? <ActivationForm onActivated={() => location.reload()} /> : <p className="text-sm text-neutral-500">إدارة الاشتراك متاحة للمالك فقط.</p>}</section>
-    {ctx.role === 'owner' && <section className="rounded-2xl border border-white/10 bg-card p-5"><h2 className="mb-3 text-gold">الفروع · {ctx.stores.length} فرع</h2><p className="mb-4 text-xs text-neutral-500">يمكن إضافة عدد غير محدود من الفروع للمؤسسة.</p><div className="mb-4 flex flex-wrap gap-2">{ctx.stores.map(store => <span key={store.id} className="rounded-lg bg-white/5 px-3 py-2 text-sm text-neutral-300">{store.name}</span>)}</div>
+    <section className="rounded-2xl border border-gold/20 bg-card p-5"><h2 className="mb-3 text-gold">الاشتراك والتفعيل</h2><p className="mb-4 text-sm text-neutral-400">{ctx.tenant.name} · {ctx.tenant.is_active ? 'الحساب نشط' : 'فترة تجريبية'}{ctx.tenant.subscription_end_date && ` · نهاية الاشتراك: ${new Date(ctx.tenant.subscription_end_date).toLocaleDateString('ar-DZ')}`}</p>{ctx.role === 'owner' ? <ActivationForm upgrade={ctx.tenant.is_active === true} onActivated={() => location.reload()} /> : <p className="text-sm text-neutral-500">إدارة الاشتراك متاحة للمالك فقط.</p>}</section>
+    {ctx.role === 'owner' && <section className="rounded-2xl border border-white/10 bg-card p-5"><h2 className="mb-3 text-gold">الفروع · {ctx.stores.length} / {ctx.tenant.branches_limit ?? 0}</h2><p className="mb-4 text-xs text-neutral-500">إضافة الفروع حسب حد الاشتراك. استخدم مفتاح ترقية لزيادة الحد.</p><div className="mb-4 flex flex-wrap gap-2">{ctx.stores.map(store => <span key={store.id} className="rounded-lg bg-white/5 px-3 py-2 text-sm text-neutral-300">{store.name}</span>)}</div>
       <form onSubmit={event => { event.preventDefault(); run(async () => {
         if (!navigator.onLine) throw new Error('إضافة فرع تتطلب الاتصال')
+        if (!canAddBranch(ctx.stores.length, ctx.tenant.branches_limit)) { alert('وصلت إلى حد الفروع. يرجى ترقية الاشتراك'); return }
         const { error } = await supabase.rpc('engine_add_store', { p_name: name, p_address: address }); if (error) throw error
         location.reload()
       }) }} className="grid gap-3 sm:grid-cols-2"><label className="text-sm text-neutral-300">اسم الفرع<input required maxLength={200} disabled={busy} value={name} onChange={e => setName(e.target.value)} className={`${fieldClass} mt-1`} /></label><label className="text-sm text-neutral-300">العنوان<input disabled={busy} value={address} onChange={e => setAddress(e.target.value)} className={`${fieldClass} mt-1`} /></label><button disabled={busy} className={primaryClass}>إضافة فرع</button></form>
