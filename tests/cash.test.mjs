@@ -33,3 +33,13 @@ test('financial pagination does not truncate at 1000 rows', async () => {
 test('query errors propagate rather than producing misleading zeros', async () => {
   await assert.rejects(fetchAllRows({ range: async () => ({ error: new Error('denied') }) }), /denied/)
 })
+
+test('shift insert and close payloads explicitly write actual minus expected', async () => {
+  const { cashReconciliation } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
+  assert.deepEqual(cashReconciliation('5000', '5000'), { actual_cash: 5000, expected_cash: 5000, difference: 0 })
+  assert.deepEqual(cashReconciliation(7000, 7500), { actual_cash: 7000, expected_cash: 7500, difference: -500 })
+  assert.equal(cashReconciliation(8000, 7500).difference, 500)
+  assert.equal(cashReconciliation(0, 0).difference, 0)
+  assert.throws(() => cashReconciliation(-1, 100))
+  assert.throws(() => cashReconciliation(100, NaN))
+})

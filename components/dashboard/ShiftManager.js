@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import { getAppContext, formatDzd } from '@/lib/app-context'
-import { DENOMINATIONS, countCash, validMoney, fetchAllRows } from '@/lib/cash'
+import { DENOMINATIONS, countCash, validMoney, fetchAllRows, cashReconciliation } from '@/lib/cash'
 
 const inputClass = 'w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold'
 
@@ -91,21 +91,23 @@ export default function ShiftManager() {
         if (!validMoney(starting)) throw new Error('أدخل مبلغاً افتتاحياً صحيحاً غير سالب')
         const { error } = await supabase.from('shifts').insert({
           store_id: ctx.storeId, user_id: ctx.user.id, status: 'open',
-          start_time: new Date().toISOString(), expected_cash: Number(starting),
-          actual_cash: Number(starting), difference: 0, closed_at: null,
+          start_time: new Date().toISOString(),
+          ...cashReconciliation(starting, starting),
+          closed_at: null, end_time: null,
         })
         if (error) throw error
       } else {
         const end = new Date().toISOString()
         const latestSales = await salesForShift(shift, ctx.storeId, end)
         const latestExpected = Number(shift.expected_cash) + latestSales
-        const latestDifference = actual - latestExpected
+        const amounts = cashReconciliation(actual, latestExpected)
+        const latestDifference = amounts.difference
         setCashSales(latestSales)
         if (!Number.isSafeInteger(actual)) throw new Error('المبلغ المعدود غير صالح')
         if (latestSales !== cashSales) throw new Error('تغيرت المبيعات أثناء العد. راجع المبلغ المتوقع وأكد التقفيلة مجدداً.')
         if (latestDifference !== 0 && !notes.trim()) throw new Error('يجب توضيح سبب الفرق في الملاحظات')
         const { data, error } = await supabase.from('shifts').update({
-          actual_cash: actual, expected_cash: latestExpected, difference: latestDifference,
+          ...amounts,
           notes: notes.trim() || null, status: 'closed', end_time: end, closed_at: end,
           total_cash_sales: latestSales,
         }).eq('id', shift.id).eq('store_id', ctx.storeId).eq('status', 'open').select('id').maybeSingle()

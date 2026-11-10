@@ -32,3 +32,24 @@ Build verification: the sandbox blocks Google Fonts. `npm run build` passes with
 Next's test-only NEXT_FONT_GOOGLE_MOCKED_RESPONSES and placeholder public Supabase
 environment variables. No test font mock or credentials are committed. Live
 end-to-end transactions were not performed against production data.
+
+## Shift schema fix and dynamic size types
+
+Run `node --test tests/*.test.mjs` (10 tests). Supabase schema inspection
+confirmed `shifts.difference` is a writable integer (`is_generated = NEVER`).
+Both open/close writes now use the same explicit JS reconciliation helper.
+No additional database schema changes are needed.
+
+Product acceptance:
+- Add Product > نوع المقاس: clothing has S/M/L/XL/XXL; shoes 39–45;
+  pants 38/40/42/44/46/48.
+- Enter stock, switch type, and verify all quantities clear, including shared
+  numeric columns; custom colors stay. The form warns about this behavior.
+- Enter stock for the active type, save, and inspect product_variants.size and
+  corresponding inventory.quantity. Only positive whole-number stock is saved;
+  inactive sizes never create variants.
+- After a successful save the next product defaults to clothing with empty stock.
+
+Production write tests were not performed: opening/closing a real shift or adding
+products would change live business data. Payload calculations and size/quantity
+selection are covered by automated tests; authenticated acceptance is still needed.

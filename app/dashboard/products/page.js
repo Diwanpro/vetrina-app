@@ -1,30 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import DashboardShell from '@/components/dashboard/DashboardShell'
+import { SIZE_TYPES, sizesForType, emptySizeRow, emptySizeMatrix, filledSizeCells } from '@/lib/product-sizes'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
 
 const CATEGORIES = ['ملابس', 'أحذية', 'إكسسوارات']
 const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
-const SIZES = ['S', 'M', 'L', 'XL']
-
-function emptyRow() {
-  const row = {}
-  SIZES.forEach((s) => {
-    row[s] = ''
-  })
-  return row
-}
-
-function emptyMatrix() {
-  const m = {}
-  DEFAULT_COLORS.forEach((c) => {
-    m[c] = emptyRow()
-  })
-  return m
-}
-
 function firstImage(product) {
   if (Array.isArray(product.images) && product.images.length) return product.images[0]
   return product.image_url || ''
@@ -46,7 +29,9 @@ export default function ProductsPage() {
     imageFile: null,
     imagePreview: '',
   })
-  const [matrix, setMatrix] = useState(emptyMatrix())
+  const [sizeType, setSizeType] = useState(SIZE_TYPES[0].value)
+  const sizes = sizesForType(sizeType)
+  const [matrix, setMatrix] = useState(() => emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
   const [newColor, setNewColor] = useState('')
 
   async function loadProducts() {
@@ -67,16 +52,14 @@ export default function ProductsPage() {
 
   const colorRows = Object.keys(matrix)
 
-  const filledCells = useMemo(() => {
-    const cells = []
-    Object.keys(matrix).forEach((color) => {
-      SIZES.forEach((size) => {
-        const qty = Number(matrix[color]?.[size])
-        if (qty > 0) cells.push({ color, size, qty })
-      })
-    })
-    return cells
-  }, [matrix])
+  function changeSizeType(type) {
+    if (type === sizeType) return
+    setSizeType(type)
+    // Reset all quantities, including overlapping numeric sizes, so shoe stock
+    // can never silently become pants stock (or vice versa).
+    setMatrix(prev => emptySizeMatrix(Object.keys(prev), sizesForType(type)))
+    setError('')
+  }
 
   function addCustomColor() {
     const color = newColor.trim()
@@ -86,13 +69,21 @@ export default function ProductsPage() {
       return
     }
     setError('')
-    setMatrix((prev) => ({ ...prev, [color]: emptyRow() }))
+    setMatrix((prev) => ({ ...prev, [color]: emptySizeRow(sizes) }))
     setNewColor('')
   }
 
   async function handleSave(e) {
     e.preventDefault()
+    if (saving) return
     setError('')
+    let filledCells
+    try {
+      filledCells = filledSizeCells(matrix, sizes)
+    } catch (err) {
+      setError(err.message)
+      return
+    }
     if (!form.name.trim() || !form.base_price) {
       setError('يرجى إدخال اسم المنتج وسعر البيع')
       return
@@ -186,7 +177,8 @@ export default function ProductsPage() {
 
     setOpen(false)
     setForm({ name: '', description: '', category: CATEGORIES[0], base_price: '', cost_price: '', imageFile: null, imagePreview: '' })
-    setMatrix(emptyMatrix())
+    setSizeType(SIZE_TYPES[0].value)
+    setMatrix(emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
     setNewColor('')
     loadProducts()
   }
@@ -275,6 +267,17 @@ export default function ProductsPage() {
                 />
               </label>
               <label className="block">
+                <span className="mb-1 block text-xs text-neutral-400">نوع المقاس</span>
+                <select value={sizeType} disabled={saving} onChange={e => changeSizeType(e.target.value)}
+                  aria-describedby="size-type-help"
+                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold disabled:opacity-50">
+                  {SIZE_TYPES.map(option => (
+                    <option key={option.value} value={option.value}>{option.label} ({option.sizes.join(', ')})</option>
+                  ))}
+                </select>
+                <span id="size-type-help" className="mt-1 block text-[11px] text-neutral-500">تغيير نوع المقاس يمسح كميات الجدول. أدخل الكميات بعد اختيار النوع.</span>
+              </label>
+              <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">التصنيف</span>
                 <select
                   value={form.category}
@@ -351,7 +354,7 @@ export default function ProductsPage() {
                     <thead className="bg-[#1f1f1f] text-neutral-400">
                       <tr>
                         <th className="p-2">اللون</th>
-                        {SIZES.map((s) => (
+                        {sizes.map((s) => (
                           <th key={s} className="p-2">{s}</th>
                         ))}
                       </tr>
@@ -360,12 +363,15 @@ export default function ProductsPage() {
                       {colorRows.map((color) => (
                         <tr key={color} className="border-t border-white/5">
                           <td className="p-2 text-neutral-300 whitespace-nowrap">{color}</td>
-                          {SIZES.map((size) => (
+                          {sizes.map((size) => (
                             <td key={size} className="p-1">
                               <input
                                 type="number"
                                 min="0"
-                                value={matrix[color][size]}
+                                step="1"
+                                disabled={saving}
+                                aria-label={`كمية ${color} مقاس ${size}`}
+                                value={matrix[color][size] ?? ''}
                                 onChange={(e) =>
                                   setMatrix((prev) => ({
                                     ...prev,
