@@ -9,6 +9,7 @@ import { fetchAllRows, todayRange } from '@/lib/cash'
 import { scopeQuery } from '@/lib/access'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
+import { CreditPaymentToast } from '@/components/dashboard/CreditLedger'
 
 function currentTimeLabel() {
   return new Date().toLocaleTimeString('ar-DZ', { hour: '2-digit', minute: '2-digit' })
@@ -102,6 +103,7 @@ export default function DashboardPage() {
 
   return (
     <DashboardShell active="/dashboard">
+      <CreditPaymentToast />
       <div className="space-y-3">
         {loading && <p role="status" className="text-sm text-neutral-400">جاري تحميل إحصائيات اليوم...</p>}
         {error && <p role="alert" className="rounded-lg border border-red-900 bg-red-950/20 p-3 text-sm text-red-200">تعذر تحديث الإحصائيات: {error}</p>}

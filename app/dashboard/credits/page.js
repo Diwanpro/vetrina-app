@@ -6,6 +6,8 @@ import { scopeQuery } from '@/lib/access'
 import { fetchAllRows, validMoney } from '@/lib/cash'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
+import { CreditPaymentModal, CustomerLedgerModal } from '@/components/dashboard/CreditLedger'
+import { secondaryClass } from '@/components/dashboard/EngineUI'
 
 function formatDate(value) {
   if (!value) return '—'
@@ -28,6 +30,9 @@ export default function CreditsPage() {
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // Exactly one modal can be open: a payment form or a customer ledger.
+  const [payCredit, setPayCredit] = useState(null)
+  const [ledgerCustomer, setLedgerCustomer] = useState(null)
   const [ctx, setCtx] = useState({ tenantId: null, storeId: null })
   const [form, setForm] = useState({
     name: '',
@@ -166,7 +171,10 @@ export default function CreditsPage() {
               <article key={credit.id} className="rounded-xl border border-white/5 bg-card p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="text-sm font-medium text-neutral-100">{name}</p>
+                    <button type="button" onClick={() => setLedgerCustomer(credit.customers?.id)}
+                      className="text-right text-sm font-medium text-neutral-100 underline decoration-dotted underline-offset-4 hover:text-gold">
+                      {name}
+                    </button>
                     <p className="text-[11px] text-neutral-500">{phone || 'بدون رقم'}</p>
                   </div>
                   <span className="text-sm font-bold text-gold">{formatDzd(amount)}</span>
@@ -175,16 +183,23 @@ export default function CreditsPage() {
                 {credit.description && (
                   <p className="mt-1 text-xs text-neutral-400">{credit.description}</p>
                 )}
-                {wa && (
-                  <a
-                    href={wa}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-2 inline-flex rounded-lg border border-gold/30 px-2.5 py-1.5 text-[11px] text-gold"
-                  >
-                    تذكير واتساب
-                  </a>
-                )}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {Number(credit.remaining_amount ?? credit.total_amount) > 0 && credit.status !== 'paid' && (
+                    <button type="button" onClick={() => setPayCredit(credit)} className={secondaryClass}>
+                      تسجيل دفعة
+                    </button>
+                  )}
+                  {wa && (
+                    <a
+                      href={wa}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex rounded-lg border border-gold/30 px-2.5 py-1.5 text-[11px] text-gold"
+                    >
+                      تذكير واتساب
+                    </a>
+                  )}
+                </div>
               </article>
             )
           })}
@@ -261,6 +276,17 @@ export default function CreditsPage() {
           </form>
         </div>
       )}
+
+      {payCredit && <CreditPaymentModal
+        credit={payCredit}
+        onClose={() => setPayCredit(null)}
+        onSaved={() => { loadCredits() }}
+      />}
+
+      {ledgerCustomer && <CustomerLedgerModal
+        customerId={ledgerCustomer}
+        onClose={() => setLedgerCustomer(null)}
+      />}
     </DashboardShell>
   )
 }
