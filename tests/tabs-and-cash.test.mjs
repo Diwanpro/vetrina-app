@@ -151,15 +151,13 @@ test('the dashboard shows total credit from the credits table', async () => {
   assert.match(body, /c\.remaining_amount > 0/)
 })
 
-test('customer lookup matches on the tenant, not through this store credits', async () => {
+test('customer lookup is tenant-scoped and no longer joins this store credits', async () => {
   const page = await read('../app/dashboard/_screens/credits.js')
   // The old lookup inner-joined credits on the current store, so a customer
-  // with debts in another branch never matched and was duplicated.
+  // with debts in another branch never matched and was duplicated. Matching is
+  // now done server-side in one transaction.
   assert.equal(/credits!inner\(store_id\)/.test(page), false)
-  assert.match(page, /\.eq\('tenant_id', ctx\.tenantId\)\s*\n\s*\.eq\('phone', phone\)/)
-  assert.match(page, /\.eq\('tenant_id', ctx\.tenantId\)\s*\n\s*\.eq\('name', name\)/)
-  // The insert result must actually be assigned, or customer_id is undefined.
-  assert.match(page, /customer = created/)
+  assert.match(page, /supabase\.rpc\('engine_create_credit'/)
 })
 
 test('the server-side credit matcher uses phone first, then exact name', async () => {

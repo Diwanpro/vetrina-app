@@ -33,6 +33,7 @@ export default function PosPage() {
   const [selected, setSelected] = useState(null)
   const [picked, setPicked] = useState({ color: '', size: '' })
   const [cart, setCart] = useState([])
+  const [cartOpen, setCartOpen] = useState(false)
   const [checkout, setCheckout] = useState(false)
   const [payment, setPayment] = useState('cash')
   const [cashPaid, setCashPaid] = useState('')
@@ -118,7 +119,10 @@ export default function PosPage() {
     if (!variant) return
     try {
       addVariant(selected, variant, variant.qty)
+      // Close the picker and stay in the catalogue so the next item can be
+      // added; the floating bar is the only way into the cart.
       setSelected(null); setPicked({ color: '', size: '' }); setError('')
+      setCartOpen(false); setCheckout(false)
     } catch (err) { setError(err.message) }
   }
 
@@ -187,7 +191,7 @@ export default function PosPage() {
       if (current.locked || current.storeId !== ctx.storeId || current.user.id !== ctx.user.id) throw new Error('تغير الحساب أو الفرع. أعد تحميل نقطة البيع.')
       const row = await persistLocalSale(current, cart, payment, split)
       // The local transaction is durable before clearing the cart, even online.
-      setCart([]); setCheckout(false); setCashPaid(''); setSplitting(false)
+      setCart([]); setCheckout(false); setCartOpen(false); setCashPaid(''); setSplitting(false)
       setDone('تم حفظ الفاتورة محلياً؛ بانتظار المزامنة')
       if (navigator.onLine) {
         // A failed sync used to be swallowed here, which is why a sale could be
@@ -321,20 +325,83 @@ export default function PosPage() {
         </div>
       )}
 
-      {cart.length > 0 && (
-        <div className="fixed bottom-16 md:bottom-3 inset-x-3 md:inset-x-auto md:right-[100px] md:w-[360px] z-40 rounded-xl border border-gold/30 bg-[#171717] p-3 shadow-2xl">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-neutral-400">{totals.count} قطعة</p>
-              <p className="text-base font-bold text-gold">{formatDzd(totals.amount)}</p>
+      {/* Floating cart bar. Adding an item returns to the catalogue, so this is
+          the only path into the cart and from there into payment. */}
+      {cart.length > 0 && !cartOpen && !checkout && (
+        <button
+          type="button"
+          onClick={() => setCartOpen(true)}
+          aria-label={`عرض السلة، ${totals.count} قطعة، ${formatDzd(totals.amount)}`}
+          className="fixed bottom-16 md:bottom-3 inset-x-3 md:inset-x-auto md:right-[100px] md:w-[380px] z-40 flex items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold px-4 py-3 text-[#121212] shadow-2xl active:scale-[0.99]"
+        >
+          <span className="text-sm font-bold">عرض السلة ({totals.count} قطع) - {formatDzd(totals.amount)}</span>
+          <span aria-hidden="true" className="text-lg leading-none">‹</span>
+        </button>
+      )}
+
+      {/* Cart step: review, change quantities, remove, then pay. */}
+      {cartOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-end md:items-center justify-center p-0 md:p-4">
+          <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-t-2xl md:rounded-2xl bg-[#171717] border border-white/10 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-medium text-neutral-100">السلة ({totals.count} قطع)</h2>
+              <button type="button" onClick={() => setCartOpen(false)} className="text-xs text-neutral-400">
+                متابعة التسوق
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setCheckout(true)}
-              className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-[#121212]"
-            >
-              إتمام البيع
-            </button>
+
+            {cart.length === 0 ? (
+              <p className="py-6 text-center text-sm text-neutral-500">السلة فارغة.</p>
+            ) : (
+              <>
+                <ul className="mb-3 max-h-[45vh] space-y-2 overflow-y-auto text-xs text-neutral-300">
+                  {cart.map((i) => (
+                    <li key={i.variantId} className="rounded-lg border border-white/5 bg-black/20 p-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-neutral-100">{i.name}</p>
+                          <p className="mt-0.5 text-[11px] text-neutral-500">{i.color} / {i.size}</p>
+                        </div>
+                        <span className="shrink-0 text-gold">{formatDzd(i.price * i.qty)}</span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <button type="button" aria-label={`إنقاص كمية ${i.name}`} disabled={saving || i.qty <= 1}
+                            onClick={() => setCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))}
+                            className="rounded border border-white/10 px-2.5 py-1 disabled:opacity-30">−</button>
+                          <span className="min-w-6 text-center text-neutral-100">{i.qty}</span>
+                          <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving || i.qty >= i.max}
+                            onClick={() => setCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))}
+                            className="rounded border border-white/10 px-2.5 py-1 disabled:opacity-30">+</button>
+                        </div>
+                        <button type="button" disabled={saving}
+                          onClick={() => {
+                            const next = cart.filter(item => item.variantId !== i.variantId)
+                            setCart(next)
+                            if (!next.length) { setCartOpen(false); setCheckout(false) }
+                          }}
+                          className="text-red-300">حذف</button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mb-3 flex items-center justify-between border-t border-white/10 pt-3">
+                  <span className="text-sm text-neutral-400">الإجمالي</span>
+                  <span className="text-base font-bold text-gold">{formatDzd(totals.amount)}</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" disabled={saving} onClick={() => { setCartOpen(false); setCheckout(true) }}
+                    className="flex-1 rounded-lg bg-gold py-2.5 text-sm font-medium text-[#121212] disabled:opacity-60">
+                    متابعة للدفع
+                  </button>
+                  <button type="button" disabled={saving} onClick={() => setCartOpen(false)}
+                    className="rounded-lg border border-white/10 px-3 py-2.5 text-sm text-neutral-300 disabled:opacity-50">
+                    متابعة التسوق
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -344,9 +411,15 @@ export default function PosPage() {
           <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-t-2xl md:rounded-2xl bg-[#171717] border border-white/10 p-4">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-medium">إتمام البيع</h2>
-              <button type="button" onClick={() => setCheckout(false)} className="text-xs text-neutral-400">
-                إغلاق
-              </button>
+              <div className="flex items-center gap-3">
+                {/* Back to the cart, so a wrong size is fixed without losing the sale. */}
+                <button type="button" disabled={saving} onClick={() => { setCheckout(false); setCartOpen(true) }} className="text-xs text-gold disabled:opacity-50">
+                  رجوع للسلة
+                </button>
+                <button type="button" disabled={saving} onClick={() => { setCheckout(false); setCartOpen(true) }} className="text-xs text-neutral-400 disabled:opacity-50">
+                  إغلاق
+                </button>
+              </div>
             </div>
             <ul className="mb-3 max-h-60 overflow-y-auto space-y-2 text-xs text-neutral-300">
               {cart.map((i) => (
@@ -356,7 +429,7 @@ export default function PosPage() {
                     <div className="mt-2 flex items-center gap-3">
                       <button type="button" aria-label={`إنقاص كمية ${i.name}`} disabled={saving || i.qty <= 1} onClick={() => setCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">−</button>
                       <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving || i.qty >= i.max} onClick={() => setCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">+</button>
-                      <button type="button" disabled={saving} onClick={() => { setCart(prev => prev.filter(item => item.variantId !== i.variantId)); if (cart.length === 1) setCheckout(false) }} className="text-red-300">حذف</button>
+                      <button type="button" disabled={saving} onClick={() => { const next = cart.filter(item => item.variantId !== i.variantId); setCart(next); if (!next.length) { setCheckout(false); setCartOpen(false) } }} className="text-red-300">حذف</button>
                     </div>
                   </div>
                   <div className="text-left">

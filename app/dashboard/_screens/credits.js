@@ -29,6 +29,7 @@ export default function CreditsPage() {
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   // Exactly one modal can be open: a payment form or a customer ledger.
   const [payCredit, setPayCredit] = useState(null)
   const [ledgerCustomer, setLedgerCustomer] = useState(null)
@@ -74,67 +75,25 @@ export default function CreditsPage() {
       }
 
       setSaving(true)
-      // Customers are tenant-wide, not per store. Matching used to be routed
-      // through an inner join on that store's credits, so a customer whose only
-      // debt was in another branch never matched and was duplicated on every
-      // new credit. Match on the tenant alone.
-      let customer = null
-      const name = form.name.trim()
-      const phone = form.phone.trim()
-
-      if (phone) {
-        const { data, error: phoneError } = await supabase
-          .from('customers')
-          .select('id, name, phone')
-          .eq('tenant_id', ctx.tenantId)
-          .eq('phone', phone)
-          .order('id')
-          .limit(1)
-        if (phoneError) throw phoneError
-        customer = data?.[0] || null
-      }
-      if (!customer) {
-        const { data, error: nameError } = await supabase
-          .from('customers')
-          .select('id, name, phone')
-          .eq('tenant_id', ctx.tenantId)
-          .eq('name', name)
-          .order('id')
-          .limit(1)
-        if (nameError) throw nameError
-        customer = data?.[0] || null
-      }
-      if (!customer) {
-        const { data: created, error: insertError } = await supabase
-          .from('customers')
-          .insert({ tenant_id: ctx.tenantId, name, phone: phone || null })
-          .select('id, name, phone')
-          .single()
-        if (insertError || !created) {
-          setSaving(false)
-          setError(insertError?.message || 'فشل حفظ الزبون')
-          return
-        }
-        customer = created
-      }
-
-      const amount = Number(form.amount)
-      const { error: crErr } = await supabase.from('credits').insert({
-        store_id: ctx.storeId,
-        created_by: ctx.staffId,
-        customer_id: customer.id,
-        total_amount: amount,
-        remaining_amount: amount,
-        description: form.description.trim() || null,
-        due_date: form.due_date || null,
-        status: 'active',
+      // Matching and insertion happen in one server-side transaction. Doing the
+      // lookup in the browser means two tills can both miss each other and
+      // create the same customer; `customers_tenant_match_key` now makes that
+      // impossible, and the function retries the read instead of erroring.
+      const { data: result, error: rpcError } = await supabase.rpc('engine_create_credit', {
+        p_store: ctx.storeId,
+        p_name: form.name,
+        p_phone: form.phone,
+        p_amount: Number(form.amount),
+        p_description: form.description,
+        p_due_date: form.due_date || null,
       })
+      if (rpcError) { setSaving(false); setError(rpcError.message); return }
 
-      setSaving(false)
-      if (crErr) {
-        setError(crErr.message)
-        return
-      }
+      // Surface the match so the cashier sees the debt went to an existing
+      // customer rather than silently creating a near-duplicate.
+      setNotice(result?.createdCustomer
+        ? `تم إنشاء زبون جديد: ${result.customerName}`
+        : `تم ربط الدين بالزبون الموجود: ${result?.customerName || ''}`)
 
       setOpen(false)
       setForm({ name: '', phone: '', amount: '', description: '', due_date: '' })
@@ -148,7 +107,7 @@ export default function CreditsPage() {
         <h1 className="text-base font-medium text-neutral-100">الكريدي</h1>
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => { setOpen(true); setNotice(''); setError('') }}
           className="rounded-lg bg-gold px-3 py-2 text-sm font-medium text-[#121212]"
         >
           إضافة كريدي
@@ -156,6 +115,7 @@ export default function CreditsPage() {
       </div>
 
       {!open && error && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
+      {!open && notice && <p role="status" className="mb-3 text-sm text-emerald-300">{notice}</p>}
       {loading ? (
         <p className="text-sm text-neutral-500">جاري التحميل...</p>
       ) : credits.length === 0 ? (
