@@ -84,6 +84,15 @@ export function IconCash({ className = 'w-5 h-5' }) {
   )
 }
 
+export function IconCollections({ className = 'w-5 h-5' }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <path d="M6 3h9l4 4v14H6z" strokeLinejoin="round" />
+      <path d="M9 11h7M9 15h7M9 7h3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export function IconProfit({ className = 'w-5 h-5' }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">

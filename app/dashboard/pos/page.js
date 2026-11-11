@@ -7,6 +7,7 @@ import { persistLocalSale, localRows } from '@/lib/local-db'
 import { logAction } from '@/lib/audit'
 import { meetsFloor, validMoney, FLOOR_PRICE_MESSAGE } from '@/lib/cash'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
+import MixedPaymentModal from '@/components/dashboard/MixedPaymentModal'
 import { fetchAllRows } from '@/lib/cash'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import { supabase } from '@/lib/supabase'
@@ -35,6 +36,7 @@ export default function PosPage() {
   const [checkout, setCheckout] = useState(false)
   const [payment, setPayment] = useState('cash')
   const [cashPaid, setCashPaid] = useState('')
+  const [splitting, setSplitting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
@@ -170,15 +172,22 @@ export default function PosPage() {
     finally { setPriceBusy(false) }
   }
 
-  async function completeSale() {
+  // A remainder above 100 DZD cannot silently become credit: the cashier is
+  // asked how it will be settled, and a cheque needs its paper attached.
+  function requestSale() {
+    if (creditRemainder > 100) { setSplitting(true); return }
+    completeSale(null)
+  }
+
+  async function completeSale(split = null) {
     if (!cart.length || saleSaving.current || priceBusy) return
     saleSaving.current = true; setSaving(true); setError('')
     try {
       const current = await getAppContext()
       if (current.locked || current.storeId !== ctx.storeId || current.user.id !== ctx.user.id) throw new Error('تغير الحساب أو الفرع. أعد تحميل نقطة البيع.')
-      const row = await persistLocalSale(current, cart, payment)
+      const row = await persistLocalSale(current, cart, payment, split)
       // The local transaction is durable before clearing the cart, even online.
-      setCart([]); setCheckout(false); setCashPaid('')
+      setCart([]); setCheckout(false); setCashPaid(''); setSplitting(false)
       setDone('تم حفظ الفاتورة محلياً؛ بانتظار المزامنة')
       if (navigator.onLine) {
         // A failed sync used to be swallowed here, which is why a sale could be
@@ -248,6 +257,10 @@ export default function PosPage() {
           })}
         </div>
       )}
+
+      {splitting && <MixedPaymentModal ctx={ctx} remainder={creditRemainder}
+        onCancel={() => setSplitting(false)}
+        onConfirm={async (choice) => { await completeSale({ ...choice, cash: paidCash }) }} />}
 
       {selected && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-end md:items-center justify-center p-0 md:p-4">
@@ -397,7 +410,7 @@ export default function PosPage() {
               </p>
               {creditRemainder > 0 && (
                 <p className="rounded border border-amber-700/30 bg-amber-950/20 p-2 text-[11px] leading-5 text-amber-200">
-                  الباقي {formatDzd(creditRemainder)} يُسجَّل كدين على الزبون. بعد إتمام البيع افتح صفحة الكريدي وأضف الدين بالاسم والمبلغ.
+                  الباقي {formatDzd(creditRemainder)} سيُسجَّل ديناً على الزبون أو شيكاً عند تأكيد البيع.
                 </p>
               )}
             </div>
@@ -405,7 +418,7 @@ export default function PosPage() {
             <button
               type="button"
               disabled={saving}
-              onClick={completeSale}
+              onClick={() => requestSale()}
               className="w-full rounded-lg bg-gold py-2.5 text-sm font-medium text-[#121212] disabled:opacity-60"
             >
               {saving ? 'جاري الحفظ...' : 'إكمال البيع'}
