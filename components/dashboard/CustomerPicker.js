@@ -25,6 +25,9 @@ export default function CustomerPicker({ tenantId, value, onChange, disabled = f
     const term = query.trim()
     if (!creating && term.length < 2) { setRows([]); return }
     setLoading(true)
+    // Escape the LIKE wildcards so a literal % or _ does not match everything.
+    const escaped = term.replace(/[%_\\]/g, '\\$&')
+    const pattern = `%${escaped}%`
     const timer = setTimeout(async () => {
       try {
         // `error` here used to shadow the state setter, so a failed query was
@@ -33,7 +36,9 @@ export default function CustomerPicker({ tenantId, value, onChange, disabled = f
           .from('customers')
           .select('id, name, phone')
           .eq('tenant_id', tenantId)
-          .ilike('name', `%${term.replace(/[%_\\]/g, '\\$&')}%`)
+          // Name or phone: a cashier is as likely to have the number on screen
+          // as the name, and a phone match is a stronger identity signal.
+          .or(`name.ilike.${pattern},phone.ilike.${pattern}`)
           .order('name')
           .limit(8)
         if (queryError) throw queryError

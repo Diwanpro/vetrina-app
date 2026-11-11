@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
 import { CreditPaymentModal } from '@/components/dashboard/CreditLedger'
 import LedgerModal from '@/components/dashboard/LedgerModal'
+import CustomerPicker from '@/components/dashboard/CustomerPicker'
 import { secondaryClass } from '@/components/dashboard/EngineUI'
 
 function formatDate(value) {
@@ -36,8 +37,9 @@ export default function CreditsPage() {
   const [ledgerCustomer, setLedgerCustomer] = useState(null)
   const [ctx, setCtx] = useState({ tenantId: null, storeId: null })
   const [form, setForm] = useState({
-    name: '',
-    phone: '',
+    // `customer` is the picker's value: { id, name, phone }. Keeping the id lets
+    // the RPC skip the name match entirely, which is where duplicates began.
+    customer: { id: null, name: '', phone: '' },
     amount: '',
     description: '',
     due_date: '',
@@ -66,7 +68,7 @@ export default function CreditsPage() {
     if (saving) return
     setError('')
     try {
-      if (!form.name.trim() || !validMoney(form.amount) || Number(form.amount) <= 0) {
+      if (!form.customer.name.trim() || !validMoney(form.amount) || Number(form.amount) <= 0) {
         setError('يرجى إدخال اسم الزبون والمبلغ')
         return
       }
@@ -82,8 +84,10 @@ export default function CreditsPage() {
       // impossible, and the function retries the read instead of erroring.
       const { data: result, error: rpcError } = await supabase.rpc('engine_create_credit', {
         p_store: ctx.storeId,
-        p_name: form.name,
-        p_phone: form.phone,
+        p_name: form.customer.name,
+        p_phone: form.customer.phone,
+        // The chosen row wins; the server matches by phone/name only when null.
+        p_customer_id: form.customer.id,
         p_amount: Number(form.amount),
         p_description: form.description,
         p_due_date: form.due_date || null,
@@ -97,7 +101,7 @@ export default function CreditsPage() {
         : `تم ربط الدين بالزبون الموجود: ${result?.customerName || ''}`)
 
       setOpen(false)
-      setForm({ name: '', phone: '', amount: '', description: '', due_date: '' })
+      setForm({ customer: { id: null, name: '', phone: '' }, amount: '', description: '', due_date: '' })
       loadCredits()
     } catch (err) { setError(err.message) } finally { setSaving(false) }
   }
@@ -182,23 +186,14 @@ export default function CreditsPage() {
               </button>
             </div>
             <div className="space-y-3">
-              <label className="block">
-                <span className="mb-1 block text-xs text-neutral-400">اسم الزبون</span>
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                  required
+              <div className="block">
+                <span className="mb-1 block text-xs text-neutral-400">الزبون</span>
+                <CustomerPicker
+                  tenantId={ctx.tenantId}
+                  value={form.customer}
+                  onChange={(customer) => setForm({ ...form, customer })}
                 />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs text-neutral-400">الهاتف (اختياري)</span>
-                <input
-                  value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                />
-              </label>
+              </div>
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">المبلغ</span>
                 <input
