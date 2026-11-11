@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import { getAppContext, formatDzd } from '@/lib/app-context'
-import { DENOMINATIONS, countCash, validMoney, fetchAllRows, cashReconciliation } from '@/lib/cash'
+import { DENOMINATIONS, countCash, validMoney, fetchAllRows, cashReconciliation, expectedCash } from '@/lib/cash'
 
 const inputClass = 'w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold'
 
@@ -17,10 +17,18 @@ export default function ShiftManager() {
   const [counts, setCounts] = useState({})
   const [notes, setNotes] = useState('')
   const [cashSales, setCashSales] = useState(0)
+  const [drawerExpenses, setDrawerExpenses] = useState(0)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
   const actual = countCash(counts)
-  const expected = Number(shift?.expected_cash || 0) + cashSales - Number(shift?.total_employee_payments || 0)
+  const expected = expectedCash({
+    openingFloat: shift?.expected_cash,
+    cashSales,
+    creditPayments: shift?.total_credit_payments,
+    collections: shift?.total_collections,
+    employeePayments: shift?.total_employee_payments,
+    expenses: drawerExpenses,
+  })
   const difference = actual - expected
 
   async function context() {
@@ -56,10 +64,21 @@ export default function ShiftManager() {
   async function salesForShift(current, storeId, until) {
     // Use the shift's actual opening time: avoids double-counting when reopening
     // and retains sales on shifts carried across midnight.
-    const rows = await fetchAllRows(supabase.from('sales').select('id, total_amount')
-      .eq('store_id', storeId).eq('payment_method', 'cash').eq('status', 'completed')
+    // cash_amount is the portion actually handed over. Summing total_amount
+    // counted the cheque/credit part of a mixed ticket as drawer cash.
+    const rows = await fetchAllRows(supabase.from('sales').select('id, cash_amount')
+      .eq('store_id', storeId).eq('status', 'completed')
       .gte('created_at', current.start_time).lt('created_at', until).order('id'))
-    return rows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0)
+    return rows.reduce((sum, row) => sum + Number(row.cash_amount || 0), 0)
+  }
+
+  async function expensesForShift(current, storeId, until) {
+    // Expenses were never deducted, so the drawer always looked short by the
+    // amount spent from it during the shift.
+    const rows = await fetchAllRows(supabase.from('expenses').select('id, amount')
+      .eq('store_id', storeId).is('deleted_at', null)
+      .gte('created_at', current.start_time).lt('created_at', until).order('id'))
+    return rows.reduce((sum, row) => sum + Number(row.amount || 0), 0)
   }
 
   async function openModal() {
@@ -74,7 +93,14 @@ export default function ShiftManager() {
       const ctx = await context()
       const current = await readShift(ctx.storeId)
       setShift(current)
-      setCashSales(current ? await salesForShift(current, ctx.storeId, new Date().toISOString()) : 0)
+      if (current) {
+        const until = new Date().toISOString()
+        const [sales, spent] = await Promise.all([
+          salesForShift(current, ctx.storeId, until),
+          expensesForShift(current, ctx.storeId, until),
+        ])
+        setCashSales(sales); setDrawerExpenses(spent)
+      } else { setCashSales(0); setDrawerExpenses(0) }
       setReady(true)
     } catch (err) { setError(err.message) }
     finally { setBusy(false) }
@@ -101,17 +127,33 @@ export default function ShiftManager() {
         }
       } else {
         const end = new Date().toISOString()
-        const latestSales = await salesForShift(shift, ctx.storeId, end)
+        const [latestSales, latestExpenses] = await Promise.all([
+          salesForShift(shift, ctx.storeId, end),
+          expensesForShift(shift, ctx.storeId, end),
+        ])
         const current = await readShift(ctx.storeId)
         if (!current || current.id !== shift.id) throw new Error('تغيرت الوردية. أعد فتح التقفيلة')
-        const latestExpected = Number(shift.expected_cash) + latestSales - Number(current.total_employee_payments || 0)
-        const paymentChanged = Number(current.total_employee_payments || 0) !== Number(shift.total_employee_payments || 0)
+        const latestExpected = expectedCash({
+          openingFloat: shift.expected_cash,
+          cashSales: latestSales,
+          creditPayments: current.total_credit_payments,
+          collections: current.total_collections,
+          employeePayments: current.total_employee_payments,
+          expenses: latestExpenses,
+        })
+        // Every component must be unchanged since the count started; the server
+        // recomputes the same figure and rejects a stale one.
+        const moved = latestSales !== cashSales
+          || latestExpenses !== drawerExpenses
+          || Number(current.total_employee_payments || 0) !== Number(shift.total_employee_payments || 0)
+          || Number(current.total_credit_payments || 0) !== Number(shift.total_credit_payments || 0)
+          || Number(current.total_collections || 0) !== Number(shift.total_collections || 0)
         setShift(current)
         const amounts = cashReconciliation(actual, latestExpected)
         const latestDifference = amounts.difference
-        setCashSales(latestSales)
+        setCashSales(latestSales); setDrawerExpenses(latestExpenses)
         if (!Number.isSafeInteger(actual)) throw new Error('المبلغ المعدود غير صالح')
-        if (latestSales !== cashSales || paymentChanged) throw new Error('تغيرت حركة الصندوق أثناء العد. راجع المبلغ المتوقع وأكد التقفيلة مجدداً.')
+        if (moved) throw new Error('تغيرت حركة الصندوق أثناء العد. راجع المبلغ المتوقع وأكد التقفيلة مجدداً.')
         if (latestDifference !== 0 && !notes.trim()) throw new Error('يجب توضيح سبب الفرق في الملاحظات')
         const { error } = await supabase.rpc('engine_close_shift', {
           p_shift: shift.id, p_actual: amounts.actual_cash, p_expected: amounts.expected_cash,
@@ -141,7 +183,10 @@ export default function ShiftManager() {
           <div className="mb-4 space-y-2 rounded-xl bg-black/20 p-3 text-sm">
             <p>الرصيد الافتتاحي: {formatDzd(shift.expected_cash)}</p>
             <p>المبيعات النقدية منذ فتح الوردية: {formatDzd(cashSales)}</p>
+            {Number(shift.total_credit_payments || 0) > 0 && <p>دفعات كريدي نقدية: {formatDzd(shift.total_credit_payments)}</p>}
+            {Number(shift.total_collections || 0) > 0 && <p>شيكات محصلة إلى الصندوق: {formatDzd(shift.total_collections)}</p>}
             <p>الرواتب والسلف المدفوعة: {formatDzd(shift.total_employee_payments || 0)}</p>
+            {Number(drawerExpenses || 0) > 0 && <p>مصاريف مدفوعة من الصندوق: −{formatDzd(drawerExpenses)}</p>}
             <p className="text-gold">النقد المتوقع: {formatDzd(expected)}</p>
           </div>
           <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">

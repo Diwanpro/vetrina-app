@@ -71,7 +71,14 @@ export default function SessionProvider({ children }) {
   if (error) return <div className="min-h-screen bg-surface p-8 text-neutral-100"><p role="alert" className="mb-4 text-red-300">{error}</p><a href="/login" className="text-gold">تسجيل الدخول</a><button onClick={() => location.reload()} className="mx-4 text-gold">إعادة المحاولة</button></div>
   if (!ctx) return <div className="min-h-screen bg-surface p-8 text-gold" role="status">جاري التحقق من الحساب والصلاحيات...</div>
   const blocked = !routeAllowed(ctx.role, path)
-  const needsBranch = ctx.allBranches && !['/dashboard', '/dashboard/settings', '/dashboard/transfers', '/dashboard/users', '/dashboard/accounting'].includes(path)
+  // Grouped pages host tabs with different branch requirements: accounting and
+  // transfers work across branches, expenses and collections need one. The
+  // allowlist therefore names every grouped route and the per-tab pages enforce
+  // their own scope when they load.
+  const needsBranch = ctx.allBranches && ![
+    '/dashboard', '/dashboard/settings', '/dashboard/transfers', '/dashboard/users', '/dashboard/accounting',
+    '/dashboard/operations', '/dashboard/customers-credit', '/dashboard/stock', '/dashboard/management',
+  ].includes(path)
   return <SessionContext.Provider value={ctx}>
     {attendanceError && !ctx.locked && <p role="alert" className="border-b border-amber-700/30 bg-[#211b12] px-4 py-2 text-sm text-amber-200">{attendanceError}</p>}
     {ctx.locked ? <TrialCheck tenant={ctx.tenant} role={ctx.role} onActivated={() => location.reload()} />

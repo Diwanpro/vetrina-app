@@ -72,9 +72,9 @@ test('the dark-mode dropdown style is global and applied through fieldClass', as
 })
 
 test('no select is left with the old light background', async () => {
-  const files = ['../app/dashboard/transfers/page.js', '../app/dashboard/pos/page.js',
-    '../app/dashboard/products/page.js', '../app/dashboard/purchases/page.js',
-    '../app/dashboard/users/page.js', '../components/dashboard/TopBar.js', '../app/super-admin/page.js']
+  const files = ['../app/dashboard/_screens/transfers.js', '../app/dashboard/pos/page.js',
+    '../app/dashboard/_screens/products.js', '../app/dashboard/_screens/purchases.js',
+    '../app/dashboard/_screens/users.js', '../components/dashboard/TopBar.js', '../app/super-admin/page.js']
   for (const file of files) {
     const source = await read(file)
     // A select styled with the old neutral-700 / #141414 pair would render light options.
@@ -87,7 +87,7 @@ test('no select is left with the old light background', async () => {
 })
 
 test('the transfer dropdown lists product - colour - size with availability', async () => {
-  const page = await read('../app/dashboard/transfers/page.js')
+  const page = await read('../app/dashboard/_screens/transfers.js')
   assert.match(page, /row\.product_variants\.products\.name\} - \{row\.product_variants\.color\} - \{row\.product_variants\.size\} \(المتاح: \{row\.quantity\}\)/)
   assert.match(page, /<optgroup key=\{name\} label=\{name\}>/)
 })
@@ -120,7 +120,7 @@ test('silent failures now log to the console', async () => {
 })
 
 test('the supplier ledger modal is reachable by clicking the supplier name', async () => {
-  const page = await read('../app/dashboard/suppliers/page.js')
+  const page = await read('../app/dashboard/_screens/suppliers.js')
   assert.match(page, /onClick=\{\(\) => setLedger\(supplier\)\}/)
   assert.match(page, /<SupplierLedger supplier=\{ledger\}/)
   const component = await read('../components/dashboard/SupplierLedger.js')

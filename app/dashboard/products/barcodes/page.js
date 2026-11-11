@@ -62,7 +62,7 @@ export default function BarcodePrintPage() {
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-sm">عدد النسخ لكل مقاس <input type="number" min="1" max="50" value={copies} onChange={e => setCopies(Math.min(50, Math.max(1, Number(e.target.value) || 1)))} className="w-20 rounded border border-neutral-700 bg-black p-2" /></label>
         <button disabled={loading || !variants.length || readyIds.length < variants.length} onClick={() => window.print()} className={primaryClass}>طباعة الملصقات</button>
-        <a href="/dashboard/products" className={secondaryClass}>العودة للمنتجات</a>
+        <a href="/dashboard/stock?tab=products" className={secondaryClass}>العودة للمنتجات</a>
       </div>
       {loading && <p className="text-sm text-neutral-400">جاري تحميل الملصقات...</p>}
       <Notice error={error} />

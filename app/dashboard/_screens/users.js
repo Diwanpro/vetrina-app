@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState } from 'react'
-import DashboardShell from '@/components/dashboard/DashboardShell'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, Modal, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import { supabase } from '@/lib/supabase'
@@ -62,7 +61,7 @@ export default function UsersPage() {
       setSuccess('تم إنشاء حساب الموظف وملفه الوظيفي'); setVersion(v => v + 1)
     } catch (err) { setError(err.message) } finally { setBusy(false) }
   }
-  return <DashboardShell active="/dashboard/users"><div className="mx-auto max-w-5xl space-y-5">
+  return <><div className="mx-auto max-w-5xl space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-xl text-gold">إدارة الموظفين</h1><p className="mt-2 text-xs text-neutral-500">الموارد البشرية · بيانات الأجور والحسابات</p></div><button className={primaryClass} onClick={() => { setError(''); setModal(true) }}>إضافة موظف</button></header>
     <Notice error={error} success={success} />
     <section className="rounded-2xl border border-white/10 bg-card p-5"><div className="mb-4 flex justify-between"><h2 className="text-gold">الموظفون · {ctx.allBranches ? 'جميع الفروع' : ctx.stores.find(s => s.id === ctx.storeId)?.name}</h2><button disabled={loading || busy} className={secondaryClass} onClick={() => setVersion(v => v + 1)}>تحديث</button></div>
@@ -93,5 +92,5 @@ export default function UsersPage() {
         <button disabled={busy} className={secondaryClass} onClick={() => setConfirmToggle(null)}>إلغاء</button>
       </div>
     </Modal>}
-  </div></DashboardShell>
+  </div></>
 }

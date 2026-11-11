@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import DashboardShell from '@/components/dashboard/DashboardShell'
 import VoiceInput from '@/components/VoiceInput'
 import { Modal, Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import { supabase } from '@/lib/supabase'
@@ -108,10 +107,10 @@ export default function PurchasesPage() {
     finally { saving.current = false; setBusy(false) }
   }
 
-  return <DashboardShell active="/dashboard/purchases">
+  return <>
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
       <div><p className="mb-1 text-xs text-gold">المشتريات · استلام السلاسل</p><h1 className="text-xl font-medium text-neutral-100">فاتورة شراء جديدة</h1><p className="mt-2 text-xs text-neutral-500">اختر المورد، أضف المنتجات بالألوان والمقاسات، ثم استلم الفاتورة.</p></div>
-      <a href="/dashboard/suppliers" className={secondaryClass}>إدارة الموردين</a>
+      <a href="/dashboard/stock?tab=suppliers" className={secondaryClass}>إدارة الموردين</a>
     </div>
     <Notice error={error} success={success} />
     {loading && <p className="mb-3 text-sm text-neutral-400">جاري التحميل...</p>}
@@ -187,5 +186,5 @@ export default function PurchasesPage() {
         <tbody>{history.map(row => <tr key={row.id} className="border-t border-white/5 text-neutral-300"><td className="p-2">{row.supplier_name}</td><td className="max-w-sm whitespace-pre-wrap p-2 text-xs text-neutral-400">{row.description || '—'}</td><td className="whitespace-nowrap p-2">{new Date(row.created_at).toLocaleString('ar-DZ')}</td><td className="whitespace-nowrap p-2 text-gold">{formatDzd(row.total_amount)}</td></tr>)}</tbody>
       </table></div>}
     </section>
-  </DashboardShell>
+  </>
 }

@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import DashboardShell from '@/components/dashboard/DashboardShell'
 import { scopeQuery } from '@/lib/access'
 import { fetchAllRows, validMoney } from '@/lib/cash'
 import { supabase } from '@/lib/supabase'
@@ -75,45 +74,48 @@ export default function CreditsPage() {
       }
 
       setSaving(true)
+      // Customers are tenant-wide, not per store. Matching used to be routed
+      // through an inner join on that store's credits, so a customer whose only
+      // debt was in another branch never matched and was duplicated on every
+      // new credit. Match on the tenant alone.
       let customer = null
-      if (form.phone.trim()) {
-        const { data, error: lookupError } = await supabase
+      const name = form.name.trim()
+      const phone = form.phone.trim()
+
+      if (phone) {
+        const { data, error: phoneError } = await supabase
           .from('customers')
-          .select('id, name, phone, credits!inner(store_id)')
-          .eq('credits.store_id', ctx.storeId)
+          .select('id, name, phone')
           .eq('tenant_id', ctx.tenantId)
-          .eq('phone', form.phone.trim())
-          .maybeSingle()
-        if (lookupError) throw lookupError
-        customer = data
+          .eq('phone', phone)
+          .order('id')
+          .limit(1)
+        if (phoneError) throw phoneError
+        customer = data?.[0] || null
       }
       if (!customer) {
-        const { data, error: lookupError } = await supabase
+        const { data, error: nameError } = await supabase
           .from('customers')
-          .select('id, name, phone, credits!inner(store_id)')
-          .eq('credits.store_id', ctx.storeId)
+          .select('id, name, phone')
           .eq('tenant_id', ctx.tenantId)
-          .eq('name', form.name.trim())
-          .maybeSingle()
-        if (lookupError) throw lookupError
-        customer = data
+          .eq('name', name)
+          .order('id')
+          .limit(1)
+        if (nameError) throw nameError
+        customer = data?.[0] || null
       }
       if (!customer) {
-        const { data, error: cErr } = await supabase
+        const { data: created, error: insertError } = await supabase
           .from('customers')
-          .insert({
-            tenant_id: ctx.tenantId,
-            name: form.name.trim(),
-            phone: form.phone.trim() || null,
-          })
+          .insert({ tenant_id: ctx.tenantId, name, phone: phone || null })
           .select('id, name, phone')
           .single()
-        if (cErr || !data) {
+        if (insertError || !created) {
           setSaving(false)
-          setError(cErr?.message || 'فشل حفظ الزبون')
+          setError(insertError?.message || 'فشل حفظ الزبون')
           return
         }
-        customer = data
+        customer = created
       }
 
       const amount = Number(form.amount)
@@ -141,7 +143,7 @@ export default function CreditsPage() {
   }
 
   return (
-    <DashboardShell active="/dashboard/credits">
+    <>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h1 className="text-base font-medium text-neutral-100">الكريدي</h1>
         <button
@@ -287,6 +289,6 @@ export default function CreditsPage() {
         customerId={ledgerCustomer}
         onClose={() => setLedgerCustomer(null)}
       />}
-    </DashboardShell>
+    </>
   )
 }

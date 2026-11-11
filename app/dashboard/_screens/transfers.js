@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import DashboardShell from '@/components/dashboard/DashboardShell'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, fieldClass, primaryClass, selectClass } from '@/components/dashboard/EngineUI'
 import { supabase } from '@/lib/supabase'
@@ -33,7 +32,7 @@ export default function TransfersPage() {
     }).catch(err => { if (live) setError(err.message) }).finally(() => { if (live) setLoading(false) })
     return () => { live = false }
   }, [from, success, ctx.tenantId])
-  return <DashboardShell active="/dashboard/transfers"><div className="mx-auto max-w-4xl space-y-5"><h1 className="text-xl text-neutral-100">نقل المخزون بين الفروع</h1><p className="text-sm text-neutral-500">للمالك فقط · يتم خصم وإضافة المخزون في عملية واحدة.</p><Notice error={error} success={success} />
+  return <><div className="mx-auto max-w-4xl space-y-5"><h1 className="text-xl text-neutral-100">نقل المخزون بين الفروع</h1><p className="text-sm text-neutral-500">للمالك فقط · يتم خصم وإضافة المخزون في عملية واحدة.</p><Notice error={error} success={success} />
     <form onSubmit={async event => {
       event.preventDefault(); if (busy) return
       setBusy(true); setError(''); setSuccess('')
@@ -72,5 +71,5 @@ export default function TransfersPage() {
       <button disabled={loading || ctx.stores.length < 2} className={primaryClass}>{busy ? 'جاري النقل...' : 'تأكيد النقل'}</button>
     </fieldset></form>
     <section className="rounded-2xl border border-white/10 bg-card p-5"><h2 className="mb-4 text-gold">آخر عمليات النقل</h2><div className="space-y-3">{history.map(row => <div key={row.id} className="rounded-lg border border-white/5 p-3 text-sm text-neutral-300">من {ctx.stores.find(store => store.id === row.from_store_id)?.name} إلى {ctx.stores.find(store => store.id === row.to_store_id)?.name}<span className="mt-1 block text-xs text-neutral-500">{new Date(row.created_at).toLocaleString('ar-DZ')} · {row.status === 'completed' ? 'مكتمل' : row.status}</span></div>)}{!history.length && <p className="text-sm text-neutral-500">لا توجد عمليات نقل.</p>}</div></section>
-  </div></DashboardShell>
+  </div></>
 }

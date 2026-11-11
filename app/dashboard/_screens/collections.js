@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import DashboardShell from '@/components/dashboard/DashboardShell'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Modal, Notice, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import { supabase } from '@/lib/supabase'
@@ -64,7 +63,7 @@ export default function CollectionsPage() {
 
   const total = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0)
 
-  return <DashboardShell active="/dashboard/collections">
+  return <>
     <div className="mx-auto max-w-5xl space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -130,5 +129,5 @@ export default function CollectionsPage() {
         <button type="button" disabled={busy} onClick={() => setClearing(null)} className={secondaryClass}>إلغاء</button>
       </div>
     </Modal>}
-  </DashboardShell>
+  </>
 }

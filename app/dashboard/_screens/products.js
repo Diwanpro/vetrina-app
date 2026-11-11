@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import VoiceInput from '@/components/VoiceInput'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
 import { fetchAllRows } from '@/lib/cash'
-import DashboardShell from '@/components/dashboard/DashboardShell'
 import { SIZE_TYPES, sizesForType, emptySizeRow, emptySizeMatrix, filledSizeCells } from '@/lib/product-sizes'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
@@ -233,7 +232,7 @@ export default function ProductsPage() {
   }
 
   return (
-    <DashboardShell active="/dashboard/products">
+    <>
       <div className="mb-3 flex items-center justify-between gap-2">
         <h1 className="text-base font-medium text-neutral-100">المنتجات</h1>
         <button
@@ -476,6 +475,6 @@ export default function ProductsPage() {
         if (!/^[\x21-\x7E]{1,48}$/.test(code)) throw new Error('الباركود غير صالح لهذا الحقل')
         setForm(prev => ({ ...prev, barcode: code }))
       }} />}
-    </DashboardShell>
+    </>
   )
 }

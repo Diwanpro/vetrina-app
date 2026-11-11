@@ -132,11 +132,13 @@ test('the mixed payment modal offers credit, check and CCP, and requires a file'
 })
 
 test('collections page is reachable from the sidebar and gated to owner/manager', async () => {
-  const nav = await read('../components/dashboard/navItems.js')
-  assert.match(nav, /href: '\/dashboard\/collections'/)
+  // Collections is the second tab of daily operations, not a sidebar entry.
+  const group = await read('../app/dashboard/operations/page.js')
+  assert.match(group, /label: 'المستحقات'/)
+  assert.match(group, /component: CollectionsPage/)
   const access = await read('../lib/access.js')
   assert.match(access, /if \(path\.startsWith\('\/dashboard\/collections'\)\) return role === 'owner' \|\| role === 'manager'/)
-  const page = await read('../app/dashboard/collections/page.js')
+  const page = await read('../app/dashboard/_screens/collections.js')
   assert.match(page, /engine_pending_collections/)
   assert.match(page, /engine_clear_pending_collection/)
   assert.match(page, /أين تريد إيداع المبلغ؟/)

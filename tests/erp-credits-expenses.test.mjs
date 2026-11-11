@@ -90,15 +90,16 @@ test('receipts bucket is private and path-scoped by tenant and branch', () => {
 })
 
 test('the expense page upload path matches the storage policy shape', async () => {
-  const page = await fs.readFile(new URL('../app/dashboard/expenses/page.js', import.meta.url), 'utf8')
+  const page = await fs.readFile(new URL('../app/dashboard/_screens/expenses.js', import.meta.url), 'utf8')
   assert.match(page, /const path = `\$\{ctx\.tenantId\}\/\$\{ctx\.storeId\}\//)
 })
 
-test('the expenses page is reachable by every role and listed in the sidebar', async () => {
+test('the expenses page is reachable by every role and surfaced as a tab', async () => {
   const { routeAllowed } = await load('../lib/access.js')
   for (const role of ['owner', 'manager', 'employee']) assert.equal(routeAllowed(role, '/dashboard/expenses'), true)
-  const nav = await fs.readFile(new URL('../components/dashboard/navItems.js', import.meta.url), 'utf8')
-  assert.match(nav, /href: '\/dashboard\/expenses', label: 'المصاريف'/)
+  // Expenses moved out of the sidebar into the daily-operations tab strip.
+  const group = await fs.readFile(new URL('../app/dashboard/operations/page.js', import.meta.url), 'utf8')
+  assert.match(group, /label: 'المصاريف'/)
 })
 
 test('the dashboard banner uses the required wording', async () => {

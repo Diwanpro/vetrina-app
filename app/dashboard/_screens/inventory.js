@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import DashboardShell from '@/components/dashboard/DashboardShell'
 import { getAppContext } from '@/lib/app-context'
 import { scopeQuery } from '@/lib/access'
 import { fetchAllRows } from '@/lib/cash'
@@ -24,5 +23,5 @@ export default function InventoryPage() {
     })()
     return () => { live = false }
   }, [])
-  return <DashboardShell active="/dashboard/inventory"><h1 className="mb-4 text-xl text-neutral-100">المخزون</h1>{error && <p role="alert" className="mb-4 text-red-300">{error}</p>}{loading ? <p className="text-neutral-500">جاري التحميل...</p> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{rows.map(row => <article key={row.id} className="rounded-xl border border-white/10 bg-card p-4"><h2 className="text-neutral-200">{row.product_variants.products.name}</h2><p className="mt-2 text-sm text-neutral-400">{row.product_variants.color} / {row.product_variants.size}</p><p className={`mt-3 text-lg ${row.quantity < 5 ? 'text-red-300' : 'text-gold'}`}>{row.quantity} قطعة</p></article>)}</div>}</DashboardShell>
+  return <><h1 className="mb-4 text-xl text-neutral-100">المخزون</h1>{error && <p role="alert" className="mb-4 text-red-300">{error}</p>}{loading ? <p className="text-neutral-500">جاري التحميل...</p> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{rows.map(row => <article key={row.id} className="rounded-xl border border-white/10 bg-card p-4"><h2 className="text-neutral-200">{row.product_variants.products.name}</h2><p className="mt-2 text-sm text-neutral-400">{row.product_variants.color} / {row.product_variants.size}</p><p className={`mt-3 text-lg ${row.quantity < 5 ? 'text-red-300' : 'text-gold'}`}>{row.quantity} قطعة</p></article>)}</div>}</>
 }
