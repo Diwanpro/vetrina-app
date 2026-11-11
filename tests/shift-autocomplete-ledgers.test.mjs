@@ -68,7 +68,8 @@ test('the POS passes the chosen customer id through to the sale', () => {
 })
 
 test('the picker searches the tenant and offers a new-customer path', () => {
-  assert.match(picker, /\.ilike\('name', `%\$\{term\.replace/)
+  // Searches name OR phone; a cashier may have either on screen.
+  assert.match(picker, /\.or\(`name\.ilike\.\$\{pattern\},phone\.ilike\.\$\{pattern\}`\)/)
   assert.match(picker, /\.eq\('tenant_id', tenantId\)/)
   assert.match(picker, /زبون جديد/)
   // Typing a wildcard must not turn into a match-everything query.
