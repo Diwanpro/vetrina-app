@@ -27,16 +27,23 @@ export default function CustomerPicker({ tenantId, value, onChange, disabled = f
     setLoading(true)
     const timer = setTimeout(async () => {
       try {
-        const { data, error } = await supabase
+        // `error` here used to shadow the state setter, so a failed query was
+        // thrown and re-caught with nowhere to show it. Name it and surface it.
+        const { data, error: queryError } = await supabase
           .from('customers')
           .select('id, name, phone')
           .eq('tenant_id', tenantId)
           .ilike('name', `%${term.replace(/[%_\\]/g, '\\$&')}%`)
           .order('name')
           .limit(8)
-        if (error) throw error
+        if (queryError) throw queryError
         if (live) { setRows(data || []); setError('') }
-      } catch (err) { if (live) setError(err.message) }
+      } catch (err) {
+        if (!live) return
+        console.error('[customer-picker] search failed', err)
+        setRows([])
+        setError('تعذر البحث عن الزبائن، تحقق من الاتصال')
+      }
       finally { if (live) setLoading(false) }
     }, 250)
     return () => { live = false; clearTimeout(timer) }

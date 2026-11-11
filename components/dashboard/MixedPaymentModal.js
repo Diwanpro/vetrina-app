@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Modal, Notice, fieldClass, selectClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import { supabase } from '@/lib/supabase'
 import { formatDzd } from '@/lib/app-context'
+import CustomerPicker from '@/components/dashboard/CustomerPicker'
 
 const BUCKET = 'receipts'
 const MAX_BYTES = 5 * 1024 * 1024
@@ -35,29 +36,48 @@ export default function MixedPaymentModal({ ctx, remainder, onCancel, onConfirm 
     return path
   }
 
+  // A credit sale is only submittable once a customer is genuinely resolved:
+  // either an existing row was picked (id present) or a name was typed for a
+  // new one. Reading `customer.id` off an unresolved value is what black-screened
+  // the till, so every read below is guarded.
+  const customerName = typeof customer?.name === 'string' ? customer.name.trim() : ''
+  const customerId = typeof customer?.id === 'string' && customer.id ? customer.id : null
+  const creditReady = isPaper ? Boolean(file) : Boolean(customerName || customerId)
+
   async function submit(event) {
     event.preventDefault()
+    if (busy) return
     setError('')
-    // Each method has its own mandatory field; validate before touching storage
-    // so a rejected form never leaves an orphaned upload behind.
+
     if (isPaper && !file) { setError('أرفق صورة الشيك أو الوصل'); return }
-    if (!isPaper && !String(customer.name || '').trim()) { setError('اسم الزبون مطلوب'); return }
+    if (!isPaper && !customerName && !customerId) { setError('اختر زبوناً أو أنشئ زبوناً جديداً'); return }
+
     setBusy(true)
     try {
       const receiptPath = isPaper ? await upload() : null
+
+      // onConfirm resolves once the sale is stored locally; a thrown error means
+      // it was not, and the modal must stay open with the reason.
       await onConfirm({
         cash: 0, // filled in by the caller with the amount actually taken
         amount: remainder,
         method,
-        customer_name: String(customer.name || '').trim(),
-        customer_phone: String(customer.phone || '').trim(),
+        customer_name: customerName,
+        customer_phone: typeof customer?.phone === 'string' ? customer.phone.trim() : '',
         // Carried through to the sync call so an existing row is reused instead
         // of being looked up by name again and possibly duplicated.
-        customer_id: customer.id || null,
+        customer_id: customerId,
         receipt_url: receiptPath,
       })
-    } catch (err) { console.error('[pos] mixed payment failed', err); setError(err.message) }
-    finally { setBusy(false) }
+    } catch (err) {
+      console.error('[pos] mixed payment failed', err)
+      const message = typeof err?.message === 'string' && err.message.trim()
+        ? err.message
+        : 'تعذر تسجيل الدفعة، تحقق من الاتصال وأعد المحاولة'
+      setError(message.includes('fetch') || message.includes('network') || message.includes('الإتصال')
+        ? 'تعذر تسجيل الدفعة، تحقق من الاتصال وأعد المحاولة'
+        : message)
+    } finally { setBusy(false) }
   }
 
   return <div className="fixed inset-0 z-[60]">
@@ -93,7 +113,9 @@ export default function MixedPaymentModal({ ctx, remainder, onCancel, onConfirm 
         </p>
 
         <div className="flex flex-wrap gap-2">
-          <button disabled={busy} className={primaryClass}>{busy ? 'جاري الحفظ...' : 'تأكيد وإتمام البيع'}</button>
+          <button disabled={busy || !creditReady} className={primaryClass}>
+          {busy ? 'جاري الحفظ...' : !creditReady && !isPaper ? 'اختر الزبون أولاً' : 'تأكيد وإتمام البيع'}
+        </button>
           <button type="button" disabled={busy} onClick={onCancel} className={secondaryClass}>إلغاء</button>
         </div>
       </form>
