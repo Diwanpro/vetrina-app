@@ -95,7 +95,10 @@ export default function ShiftManager() {
           ...cashReconciliation(starting, starting),
           closed_at: null, end_time: null,
         })
-        if (error) throw error
+        if (error) {
+          console.error('[shift] open failed', error)
+          throw error
+        }
       } else {
         const end = new Date().toISOString()
         const latestSales = await salesForShift(shift, ctx.storeId, end)
@@ -114,7 +117,7 @@ export default function ShiftManager() {
           p_shift: shift.id, p_actual: amounts.actual_cash, p_expected: amounts.expected_cash,
           p_difference: amounts.difference, p_notes: notes.trim() || null,
         })
-        if (error) throw error
+        if (error) { console.error('[shift] close failed', error); throw error }
       }
       setModal(false)
       await refresh()
