@@ -167,10 +167,18 @@ export default function ShiftManager() {
     finally { setBusy(false) }
   }
 
+  // Always render the control. It used to disappear behind a branch/online
+  // condition in TopBar, and an error made the label so long it was clipped on
+  // a phone. Short labels plus an explicit aria-label keep it reachable.
+  const label = loading ? '...' : shift ? 'الصندوق مفتوح' : 'فتح الصندوق'
+  const aria = loading ? 'جاري التحقق من الصندوق'
+    : error && !modal ? 'تعذر التحقق من الصندوق، إعادة المحاولة'
+    : shift ? 'الوردية مفتوحة، افتح التقفيلة' : 'فتح الوردية'
   return <>
-    <button type="button" disabled={loading || busy} onClick={openModal}
-      className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-medium disabled:opacity-50 ${shift ? 'bg-emerald-900 text-emerald-100' : 'bg-[#8B1E1E] text-red-100'}`}>
-      {loading ? 'جاري التحقق...' : error && !modal ? 'تعذر التحقق · إعادة المحاولة' : shift ? 'الصندوق مفتوح' : 'لم يُفتح اليوم بعد'}
+    <button type="button" disabled={loading || busy} onClick={openModal} aria-label={aria} title={aria}
+      className={`shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11px] font-medium disabled:opacity-50 ${shift ? 'bg-emerald-900 text-emerald-100' : 'bg-[#8B1E1E] text-red-100'}`}>
+      <span className="hidden sm:inline">{label}</span>
+      <span className="sm:hidden">{loading ? '...' : shift ? 'الصندوق' : 'فتح'}</span>
     </button>
     {modal && createPortal(<div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4" dir="rtl">
       <form onSubmit={save} role="dialog" aria-modal="true" aria-labelledby="shift-title" className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-gold/30 bg-[#171717] p-5 text-neutral-100 shadow-2xl">

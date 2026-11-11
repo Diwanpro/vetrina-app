@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fetchAllRows } from '@/lib/cash'
 import { formatDzd, getAppContext } from '@/lib/app-context'
-import CustomerLedger from '@/components/dashboard/CustomerLedger'
+import LedgerModal from '@/components/dashboard/LedgerModal'
 
 // Customers are owned per tenant, not per store, so this list is tenant-scoped
 // even when the owner is looking at a single branch.
@@ -88,6 +88,6 @@ export default function CustomersPage() {
         </div>
       )}
 
-    {ledger && <CustomerLedger customer={ledger} onClose={() => setLedger(null)} />}
+    {ledger && <LedgerModal kind="customer" id={ledger.id} onClose={() => setLedger(null)} />}
   </>
 }

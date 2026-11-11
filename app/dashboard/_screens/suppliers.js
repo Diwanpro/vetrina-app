@@ -5,7 +5,7 @@ import { Modal, Notice, fieldClass, primaryClass, secondaryClass } from '@/compo
 import { supabase } from '@/lib/supabase'
 import { getAppContext, formatDzd } from '@/lib/app-context'
 import { fetchAllRows, validMoney } from '@/lib/cash'
-import SupplierLedger from '@/components/dashboard/SupplierLedger'
+import LedgerModal from '@/components/dashboard/LedgerModal'
 
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState([])
@@ -35,6 +35,9 @@ export default function SuppliersPage() {
 
   function openAdd() {
     setError(''); setSuccess(''); setForm({ name: '', phone: '', supplied_goods: '' }); setModal({ type: 'add' })
+  }
+  function supplierTotal(id) {
+    return suppliers.find(row => row.id === id)?.total_debt || 0
   }
   function openPayment(supplier) {
     setError(''); setSuccess(''); setAmount(''); paymentRequest.current = null
@@ -107,6 +110,8 @@ export default function SuppliersPage() {
         <button disabled={busy} className={`${primaryClass} w-full`}>{busy ? 'جاري الحفظ...' : 'حفظ'}</button>
       </form>
     </Modal>}
-    {ledger && <SupplierLedger supplier={ledger} onClose={() => setLedger(null)} onPaid={() => { load() }} />}
+    {ledger && <LedgerModal kind="supplier" id={ledger.id}
+      onClose={() => { setLedger(null); load() }}
+      onPay={supplier => { setLedger(null); openPayment({ ...ledger, total_debt: supplierTotal(ledger.id) }) }} />}
   </>
 }

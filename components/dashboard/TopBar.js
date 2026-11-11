@@ -87,7 +87,7 @@ export default function TopBar() {
           <span className="sm:hidden">{syncing ? '...' : 'مزامنة'}</span>
         </button>}
         <ExpenseButton />
-        {ctx.storeId && online && pending.length === 0 && <ShiftManager />}
+        {ctx.storeId && <ShiftManager />}
       </div>
     </div>
 

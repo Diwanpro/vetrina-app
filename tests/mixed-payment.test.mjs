@@ -122,7 +122,8 @@ test('the mixed payment modal offers credit, check and CCP, and requires a file'
   assert.match(modal, /<option value="ccp">بريدي<\/option>/)
   assert.match(modal, /أرفق صورة الشيك \/ الوصل/)
   assert.match(modal, /اسم الزبون/)
-  assert.match(modal, /رقم الهاتف/)
+  // The free-text name and phone were replaced by a customer autocomplete.
+  assert.match(modal, /<CustomerPicker/)
   assert.match(modal, /المبلغ المتبقي:/)
   assert.match(modal, /supabase\.storage\.from\(BUCKET\)\.upload/)
   // Dark/gold is per the standing UI rule.
