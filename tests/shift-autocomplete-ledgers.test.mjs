@@ -60,7 +60,10 @@ test('an explicit customer id wins over a name lookup', () => {
 })
 
 test('the POS passes the chosen customer id through to the sale', () => {
-  assert.match(modal, /customer_id: customer\.id \|\| null/)
+  // The id is read through a guarded const now; the bare `customer.id || null`
+  // form was the shape that black-screened on an unresolved customer.
+  assert.match(modal, /customer_id: customerId,/)
+  assert.match(modal, /const customerId = typeof customer\?\.id === 'string'/)
   assert.match(modal, /<CustomerPicker tenantId=\{ctx\.tenantId\} value=\{customer\} onChange=\{setCustomer\}/)
 })
 
