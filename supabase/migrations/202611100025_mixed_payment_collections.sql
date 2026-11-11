@@ -157,8 +157,19 @@ BEGIN
  -- The remainder. Written inside the sale transaction: if this fails the whole
  -- sale rolls back and the outbox keeps it for retry, never a sale with no debt.
  IF method = 'credit' THEN
-   SELECT * INTO customer FROM public.customers
-    WHERE tenant_id = p_tenant AND name = customer_key LIMIT 1;
+   -- Match on the tenant only. Scoping the lookup through this store's credits
+   -- meant a customer whose debts lived in another branch was never found and
+   -- was re-created on every credit. Phone is the stronger key when supplied.
+   IF nullif(trim(p_split->>'customer_phone'),'') IS NOT NULL THEN
+     SELECT * INTO customer FROM public.customers
+      WHERE tenant_id = p_tenant AND phone = trim(p_split->>'customer_phone')
+      ORDER BY id LIMIT 1;
+   END IF;
+   IF customer.id IS NULL THEN
+     SELECT * INTO customer FROM public.customers
+      WHERE tenant_id = p_tenant AND name = customer_key
+      ORDER BY id LIMIT 1;
+   END IF;
    IF customer.id IS NULL THEN
      INSERT INTO public.customers(tenant_id, name, phone)
      VALUES(p_tenant, customer_key, nullif(trim(p_split->>'customer_phone'),''))

@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import DashboardShell from '@/components/dashboard/DashboardShell'
 import { Modal, Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import { supabase } from '@/lib/supabase'
 import { getAppContext, formatDzd } from '@/lib/app-context'
@@ -73,10 +72,10 @@ export default function SuppliersPage() {
     finally { saving.current = false; setBusy(false) }
   }
 
-  return <DashboardShell active="/dashboard/suppliers">
+  return <>
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
       <div><h1 className="text-lg text-neutral-100">الموردون</h1><p className="mt-1 text-xs text-neutral-500">الموردون والمديونية الخاصة بالمتجر الحالي</p></div>
-      <div className="flex gap-2"><a href="/dashboard/purchases" className={secondaryClass}>فاتورة شراء</a><button onClick={openAdd} className={primaryClass}>إضافة مورد</button></div>
+      <div className="flex gap-2"><a href="/dashboard/stock?tab=purchases" className={secondaryClass}>فاتورة شراء</a><button onClick={openAdd} className={primaryClass}>إضافة مورد</button></div>
     </div>
     {!modal && <Notice error={error} success={success} />}
     {loading ? <p className="text-sm text-neutral-400">جاري التحميل...</p> : <>
@@ -109,5 +108,5 @@ export default function SuppliersPage() {
       </form>
     </Modal>}
     {ledger && <SupplierLedger supplier={ledger} onClose={() => setLedger(null)} onPaid={() => { load() }} />}
-  </DashboardShell>
+  </>
 }

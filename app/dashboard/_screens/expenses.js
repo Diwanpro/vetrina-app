@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import DashboardShell from '@/components/dashboard/DashboardShell'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Modal, Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import { supabase } from '@/lib/supabase'
@@ -119,7 +118,7 @@ export default function ExpensesPage() {
     } catch (err) { setError(err.message) }
   }
 
-  return <DashboardShell active="/dashboard/expenses">
+  return <>
     <div className="mx-auto max-w-5xl space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -199,5 +198,5 @@ export default function ExpensesPage() {
         <button disabled={busy} className={secondaryClass} onClick={() => setConfirmDelete(null)}>إلغاء</button>
       </div>
     </Modal>}
-  </DashboardShell>
+  </>
 }

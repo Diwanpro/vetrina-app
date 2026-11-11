@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import DashboardShell from '@/components/dashboard/DashboardShell'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, fieldClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import MoneyDistribution from '@/components/dashboard/MoneyDistribution'
@@ -61,7 +60,7 @@ export default function AccountingPage() {
   const costNote = costParts
     ? `${costParts.snapshot || 0} بند بتكلفة محفوظة وقت البيع · ${costParts.history || 0} بند أُعيد بناؤه من فواتير الشراء · ${costParts.current || 0} بند بمتوسط التكلفة الحالي`
     : ''
-  return <DashboardShell active="/dashboard/accounting"><div className="mx-auto max-w-6xl space-y-5">
+  return <><div className="mx-auto max-w-6xl space-y-5">
     <header><h1 className="text-xl text-gold">المحاسبة والمصاريف</h1><p className="mt-2 text-sm text-neutral-500">{ctx.allBranches ? 'جميع الفروع' : ctx.stores.find(s => s.id === ctx.storeId)?.name} · البيانات المتزامنة فقط. زر تسجيل المصروف متاح للجميع في الشريط العلوي.</p></header>
     <div className="flex gap-3"><select aria-label="الفترة المحاسبية" className={`${fieldClass} max-w-xs`} value={period} onChange={e => { setPeriod(e.target.value); setPage(0) }}><option value="month">هذا الشهر</option><option value="year">هذه السنة</option><option value="all">كل الوقت</option></select><button className={secondaryClass} disabled={loading} onClick={refresh}>تحديث</button></div>
     <Notice error={error} />{loading && <p className="text-neutral-400">جاري التحميل...</p>}
@@ -76,5 +75,5 @@ export default function AccountingPage() {
     <section className="rounded-2xl border border-white/10 bg-card p-5"><h2 className="mb-4 text-gold">دفتر اليومية</h2><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-right text-sm"><thead><tr className="text-neutral-500">{['التاريخ', 'النوع', 'التفاصيل', 'المبلغ', 'الإيصال'].map(label => <th className="p-3 font-normal" key={label}>{label}</th>)}</tr></thead><tbody>{journal?.rows.map(row => <tr key={`${row.type}:${row.id}`} className="border-t border-white/5 text-neutral-300"><td className="whitespace-nowrap p-3">{new Date(row.created_at).toLocaleString('ar-DZ')}</td><td className="p-3">{TYPES[row.type]}</td><td className="max-w-md break-words p-3">{row.details}</td><td className={`whitespace-nowrap p-3 ${row.type === 'sale' ? 'text-gold' : 'text-neutral-400'}`}>{row.type === 'sale' ? '+' : '−'} {formatDzd(row.amount)}</td><td className="p-3">{row.receipt?.startsWith(`${ctx.tenantId}/`) ? <button className="text-gold underline" onClick={() => receipt(row.receipt)}>عرض</button> : '—'}</td></tr>)}{!loading && !journal?.rows.length && <tr><td colSpan={5} className="p-6 text-center text-neutral-500">لا توجد قيود للفترة المحددة.</td></tr>}</tbody></table></div><div className="mt-4 flex items-center justify-between"><button className={secondaryClass} disabled={loading || page === 0} onClick={() => setPage(p => p - 1)}>السابق</button><span className="text-xs text-neutral-500">صفحة {page + 1}</span><button className={secondaryClass} disabled={loading || !journal?.hasMore} onClick={() => setPage(p => p + 1)}>التالي</button></div></section>
     <p className="text-xs leading-6 text-neutral-500">صافي الربح = المبيعات − تكلفة البضاعة − المصاريف − الرواتب والسلف. تُحفظ تكلفة البنود الجديدة عند البيع؛ تُستعاد تكلفة المبيعات القديمة من فواتير الشراء السابقة للبيع{data ? ` (${data.estimatedCostItems} بند بلا تاريخ شراء)` : ''}. دفعات الموردين لا تخصم مرتين. المصاريف تشمل الحالات المسجلة، والأجور حسب تاريخ الدفع لا شهر الاستحقاق. لا يشمل هذا المؤشر الضرائب والمرتجعات أو تسوية السلف تلقائياً.</p>
     <EmployeePayments onSaved={refresh} />
-  </div></DashboardShell>
+  </div></>
 }

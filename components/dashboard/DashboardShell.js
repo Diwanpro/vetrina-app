@@ -2,6 +2,8 @@ import Sidebar from './Sidebar'
 import BottomNav from './BottomNav'
 import TopBar from './TopBar'
 
+// `active` drives the sidebar highlight; grouped pages pass their sidebar href
+// and render `content` bare inside their own tab strip.
 export default function DashboardShell({ active, children }) {
   return (
     <div className="min-h-screen bg-surface flex">

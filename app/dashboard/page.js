@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import KpiCard from '@/components/dashboard/KpiCard'
 import SalesChart from '@/components/dashboard/SalesChart'
-import { IconCash, IconSales, IconProfit, IconBalance, IconAlert } from '@/components/dashboard/icons'
+import { IconCash, IconSales, IconProfit, IconBalance, IconAlert, IconCredit } from '@/components/dashboard/icons'
 import { fetchAllRows, todayRange } from '@/lib/cash'
 import { scopeQuery } from '@/lib/access'
 import { supabase } from '@/lib/supabase'
@@ -24,6 +24,7 @@ export default function DashboardPage() {
     invoices: 0,
     average: 0,
     profit: 0,
+    credit: 0,
     alerts: 0,
     checkedAt: currentTimeLabel(),
   })
@@ -39,7 +40,7 @@ export default function DashboardPage() {
 
         let salesQuery = supabase
           .from('sales')
-          .select('id, total_amount, payment_method, created_at, stores!inner(tenant_id)')
+          .select('id, total_amount, cash_amount, payment_method, created_at, stores!inner(tenant_id)')
           .gte('created_at', from).lt('created_at', to).order('id')
         salesQuery = scopeQuery(salesQuery, ctx)
 
@@ -52,20 +53,22 @@ export default function DashboardPage() {
           .gte('sales.created_at', from).lt('sales.created_at', to).eq('product_variants.products.tenant_id', ctx.tenantId).order('id')
         itemsQuery = scopeQuery(itemsQuery, ctx, 'sales.store_id', 'sales.stores.tenant_id')
 
-        const [sales, inventoryResult, items] = await Promise.all([
+        const [sales, inventoryResult, items, creditTotal] = await Promise.all([
           fetchAllRows(salesQuery),
           inventoryQuery,
           fetchAllRows(itemsQuery),
+          supabase.rpc('engine_total_credit', { p_store: ctx.allBranches ? null : ctx.storeId }),
         ])
         if (inventoryResult.error) throw inventoryResult.error
+        if (creditTotal.error) console.error('[dashboard] total credit failed', creditTotal.error)
         if (cancelled) return
 
         const rows = sales || []
         const totalSales = rows.reduce((s, r) => s + Number(r.total_amount || 0), 0)
         const invoices = rows.length
-        const cash = rows
-          .filter((r) => r.payment_method === 'cash')
-          .reduce((s, r) => s + Number(r.total_amount || 0), 0)
+        // Cash actually handed over, matching the drawer and the close-shift
+        // calculation. total_amount would count the credit/cheque part too.
+        const cash = rows.reduce((s, r) => s + Number(r.cash_amount || 0), 0)
         const average = invoices ? totalSales / invoices : 0
         const profit = (items || []).reduce((sum, item) => {
           const cost = Number(item.product_variants?.cost_price_avg || 0)
@@ -80,6 +83,7 @@ export default function DashboardPage() {
           invoices,
           average,
           profit,
+          credit: Number(creditTotal.data || 0),
           alerts: inventoryResult.count || 0,
           checkedAt: currentTimeLabel(),
         })
@@ -111,7 +115,7 @@ export default function DashboardPage() {
           <KpiCard
             title="النقد في الصندوق"
             value={formatDzd(stats.cash)}
-            subtitle="إجمالي المبيعات النقدية لليوم"
+            subtitle="النقد المقبوض فعلياً في مبيعات اليوم"
             icon={IconCash}
           />
           <KpiCard
@@ -125,6 +129,13 @@ export default function DashboardPage() {
             value={formatDzd(stats.profit)}
             subtitle="(السعر النهائي − سعر التكلفة) × الكمية"
             icon={IconProfit}
+          />
+          <KpiCard
+            title="إجمالي الكريدي"
+            value={formatDzd(stats.credit)}
+            subtitle="مجموع المتبقي على الزبائن من جدول الكريدي"
+            icon={IconCredit}
+            accent="red"
           />
           <KpiCard
             title="الوضعية الصافية"

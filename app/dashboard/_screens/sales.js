@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import DashboardShell from '@/components/dashboard/DashboardShell'
 import { scopeQuery } from '@/lib/access'
 import { fetchAllRows } from '@/lib/cash'
 import { localRows, belongsTo } from '@/lib/local-db'
@@ -79,7 +78,7 @@ export default function SalesPage() {
   }
 
   return (
-    <DashboardShell active="/dashboard/sales">
+    <>
       <div className="mb-3">
         <h1 className="text-base font-medium text-neutral-100">المبيعات</h1>
         <p className="text-xs text-neutral-500">{sales.length} فاتورة</p>
@@ -151,6 +150,6 @@ export default function SalesPage() {
           </div>
         </div>
       )}
-    </DashboardShell>
+    </>
   )
 }
