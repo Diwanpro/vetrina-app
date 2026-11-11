@@ -20,6 +20,7 @@ export default function UsersPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [version, setVersion] = useState(0)
+  const [confirmToggle, setConfirmToggle] = useState(null)
   const change = event => { const { name, value } = event.target; setForm(previous => name === 'salaryType' ? { ...previous, salaryType: value, salaryAmount: '', commissionPercentage: '' } : { ...previous, [name]: value }) }
   useEffect(() => {
     let live = true
@@ -31,6 +32,19 @@ export default function UsersPage() {
     }).catch(err => { if (live) setError(err.message) }).finally(() => { if (live) setLoading(false) })
     return () => { live = false }
   }, [ctx.role, ctx.storeId, version])
+  // Never delete an employee: sales, shifts and payroll reference the row.
+  // Deactivating also bans the auth account so the PIN stops working at once.
+  async function setActive(user, active) {
+    setBusy(true); setError(''); setSuccess('')
+    try {
+      const { data, error } = await supabase.rpc('engine_set_employee_active', { p_user: user.id, p_active: active })
+      if (error) throw error
+      if (!data?.ok) throw new Error(data?.error || 'تعذر تحديث حالة الموظف')
+      setConfirmToggle(null)
+      setSuccess(active ? 'تم تفعيل الموظف' : 'تم إيقاف الموظف ومنع دخوله')
+      setVersion(v => v + 1)
+    } catch (err) { setError(err.message) } finally { setBusy(false) }
+  }
   async function save(event) {
     event.preventDefault(); if (busy) return
     setBusy(true); setError(''); setSuccess('')
@@ -52,7 +66,7 @@ export default function UsersPage() {
     <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-xl text-gold">إدارة الموظفين</h1><p className="mt-2 text-xs text-neutral-500">الموارد البشرية · بيانات الأجور والحسابات</p></div><button className={primaryClass} onClick={() => { setError(''); setModal(true) }}>إضافة موظف</button></header>
     <Notice error={error} success={success} />
     <section className="rounded-2xl border border-white/10 bg-card p-5"><div className="mb-4 flex justify-between"><h2 className="text-gold">الموظفون · {ctx.allBranches ? 'جميع الفروع' : ctx.stores.find(s => s.id === ctx.storeId)?.name}</h2><button disabled={loading || busy} className={secondaryClass} onClick={() => setVersion(v => v + 1)}>تحديث</button></div>
-      {loading ? <p className="text-neutral-400">جاري التحميل...</p> : !employees.length ? <p className="text-neutral-400">لا يوجد موظفون في النطاق المختار.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-right text-sm"><thead className="text-neutral-500"><tr>{['الاسم', 'اسم المستخدم', 'الفرع / الدور', 'نوع الأجر', 'الأجر / العمولة', 'حضور الشهر', 'كشف الأجر'].map(label => <th key={label} className="p-3 font-normal">{label}</th>)}</tr></thead><tbody>{employees.map(user => <tr key={user.id} className="border-t border-white/5 text-neutral-300"><td className="p-3">{[user.first_name, user.last_name].filter(Boolean).join(' ') || user.full_name || 'غير مسجل'}</td><td className="p-3">{user.username}{user.is_active === false && <span className="block text-red-300">غير نشط</span>}</td><td className="p-3">{ctx.stores.find(s => s.id === user.store_id)?.name || 'دون فرع'} · {user.role === 'manager' ? 'مدير' : 'موظف'}</td><td className="p-3">{SALARY_TYPES[user.salary_type] || 'غير محدد'}</td><td className="p-3 text-gold">{salaryFields(user.salary_type).amount && <span className="block">{formatDzd(user.salary_amount)}</span>}{salaryFields(user.salary_type).commission && <span className="block">{Number(user.commission_percentage || 0)}%</span>}{!user.salary_type && '—'}</td><td className="p-3">{user.attendance_days ?? 0} يوم</td><td className="p-3"><button className={secondaryClass} onClick={() => setPayslip(user)}>كشف الأجر</button></td></tr>)}</tbody></table></div>}
+      {loading ? <p className="text-neutral-400">جاري التحميل...</p> : !employees.length ? <p className="text-neutral-400">لا يوجد موظفون في النطاق المختار.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-right text-sm"><thead className="text-neutral-500"><tr>{['الاسم', 'اسم المستخدم', 'الفرع / الدور', 'نوع الأجر', 'الأجر / العمولة', 'حضور الشهر', 'كشف الأجر'].map(label => <th key={label} className="p-3 font-normal">{label}</th>)}</tr></thead><tbody>{employees.map(user => <tr key={user.id} className="border-t border-white/5 text-neutral-300"><td className="p-3">{[user.first_name, user.last_name].filter(Boolean).join(' ') || user.full_name || 'غير مسجل'}</td><td className="p-3">{user.username}{user.is_active === false && <span className="block text-red-300">غير نشط</span>}</td><td className="p-3">{ctx.stores.find(s => s.id === user.store_id)?.name || 'دون فرع'} · {user.role === 'manager' ? 'مدير' : 'موظف'}</td><td className="p-3">{SALARY_TYPES[user.salary_type] || 'غير محدد'}</td><td className="p-3 text-gold">{salaryFields(user.salary_type).amount && <span className="block">{formatDzd(user.salary_amount)}</span>}{salaryFields(user.salary_type).commission && <span className="block">{Number(user.commission_percentage || 0)}%</span>}{!user.salary_type && '—'}</td><td className="p-3">{user.attendance_days ?? 0} يوم</td><td className="p-3"><div className="flex flex-wrap gap-2"><button className={secondaryClass} onClick={() => setPayslip(user)}>كشف الأجر</button>{user.is_active === false ? <button disabled={busy} className={secondaryClass} onClick={() => setConfirmToggle({ user, active: true })}>تفعيل</button> : <button disabled={busy} className="rounded-lg border border-red-800/50 px-3 py-2 text-sm text-red-300 disabled:opacity-50" onClick={() => setConfirmToggle({ user, active: false })}>إيقاف الموظف</button>}</div></td></tr>)}</tbody></table></div>}
     </section>
     <p className="text-xs text-neutral-500">العمولة نسبة من مبيعات الموظف المتزامنة. الحضور حسب توقيت الجزائر. صرف الرواتب والسلف متاح من شاشة المحاسبة.</p>
     {modal && <Modal title="إضافة موظف" busy={busy} onClose={() => { setModal(false); setForm(previous => ({ ...previous, pin: '' })) }} wide><Notice error={error} /><form onSubmit={save}><fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2">
@@ -65,5 +79,19 @@ export default function UsersPage() {
       <button className={primaryClass}>{busy ? 'جاري الحفظ...' : 'إنشاء الموظف'}</button>
     </fieldset></form></Modal>}
     {payslip && <Payslip user={payslip} onClose={() => setPayslip(null)} />}
+    {confirmToggle && <Modal title={confirmToggle.active ? 'تفعيل الموظف' : 'إيقاف الموظف'} onClose={() => setConfirmToggle(null)} busy={busy}>
+      <p className="mb-3 text-sm text-neutral-300">{[confirmToggle.user.first_name, confirmToggle.user.last_name].filter(Boolean).join(' ') || confirmToggle.user.username}</p>
+      <p className="mb-4 rounded-lg border border-amber-700/30 bg-amber-950/20 p-3 text-xs text-amber-200">
+        {confirmToggle.active
+          ? 'سيستطيع الموظف الدخول مجدداً بنفس رمز الدخول.'
+          : 'لن يستطيع الموظف الدخول بعد الآن. لا يُحذف السجل، وتبقى مبيعاته ورواتبه وحضوره في التقارير.'}
+      </p>
+      <div className="flex gap-3">
+        <button disabled={busy} className={confirmToggle.active ? primaryClass : 'rounded-lg bg-red-900/60 px-4 py-2 text-sm text-red-100'} onClick={() => setActive(confirmToggle.user, confirmToggle.active)}>
+          {confirmToggle.active ? 'تفعيل' : 'إيقاف الموظف'}
+        </button>
+        <button disabled={busy} className={secondaryClass} onClick={() => setConfirmToggle(null)}>إلغاء</button>
+      </div>
+    </Modal>}
   </div></DashboardShell>
 }

@@ -9,6 +9,7 @@ import {
   IconSettings,
   IconUsers,
   IconAccounting,
+  IconExpenses,
 } from './icons'
 
 export const NAV_ITEMS = [
@@ -23,5 +24,6 @@ export const NAV_ITEMS = [
   { href: '/dashboard/transfers', label: 'نقل المخزون', icon: IconInventory },
   { href: '/dashboard/users', label: 'إدارة الموظفين', icon: IconUsers },
   { href: '/dashboard/accounting', label: 'المحاسبة', icon: IconAccounting },
+  { href: '/dashboard/expenses', label: 'المصاريف', icon: IconExpenses },
   { href: '/dashboard/settings', label: 'الإعدادات', icon: IconSettings },
 ]
