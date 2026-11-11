@@ -30,6 +30,17 @@ export default function SettingsPage() {
   const [sessions, setSessions] = useState([])
   const [myFingerprint, setMyFingerprint] = useState('')
   const [sessionNotice, setSessionNotice] = useState('')
+  const [costReport, setCostReport] = useState(null)
+  // Rebuilds cost averages from real purchase receipts. Dry run first so the
+  // owner sees what would change before any money field is rewritten.
+  async function repairCosts(apply) {
+    setBusy(true); setError('')
+    try {
+      const { data, error } = await supabase.rpc('engine_repair_cost_price_avg', { p_apply: apply })
+      if (error) throw error
+      setCostReport(data)
+    } catch (err) { setError(err.message) } finally { setBusy(false) }
+  }
   async function refreshSessions() {
     if (!ctx?.user?.id) return
     try {
@@ -110,6 +121,18 @@ export default function SettingsPage() {
         </article>
       })}</div>}
     </section>
+    {ctx.role === 'owner' && <section className="rounded-2xl border border-white/10 bg-card p-5">
+      <h2 className="mb-2 text-gold">فحص تكاليف المنتجات</h2>
+      <p className="mb-3 text-xs leading-6 text-neutral-500">صافي الربح = المبيعات − تكلفة البضاعة المبيعة − المصاريف − الرواتب والسلف. تُحسب التكلفة من البنود المبيعة فقط. إذا ظهر الربح سالباً بشكل ضخم فالسبب عادةً تكلفة شراء خاطئة في منتج واحد؛ هذا الفحص يعيد بناء متوسطات التكلفة من فواتير الشراء الحقيقية.</p>
+      <div className="flex flex-wrap gap-3">
+        <button disabled={busy} onClick={() => run(() => repairCosts(false))} className={secondaryClass}>فحص بدون تعديل</button>
+        <button disabled={busy} onClick={() => run(() => repairCosts(true))} className={primaryClass}>إصلاح التكاليف</button>
+      </div>
+      {costReport && <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-neutral-300">
+        <p>{costReport.applied ? 'تم الإصلاح' : 'فحص فقط'} · بنود تغيّرت: {costReport.changed} · من فواتير الشراء: {costReport.fromHistory} · سجلات تاريخ التكلفة: {costReport.historyRows}</p>
+        {costReport.sample?.length > 0 && <ul className="mt-2 space-y-1 text-neutral-400">{costReport.sample.map((row, index) => <li key={index}>تكلفة {Number(row.old ?? 0).toLocaleString('ar-DZ')} ← {Number(row.new ?? 0).toLocaleString('ar-DZ')}</li>)}</ul>}
+      </div>}
+    </section>}
     {ctx.role !== 'employee' && <section className="rounded-2xl border border-white/10 bg-card p-5"><h2 className="mb-3 text-gold">تصدير البيانات</h2><p className="mb-4 text-xs text-neutral-500">ملفات CSV بترميز UTF-8 حسب الفرع المحدد (أو كل فروع المؤسسة للمالك). المبيعات المصدّرة هنا هي المتزامنة فقط.</p><div className="flex flex-wrap gap-3"><button disabled={busy} onClick={() => run(() => exportData('sales'))} className={secondaryClass}>تصدير المبيعات CSV</button><button disabled={busy} onClick={() => run(() => exportData('products'))} className={secondaryClass}>تصدير المنتجات CSV</button></div></section>}
     <section className="rounded-2xl border border-white/10 bg-card p-5"><h2 className="mb-3 text-gold">المزامنة والفواتير المحلية · {rows.length}</h2><p className="mb-4 text-xs text-neutral-500">لا تُحذف العمليات المتعارضة تلقائياً. صحّح المخزون أو السعر ثم أعد المحاولة. الفواتير محفوظة على هذا الجهاز ولهذا المستخدم فقط.</p>
       <div className="mb-4 flex flex-wrap gap-3"><button disabled={busy} onClick={() => run(syncPending)} className={primaryClass}>إعادة محاولة المزامنة</button><button disabled={busy || !rows.length} onClick={() => download('vetrina-pending-receipts.json', JSON.stringify(rows, null, 2), 'application/json')} className={secondaryClass}>نسخة من العمليات المحلية JSON</button></div>
