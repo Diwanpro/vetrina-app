@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
-import { Notice, fieldClass, primaryClass } from '@/components/dashboard/EngineUI'
+import { Notice, fieldClass, primaryClass, selectClass } from '@/components/dashboard/EngineUI'
 import { supabase } from '@/lib/supabase'
 import { fetchAllRows, validMoney } from '@/lib/cash'
 import { localRows } from '@/lib/local-db'
@@ -51,7 +51,23 @@ export default function TransfersPage() {
     }} className="rounded-2xl border border-gold/20 bg-card p-5"><fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2">
       <label className="text-sm text-neutral-300">من الفرع<select required value={from} onChange={e => setFrom(e.target.value)} className={`${fieldClass} mt-2`}><option value="">اختر الفرع</option>{ctx.stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
       <label className="text-sm text-neutral-300">إلى الفرع<select required value={to} onChange={e => setTo(e.target.value)} className={`${fieldClass} mt-2`}><option value="">اختر الفرع</option>{ctx.stores.filter(store => store.id !== from).map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
-      <label className="text-sm text-neutral-300">المنتج / اللون / المقاس<select disabled={loading} required value={variant} onChange={e => setVariant(e.target.value)} className={`${fieldClass} mt-2`}><option value="">{loading ? 'جاري التحميل...' : 'اختر المقاس'}</option>{stock.map(row => <option key={row.variant_id} value={row.variant_id}>{row.product_variants.products.name} · {row.product_variants.color} / {row.product_variants.size} · المتاح: {row.quantity}</option>)}</select></label>
+      <label className="block text-sm text-neutral-300">المنتج / اللون / المقاس
+        <select disabled={loading} required value={variant} onChange={e => setVariant(e.target.value)}
+          className={`${selectClass} mt-2`}>
+          <option value="">{loading ? 'جاري التحميل...' : 'اختر الصنف'}</option>
+          {/* Grouped by product so a long list is still readable. */}
+          {[...new Set(stock.map(row => row.product_variants.products.name))].map(name =>
+            <optgroup key={name} label={name}>
+              {stock.filter(row => row.product_variants.products.name === name).map(row => (
+                <option key={row.variant_id} value={row.variant_id}>
+                  {row.product_variants.products.name} - {row.product_variants.color} - {row.product_variants.size} (المتاح: {row.quantity})
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+        {!loading && stock.length === 0 && <span className="mt-1 block text-[11px] text-neutral-500">لا يوجد مخزون في الفرع المحدد.</span>}
+      </label>
       <label className="text-sm text-neutral-300">الكمية<input required type="number" min="1" step="1" max={stock.find(row => row.variant_id === variant)?.quantity || 0} value={quantity} onChange={e => setQuantity(e.target.value)} className={`${fieldClass} mt-2`} /></label>
       <button disabled={loading || ctx.stores.length < 2} className={primaryClass}>{busy ? 'جاري النقل...' : 'تأكيد النقل'}</button>
     </fieldset></form>

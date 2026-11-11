@@ -8,6 +8,7 @@ import DashboardShell from '@/components/dashboard/DashboardShell'
 import { SIZE_TYPES, sizesForType, emptySizeRow, emptySizeMatrix, filledSizeCells } from '@/lib/product-sizes'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
+import { selectClass } from '@/components/dashboard/EngineUI'
 
 const CATEGORIES = ['ملابس', 'أحذية', 'إكسسوارات']
 const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
@@ -339,7 +340,7 @@ export default function ProductsPage() {
                 <span className="mb-1 block text-xs text-neutral-400">نوع المقاس</span>
                 <select value={sizeType} disabled={saving} onChange={e => changeSizeType(e.target.value)}
                   aria-describedby="size-type-help"
-                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold disabled:opacity-50">
+                  className={`${selectClass} mt-1`}>
                   {SIZE_TYPES.map(option => (
                     <option key={option.value} value={option.value}>{option.label} ({option.sizes.join(', ')})</option>
                   ))}
@@ -351,7 +352,7 @@ export default function ProductsPage() {
                 <select
                   value={form.category}
                   onChange={(e) => setForm({ ...form, category: e.target.value })}
-                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
+                  className={`${selectClass} mt-1`}
                 >
                   {CATEGORIES.map((c) => (
                     <option key={c}>{c}</option>

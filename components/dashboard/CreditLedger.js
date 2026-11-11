@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Modal, Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
+import { Modal, Notice, fieldClass, primaryClass, secondaryClass, selectClass } from '@/components/dashboard/EngineUI'
 import { supabase } from '@/lib/supabase'
 import { formatDzd } from '@/lib/app-context'
 
@@ -22,6 +22,7 @@ function IdempotencyKey() {
 // ---------------------------------------------------------------------------
 export function CreditPaymentModal({ credit, onClose, onSaved }) {
   const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState('cash')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(null)
@@ -39,7 +40,7 @@ export function CreditPaymentModal({ credit, onClose, onSaved }) {
     setBusy(true); setError('')
     try {
       const { data, error } = await supabase.rpc('engine_credit_payment', {
-        p_credit: credit.id, p_amount: value, p_request: requestId,
+        p_credit: credit.id, p_amount: value, p_request: requestId, p_method: method,
       })
       if (error) throw error
       if (!data?.ok) throw new Error(data?.error || 'تعذر تسجيل الدفعة')
@@ -71,10 +72,17 @@ export function CreditPaymentModal({ credit, onClose, onSaved }) {
           onChange={e => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
           placeholder="0" className={`${fieldClass} mt-1`} />
       </label>
+      <label className="block text-sm text-neutral-300">طريقة الدفع
+        <select disabled={busy} value={method} onChange={e => setMethod(e.target.value)} className={`${selectClass} mt-1`}>
+          <option value="cash">نقداً (يُضاف للصندوق)</option>
+          <option value="check">شيك</option>
+          <option value="ccp">CCP</option>
+        </select>
+      </label>
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={busy} className={secondaryClass} onClick={() => setAmount(String(remaining))}>المبلغ كامل</button>
       </div>
-      <p className="text-xs text-neutral-500">الدفعة نقدية وتُضاف إلى صندوق الوردية المفتوحة. يجب فتح الصندوق قبل التسجيل.</p>
+      <p className="text-xs text-neutral-500">الدفعة النقدية تُضاف إلى صندوق الوردية المفتوحة. الشيك وCCP يُسجّلان بدون زيادة النقد.</p>
       <button disabled={busy} className={primaryClass}>{busy ? 'جاري التسجيل...' : 'تسجيل الدفعة'}</button>
     </form>}
   </Modal>

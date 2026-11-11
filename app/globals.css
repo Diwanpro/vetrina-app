@@ -26,3 +26,27 @@ input:-webkit-autofill:focus {
   -webkit-box-shadow: 0 0 0px 1000px #1a1a1a inset;
   transition: background-color 5000s ease-in-out 0s;
 }
+
+/* Native dropdowns render their option list with the OS palette on Windows and
+   Chrome unless the options themselves are styled. Kept here rather than
+   repeated in every component so the whole app stays consistent. */
+select {
+  color-scheme: dark;
+}
+
+select option,
+select optgroup {
+  background-color: #1a1a1a;
+  color: #ffffff;
+}
+
+select option:checked,
+select option:hover {
+  background-color: #d4af37;
+  color: #121212;
+}
+
+.select-field option {
+  background-color: #1a1a1a;
+  color: #ffffff;
+}

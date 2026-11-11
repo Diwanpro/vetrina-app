@@ -1,6 +1,10 @@
 'use client'
 
-export const fieldClass = 'w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm text-neutral-100 outline-none focus:border-gold disabled:opacity-50'
+// Native dropdowns ignore most CSS in the closed state and several browsers
+// paint the option list white. `select-field` (see app/globals.css) supplies the
+// dark background for the popup; the Tailwind classes below cover the control.
+export const fieldClass = 'select-field w-full rounded-lg border border-[#D4AF37]/40 bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none focus:border-gold disabled:opacity-50'
+export const selectClass = `${fieldClass} appearance-none`
 export const primaryClass = 'rounded-lg bg-gold px-4 py-2 text-sm font-medium text-[#121212] disabled:opacity-50'
 export const secondaryClass = 'rounded-lg border border-white/10 bg-[#222] px-3 py-2 text-sm text-neutral-200 disabled:opacity-50'
 export function Notice({ error, success }) {

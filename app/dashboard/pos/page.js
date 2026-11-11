@@ -35,7 +35,6 @@ export default function PosPage() {
   const [checkout, setCheckout] = useState(false)
   const [payment, setPayment] = useState('cash')
   const [cashPaid, setCashPaid] = useState('')
-  const [creditPaid, setCreditPaid] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
@@ -52,7 +51,7 @@ export default function PosPage() {
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
       if (!navigator.onLine || context.offline) { setProducts(await cachedCatalog(context)); return }
-      await syncPending().catch(() => {})
+      await syncPending().catch(err => { console.error('[pos] catalogue sync failed', err) })
       const rows = await fetchAllRows(supabase.from('products')
         .select('id, name, base_price, images, image_url, product_variants!inner(id, color, size, min_price, barcode, inventory!inner(quantity, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).eq('is_active', true)
@@ -89,6 +88,12 @@ export default function PosPage() {
     const amount = cart.reduce((s, i) => s + i.qty * i.price, 0)
     return { count, amount }
   }, [cart])
+
+  // Amount paid in cash and the remainder carried as credit. The schema only
+  // stores one payment method per sale, so the split is validated here and the
+  // credit remainder is recorded by the credits page instead of being dropped.
+  const paidCash = Number(String(cashPaid).replace(/[^0-9]/g, '') || 0)
+  const creditRemainder = Math.max(0, totals.amount - paidCash)
 
   function addVariant(product, variant, qty) {
     if (qty <= 0) throw new Error('هذا المقاس غير متوفر في المتجر الحالي')
@@ -173,16 +178,21 @@ export default function PosPage() {
       if (current.locked || current.storeId !== ctx.storeId || current.user.id !== ctx.user.id) throw new Error('تغير الحساب أو الفرع. أعد تحميل نقطة البيع.')
       const row = await persistLocalSale(current, cart, payment)
       // The local transaction is durable before clearing the cart, even online.
-      setCart([]); setCheckout(false); setCashPaid(''); setCreditPaid('')
+      setCart([]); setCheckout(false); setCashPaid('')
       setDone('تم حفظ الفاتورة محلياً؛ بانتظار المزامنة')
       if (navigator.onLine) {
-        await syncPending().catch(() => {})
+        // A failed sync used to be swallowed here, which is why a sale could be
+        // "done" on screen while the dashboard stayed at zero.
+        await syncPending().catch(err => { console.error('[pos] syncPending failed', err) })
         const saved = (await localRows()).find(value => value.local_id === row.local_id)
-        setDone(saved?.status === 'synced' ? 'تم البيع والمزامنة بنجاح' : 'الفاتورة محفوظة محلياً؛ راجع حالة المزامنة في الإعدادات')
+        if (saved?.status === 'error') console.error('[pos] sale sync error', saved.error, row.local_id)
+        setDone(saved?.status === 'synced'
+          ? 'تم البيع والمزامنة بنجاح'
+          : `الفاتورة محفوظة محلياً لكنها لم تُزامَن بعد${saved?.error ? `: ${saved.error}` : ''}. راجع الإعدادات.`)
       }
       await loadProducts()
       setTimeout(() => setDone(''), 5000)
-    } catch (err) { setError(err.message || 'تعذر حفظ الفاتورة؛ السلة لم تُمسح') }
+    } catch (err) { console.error('[pos] completeSale failed', err); setError(err.message || 'تعذر حفظ الفاتورة؛ السلة لم تُمسح') }
     finally { saleSaving.current = false; setSaving(false) }
   }
 
@@ -212,8 +222,13 @@ export default function PosPage() {
                 key={p.id}
                 type="button"
                 onClick={() => {
+                  // Pre-select the first colour so the size chips are never
+                  // filtered down to an empty list (which made the product
+                  // impossible to add to the cart).
+                  const inStock = (p.product_variants || []).filter(v =>
+                    (v.inventory || []).some(i => i.store_id === ctx.storeId && Number(i.quantity) > 0))
                   setSelected(p)
-                  setPicked({ color: '', size: '' })
+                  setPicked({ color: inStock[0]?.color || '', size: '' })
                 }}
                 className="rounded-xl border border-white/5 bg-card overflow-hidden text-right"
               >
@@ -347,7 +362,7 @@ export default function PosPage() {
               <select
                 value={payment}
                 onChange={(e) => setPayment(e.target.value)}
-                className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
+                className="select-field w-full rounded-lg border border-[#D4AF37]/40 bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none focus:border-gold"
               >
                 {PAYMENTS.map((p) => (
                   <option key={p.value} value={p.value}>
@@ -356,27 +371,35 @@ export default function PosPage() {
                 ))}
               </select>
             </label>
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <label>
+            <div className="mb-3 space-y-2 rounded-lg border border-gold/20 bg-black/30 p-3">
+              <p className="flex justify-between text-sm"><span className="text-neutral-400">الإجمالي</span><span className="text-gold">{formatDzd(totals.amount)}</span></p>
+              <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">المدفوع نقداً</span>
                 <input
                   type="number"
                   min="0"
+                  inputMode="numeric"
                   value={cashPaid}
                   onChange={(e) => setCashPaid(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
+                  placeholder="0"
+                  className="w-full rounded-lg border border-[#D4AF37]/40 bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none focus:border-gold"
                 />
               </label>
-              <label>
-                <span className="mb-1 block text-xs text-neutral-400">المدفوع كريدي</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={creditPaid}
-                  onChange={(e) => setCreditPaid(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                />
-              </label>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setCashPaid(String(totals.amount))}
+                  className="rounded-lg border border-white/10 px-2.5 py-1 text-[11px] text-neutral-300">المبلغ كامل</button>
+                <button type="button" onClick={() => setCashPaid('0')}
+                  className="rounded-lg border border-white/10 px-2.5 py-1 text-[11px] text-neutral-300">كل المبلغ كريدي</button>
+              </div>
+              <p className="flex justify-between text-sm">
+                <span className="text-neutral-400">المتبقي كريدي</span>
+                <span className={creditRemainder > 0 ? 'text-red-300' : 'text-emerald-300'}>{formatDzd(creditRemainder)}</span>
+              </p>
+              {creditRemainder > 0 && (
+                <p className="rounded border border-amber-700/30 bg-amber-950/20 p-2 text-[11px] leading-5 text-amber-200">
+                  الباقي {formatDzd(creditRemainder)} يُسجَّل كدين على الزبون. بعد إتمام البيع افتح صفحة الكريدي وأضف الدين بالاسم والمبلغ.
+                </p>
+              )}
             </div>
             {error && <p className="mb-2 text-xs text-red-300">{error}</p>}
             <button

@@ -6,12 +6,14 @@ import { Modal, Notice, fieldClass, primaryClass, secondaryClass } from '@/compo
 import { supabase } from '@/lib/supabase'
 import { getAppContext, formatDzd } from '@/lib/app-context'
 import { fetchAllRows, validMoney } from '@/lib/cash'
+import SupplierLedger from '@/components/dashboard/SupplierLedger'
 
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [modal, setModal] = useState(null)
+  const [ledger, setLedger] = useState(null)
   const [form, setForm] = useState({ name: '', phone: '', supplied_goods: '' })
   const [amount, setAmount] = useState('')
   const [error, setError] = useState('')
@@ -81,7 +83,10 @@ export default function SuppliersPage() {
       <p className="mb-4 text-sm text-gold">إجمالي الدين: {formatDzd(suppliers.reduce((sum, row) => sum + Number(row.total_debt || 0), 0))}</p>
       {!suppliers.length ? <p className="rounded-xl border border-dashed border-white/10 p-8 text-center text-neutral-500">لا يوجد موردون في هذا المتجر بعد.</p> :
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{suppliers.map(supplier => <article key={supplier.id} className="rounded-xl border border-white/10 bg-card p-4">
-          <h2 className="mb-2 font-medium text-neutral-100">{supplier.name}</h2>
+          <button type="button" onClick={() => setLedger(supplier)}
+            className="mb-2 text-right font-medium text-neutral-100 underline decoration-dotted underline-offset-4 hover:text-gold">
+            {supplier.name}
+          </button>
           <p className="mb-2 text-sm text-neutral-400">الهاتف: <span dir="ltr">{supplier.phone || '—'}</span></p>
           <p className="mb-3 whitespace-pre-wrap text-sm text-neutral-400">السلع الموردة: {supplier.supplied_goods || '—'}</p>
           <p className="mb-4 text-gold">الدين المتبقي: {formatDzd(supplier.total_debt)}</p>
@@ -103,5 +108,6 @@ export default function SuppliersPage() {
         <button disabled={busy} className={`${primaryClass} w-full`}>{busy ? 'جاري الحفظ...' : 'حفظ'}</button>
       </form>
     </Modal>}
+    {ledger && <SupplierLedger supplier={ledger} onClose={() => setLedger(null)} onPaid={() => { load() }} />}
   </DashboardShell>
 }
