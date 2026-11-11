@@ -83,7 +83,8 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE
   staff uuid; previous public.sales; result uuid; item record; stock integer;
   floor_price numeric; total numeric; cash_taken bigint; due bigint; method text;
-  customer record; customer_key text; customer_phone text; receipt text;
+  customer record; found_customer boolean := false;
+  customer_key text; customer_phone text; receipt text;
 BEGIN
  staff:=public.engine_validate(p_store,p_tenant,ARRAY['owner','manager','employee']);
  IF nullif(p_local_id,'') IS NULL OR length(p_local_id)>100 OR p_payment IS NULL OR p_payment NOT IN('cash','check','ccp') OR p_created_at IS NULL OR p_created_at>now()+interval '5 minutes' THEN RAISE EXCEPTION 'بيانات الفاتورة غير صالحة'; END IF;
@@ -132,19 +133,31 @@ BEGIN
  END LOOP;
 
  IF method = 'credit' THEN
+   -- An id chosen from the autocomplete wins: the cashier already confirmed
+   -- which row this is, so there is nothing to match.
+   IF nullif(trim(p_split->>'customer_id'),'') IS NOT NULL THEN
+     SELECT * INTO customer FROM public.customers
+      WHERE id = (p_split->>'customer_id')::uuid AND tenant_id = p_tenant;
+     found_customer := FOUND;
+   END IF;
    -- Phone first (normalised on both sides), then the case-insensitive name.
+   -- `FOUND` is tested after every SELECT INTO and the boolean is used for the
+   -- rest: reading a field of a record that was never assigned raises
+   -- 55000 "record customer is not assigned yet".
    IF customer_phone IS NOT NULL THEN
      SELECT * INTO customer FROM public.customers
       WHERE tenant_id = p_tenant
         AND regexp_replace(coalesce(phone,''), '[\s-]', '', 'g') = customer_phone
       ORDER BY id LIMIT 1;
+     found_customer := FOUND;
    END IF;
-   IF customer.id IS NULL THEN
+   IF NOT found_customer THEN
      SELECT * INTO customer FROM public.customers
       WHERE tenant_id = p_tenant AND match_key = public.customer_match_key(customer_key)
       ORDER BY id LIMIT 1;
+     found_customer := FOUND;
    END IF;
-   IF customer.id IS NULL THEN
+   IF NOT found_customer THEN
      -- `ON CONFLICT DO NOTHING` covers the race where two tills create the same
      -- new customer at once: the loser's insert is dropped and the row is then
      -- read back, so both sales land on one customer instead of two.
@@ -152,11 +165,17 @@ BEGIN
      VALUES(p_tenant, customer_key, customer_phone)
      ON CONFLICT (tenant_id, match_key) WHERE match_key IS NOT NULL DO NOTHING
      RETURNING * INTO customer;
-     IF customer.id IS NULL THEN
+     found_customer := FOUND;
+     IF NOT found_customer THEN
        SELECT * INTO customer FROM public.customers
         WHERE tenant_id = p_tenant AND match_key = public.customer_match_key(customer_key)
         ORDER BY id LIMIT 1;
+       found_customer := FOUND;
      END IF;
+   END IF;
+   -- A credit sale must never be stored without a customer.
+   IF NOT found_customer OR customer.id IS NULL THEN
+     RAISE EXCEPTION 'تعذر تحديد الزبون لتسجيل الكريدي';
    END IF;
    INSERT INTO public.credits(store_id, created_by, customer_id, total_amount, remaining_amount, description, status, sale_id)
    VALUES(p_store, staff, customer.id, due, due, 'فاتورة بيع مختلط', 'active', result);
@@ -174,7 +193,8 @@ CREATE OR REPLACE FUNCTION public.engine_create_credit(
   p_store uuid, p_name text, p_phone text, p_amount integer, p_description text, p_due_date date
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE u public.users; customer record; clean_phone text; clean_name text; created_customer boolean := false; credit_id uuid;
+DECLARE u public.users; customer record; found_customer boolean := false;
+        clean_phone text; clean_name text; created_customer boolean := false; credit_id uuid;
 BEGIN
   SELECT * INTO u FROM public.current_staff();
   PERFORM public.engine_validate(p_store, u.tenant_id, ARRAY['owner','manager','employee']);
@@ -187,24 +207,30 @@ BEGIN
     SELECT * INTO customer FROM public.customers
      WHERE tenant_id = u.tenant_id AND regexp_replace(coalesce(phone,''), '[\s-]', '', 'g') = clean_phone
      ORDER BY id LIMIT 1;
+    found_customer := FOUND;
   END IF;
-  IF customer.id IS NULL THEN
+  IF NOT found_customer THEN
     SELECT * INTO customer FROM public.customers
      WHERE tenant_id = u.tenant_id AND match_key = public.customer_match_key(clean_name)
      ORDER BY id LIMIT 1;
+    found_customer := FOUND;
   END IF;
-  IF customer.id IS NULL THEN
+  IF NOT found_customer THEN
     INSERT INTO public.customers(tenant_id, name, phone)
     VALUES(u.tenant_id, clean_name, clean_phone)
     ON CONFLICT (tenant_id, match_key) WHERE match_key IS NOT NULL DO NOTHING
     RETURNING * INTO customer;
-    IF customer.id IS NULL THEN
+    found_customer := FOUND;
+    created_customer := FOUND;
+    IF NOT found_customer THEN
       SELECT * INTO customer FROM public.customers
        WHERE tenant_id = u.tenant_id AND match_key = public.customer_match_key(clean_name)
        ORDER BY id LIMIT 1;
-    ELSE
-      created_customer := true;
+      found_customer := FOUND;
     END IF;
+  END IF;
+  IF NOT found_customer OR customer.id IS NULL THEN
+    RAISE EXCEPTION 'تعذر تحديد الزبون لتسجيل الكريدي';
   END IF;
 
   INSERT INTO public.credits(store_id, created_by, customer_id, total_amount, remaining_amount, description, due_date, status)

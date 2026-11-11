@@ -71,8 +71,10 @@ test('the credit sync matches on the key and survives a concurrent insert', () =
   const body = fn(sql, 'engine_sync_sale')
   assert.match(body, /match_key = public\.customer_match_key\(customer_key\)/)
   assert.match(body, /ON CONFLICT \(tenant_id, match_key\) WHERE match_key IS NOT NULL DO NOTHING/)
-  // Losing the race must fall back to reading the winner's row.
-  assert.match(body, /IF customer\.id IS NULL THEN\s+SELECT \* INTO customer FROM public\.customers\s+WHERE tenant_id = p_tenant AND match_key/)
+  // Losing the race must fall back to reading the winner's row. The test is a
+  // boolean, not `customer.id IS NULL`: reading a field of a record that was
+  // never assigned raises 55000 "record customer is not assigned yet".
+  assert.match(body, /IF NOT found_customer THEN\s+SELECT \* INTO customer FROM public\.customers\s+WHERE tenant_id = p_tenant AND match_key/)
 })
 
 test('the manual credit path matches the same way before inserting a debt', () => {
@@ -83,7 +85,7 @@ test('the manual credit path matches the same way before inserting a debt', () =
   assert.ok(matchAt > -1, 'matches by key')
   assert.ok(matchAt < insertCustomer, 'match before creating a customer')
   assert.ok(insertCustomer < insertCredit, 'customer before debt')
-  assert.match(body, /created_customer := true/)
+  assert.match(body, /created_customer := FOUND/)
 })
 
 test('buying one item returns to the catalogue instead of opening payment', () => {

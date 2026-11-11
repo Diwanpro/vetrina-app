@@ -13,8 +13,9 @@ const MAX_BYTES = 5 * 1024 * 1024
 // and credit is owed by the customer. Collection is a separate step.
 export default function MixedPaymentModal({ ctx, remainder, onCancel, onConfirm }) {
   const [method, setMethod] = useState('credit')
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
+  // { id, name, phone }. `id` is set only when an existing customer was picked;
+  // when null the server creates the row from the typed name.
+  const [customer, setCustomer] = useState({ id: null, name: '', phone: '' })
   const [file, setFile] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -40,7 +41,7 @@ export default function MixedPaymentModal({ ctx, remainder, onCancel, onConfirm 
     // Each method has its own mandatory field; validate before touching storage
     // so a rejected form never leaves an orphaned upload behind.
     if (isPaper && !file) { setError('أرفق صورة الشيك أو الوصل'); return }
-    if (!isPaper && !name.trim()) { setError('اسم الزبون مطلوب'); return }
+    if (!isPaper && !String(customer.name || '').trim()) { setError('اسم الزبون مطلوب'); return }
     setBusy(true)
     try {
       const receiptPath = isPaper ? await upload() : null
@@ -48,8 +49,11 @@ export default function MixedPaymentModal({ ctx, remainder, onCancel, onConfirm 
         cash: 0, // filled in by the caller with the amount actually taken
         amount: remainder,
         method,
-        customer_name: name.trim(),
-        customer_phone: phone.trim(),
+        customer_name: String(customer.name || '').trim(),
+        customer_phone: String(customer.phone || '').trim(),
+        // Carried through to the sync call so an existing row is reused instead
+        // of being looked up by name again and possibly duplicated.
+        customer_id: customer.id || null,
         receipt_url: receiptPath,
       })
     } catch (err) { console.error('[pos] mixed payment failed', err); setError(err.message) }
@@ -71,14 +75,10 @@ export default function MixedPaymentModal({ ctx, remainder, onCancel, onConfirm 
           </select>
         </label>
 
-        <label className="block text-sm text-neutral-300">اسم الزبون {!isPaper && <span className="text-red-300">*</span>}
-          <input required={!isPaper} disabled={busy} value={name} onChange={e => setName(e.target.value)}
-            maxLength={200} className={`${fieldClass} mt-1`} placeholder="الاسم الكامل" />
-        </label>
-        <label className="block text-sm text-neutral-300">رقم الهاتف (اختياري)
-          <input disabled={busy} value={phone} onChange={e => setPhone(e.target.value)}
-            maxLength={30} dir="ltr" className={`${fieldClass} mt-1`} placeholder="0X XX XX XX XX" />
-        </label>
+        <div className="block text-sm text-neutral-300">
+          <span className="mb-1 block">اسم الزبون {!isPaper && <span className="text-red-300">*</span>}</span>
+          <CustomerPicker tenantId={ctx.tenantId} value={customer} onChange={setCustomer} disabled={busy} />
+        </div>
 
         {isPaper && <label className="block text-sm text-neutral-300">أرفق صورة الشيك / الوصل <span className="text-red-300">*</span>
           <input required type="file" disabled={busy} accept="image/jpeg,image/png,image/webp,application/pdf"

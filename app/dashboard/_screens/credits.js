@@ -5,7 +5,8 @@ import { scopeQuery } from '@/lib/access'
 import { fetchAllRows, validMoney } from '@/lib/cash'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
-import { CreditPaymentModal, CustomerLedgerModal } from '@/components/dashboard/CreditLedger'
+import { CreditPaymentModal } from '@/components/dashboard/CreditLedger'
+import LedgerModal from '@/components/dashboard/LedgerModal'
 import { secondaryClass } from '@/components/dashboard/EngineUI'
 
 function formatDate(value) {
@@ -245,10 +246,10 @@ export default function CreditsPage() {
         onSaved={() => { loadCredits() }}
       />}
 
-      {ledgerCustomer && <CustomerLedgerModal
-        customerId={ledgerCustomer}
-        onClose={() => setLedgerCustomer(null)}
-      />}
+      {/* One ledger component for every entry point, so the columns cannot
+          drift between the credits screen and the customers screen. */}
+      {ledgerCustomer && <LedgerModal kind="customer" id={ledgerCustomer}
+        onClose={() => { setLedgerCustomer(null); loadCredits() }} />}
     </>
   )
 }

@@ -122,11 +122,9 @@ test('silent failures now log to the console', async () => {
 test('the supplier ledger modal is reachable by clicking the supplier name', async () => {
   const page = await read('../app/dashboard/_screens/suppliers.js')
   assert.match(page, /onClick=\{\(\) => setLedger\(supplier\)\}/)
-  assert.match(page, /<SupplierLedger supplier=\{ledger\}/)
-  const component = await read('../components/dashboard/SupplierLedger.js')
-  assert.match(component, /engine_supplier_ledger/)
-  assert.match(component, /engine_pay_supplier/)
-  // engine_pay_supplier expects tenant and store, not just the supplier id.
-  assert.match(component, /p_tenant: supplier\.tenant_id/)
-  assert.match(component, /p_store: supplier\.store_id/)
+  assert.match(page, /<LedgerModal kind="supplier"/)
+  // The supplier ledger now renders through the shared LedgerModal, which reads
+  // the detailed RPC rather than the summary one.
+  const component = await read('../components/dashboard/LedgerModal.js')
+  assert.match(component, /engine_supplier_ledger_detail/)
 })
