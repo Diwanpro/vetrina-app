@@ -155,3 +155,13 @@ export function IconLooks({ className = 'w-5 h-5' }) {
     </svg>
   )
 }
+
+export function IconTrips({ className = 'w-4 h-4' }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6h13v9H3zM16 9h3l2 3v3h-5z" />
+      <circle cx="7" cy="18" r="1.6" />
+      <circle cx="18" cy="18" r="1.6" />
+    </svg>
+  )
+}

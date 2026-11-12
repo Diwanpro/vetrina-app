@@ -51,6 +51,9 @@ export default function TopBar() {
         </p>
         <p className={`mt-0.5 truncate whitespace-nowrap text-[11px] ${online ? 'text-neutral-500' : 'text-amber-300'}`}>
           {online ? 'متصل بالإنترنت' : 'وضع دون اتصال'}
+          {/* An owner in "all branches" is looking at aggregated numbers; without
+              this the figures on screen have no visible scope. */}
+          {ctx.role === 'owner' && ctx.allBranches && <span className="text-gold"> · كل الفروع</span>}
           {/* The pending counter is the only part worth keeping on a phone. */}
           {pending.length > 0 && <span> · {pending.length} بانتظار المزامنة</span>}
         </p>
