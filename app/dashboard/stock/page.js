@@ -6,6 +6,7 @@ import InventoryPage from '@/app/dashboard/_screens/inventory'
 import TransfersPage from '@/app/dashboard/_screens/transfers'
 import SuppliersPage from '@/app/dashboard/_screens/suppliers'
 import PurchasesPage from '@/app/dashboard/_screens/purchases'
+import OffersPage from '@/app/dashboard/_screens/offers'
 
 const TABS = [
   { key: 'products', label: 'المنتجات', href: '/dashboard/products', component: ProductsPage },
@@ -13,6 +14,7 @@ const TABS = [
   { key: 'transfers', label: 'نقل المخزون', href: '/dashboard/transfers', component: TransfersPage },
   { key: 'suppliers', label: 'الموردون', href: '/dashboard/suppliers', component: SuppliersPage },
   { key: 'purchases', label: 'المشتريات', href: '/dashboard/purchases', component: PurchasesPage },
+  { key: 'offers', label: 'العروض', href: '/dashboard/offers', component: OffersPage },
 ]
 
 export default function StockPage() {

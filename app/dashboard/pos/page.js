@@ -6,6 +6,7 @@ import { cacheCatalog, cachedCatalog, syncPending } from '@/lib/sync'
 import { persistLocalSale, localRows } from '@/lib/local-db'
 import { logAction } from '@/lib/audit'
 import { meetsFloor, validMoney, FLOOR_PRICE_MESSAGE } from '@/lib/cash'
+import { applyOffers, lineSubtotal, cacheOffers, cachedOffers } from '@/lib/offers'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
 import MixedPaymentModal from '@/components/dashboard/MixedPaymentModal'
 import { fetchAllRows } from '@/lib/cash'
@@ -36,6 +37,7 @@ export default function PosPage() {
   const [selected, setSelected] = useState(null)
   const [picked, setPicked] = useState({ color: '', size: '' })
   const [cart, setCart] = useState([])
+  const [offers, setOffers] = useState([])
   const [cartOpen, setCartOpen] = useState(false)
   const [checkout, setCheckout] = useState(false)
   const [payment, setPayment] = useState('cash')
@@ -96,9 +98,35 @@ export default function PosPage() {
   const colors = [...new Set(available.map((v) => v.color))]
   const sizes = available.filter((v) => !picked.color || v.color === picked.color)
 
+  // Offers are loaded on page load and cached for offline selling, exactly like
+  // the catalogue: a discount that silently vanished offline would be worse
+  // than no discount at all.
+  useEffect(() => {
+    if (!ctx.tenantId) return
+    let live = true
+    ;(async () => {
+      try {
+        if (!navigator.onLine || ctx.offline) { if (live) setOffers(cachedOffers(ctx.tenantId)); return }
+        const { data, error: offerError } = await supabase.rpc('engine_offers', { p_tenant: ctx.tenantId })
+        if (offerError) throw offerError
+        if (live) setOffers(cacheOffers(ctx.tenantId, data || []))
+      } catch (offerError) {
+        console.error('[pos] offers failed, using cache', offerError)
+        if (live) setOffers(cachedOffers(ctx.tenantId))
+      }
+    })()
+    return () => { live = false }
+  }, [ctx.tenantId, ctx.offline])
+
+  // Every quantity change re-prices the cart, so a bundle starts applying the
+  // moment the quantity reaches its threshold.
+  function updateCart(updater) {
+    setCart(prev => applyOffers(typeof updater === 'function' ? updater(prev) : updater, offers))
+  }
+
   const totals = useMemo(() => {
     const count = cart.reduce((s, i) => s + i.qty, 0)
-    const amount = cart.reduce((s, i) => s + i.qty * i.price, 0)
+    const amount = cart.reduce((s, i) => s + lineSubtotal(i), 0)
     return { count, amount }
   }, [cart])
 
@@ -112,7 +140,7 @@ export default function PosPage() {
     if (qty <= 0) throw new Error('هذا المقاس غير متوفر في المتجر الحالي')
     const existing = cart.find(item => item.variantId === variant.id)
     if (existing && existing.qty >= qty) throw new Error('تمت إضافة كامل المخزون المتاح لهذا المقاس')
-    setCart(prev => {
+    updateCart(prev => {
       const found = prev.find(item => item.variantId === variant.id)
       if (found) return prev.map(item => item.variantId === variant.id
         ? { ...item, qty: Math.min(item.qty + 1, qty), max: qty } : item)
@@ -179,7 +207,7 @@ export default function PosPage() {
           discount_percent: Number(draftDiscount), source: 'pos_cart',
         })
         setCart(prev => prev.map(item => item.variantId === editing.variantId
-          ? { ...item, price: newPrice, minPrice: Number(data.min_price || 0) } : item))
+          ? { ...item, price: newPrice, minPrice: Number(data.min_price || 0), manualPrice: true, offerId: null, offerKind: null, subtotal: newPrice * item.qty } : item))
       }
       setEditing(null)
     } catch (err) { setPriceError(err.message || 'تعذر تسجيل تعديل السعر') }
@@ -390,17 +418,18 @@ export default function PosPage() {
                         <div className="min-w-0">
                           <p className="truncate text-neutral-100">{i.name}</p>
                           <p className="mt-0.5 text-[11px] text-neutral-500">{i.color} / {i.size}</p>
+                          {i.offerId && <p className="mt-0.5 text-[11px] text-gold/80">{i.offerKind === 'bundle' ? 'عرض حزمة مطبّق' : 'خصم مطبّق'}</p>}
                         </div>
-                        <span className="shrink-0 text-gold">{formatDzd(i.price * i.qty)}</span>
+                        <span className="shrink-0 text-gold">{formatDzd(lineSubtotal(i))}</span>
                       </div>
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <button type="button" aria-label={`إنقاص كمية ${i.name}`} disabled={saving || i.qty <= 1}
-                            onClick={() => setCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))}
+                            onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))}
                             className="rounded border border-white/10 px-2.5 py-1 disabled:opacity-30">−</button>
                           <span className="min-w-6 text-center text-neutral-100">{i.qty}</span>
                           <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving || i.qty >= i.max}
-                            onClick={() => setCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))}
+                            onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))}
                             className="rounded border border-white/10 px-2.5 py-1 disabled:opacity-30">+</button>
                         </div>
                         <button type="button" disabled={saving}
@@ -456,13 +485,13 @@ export default function PosPage() {
                   <div>
                     <span>{i.name} · {i.color}/{i.size} × {i.qty}</span>
                     <div className="mt-2 flex items-center gap-3">
-                      <button type="button" aria-label={`إنقاص كمية ${i.name}`} disabled={saving || i.qty <= 1} onClick={() => setCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">−</button>
-                      <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving || i.qty >= i.max} onClick={() => setCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">+</button>
+                      <button type="button" aria-label={`إنقاص كمية ${i.name}`} disabled={saving || i.qty <= 1} onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">−</button>
+                      <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving || i.qty >= i.max} onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">+</button>
                       <button type="button" disabled={saving} onClick={() => { const next = cart.filter(item => item.variantId !== i.variantId); setCart(next); if (!next.length) { setCheckout(false); setCartOpen(false) } }} className="text-red-300">حذف</button>
                     </div>
                   </div>
                   <div className="text-left">
-                    <span className="block text-gold">{formatDzd(i.price * i.qty)}</span>
+                    <span className="block text-gold">{formatDzd(lineSubtotal(i))}</span>
                     <button type="button" disabled={saving || priceBusy} className="mt-1 text-gold underline disabled:opacity-50"
                       onClick={() => { setEditing(i); setDraftPrice(String(i.price)); setDraftDiscount('0'); setPriceError('') }}>
                       تعديل السعر / خصم
