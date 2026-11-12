@@ -1,0 +1,163 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+
+// lib/storefront.js imports the shared pricing module, which a data: URL cannot
+// resolve. Inlining the two files keeps the test dependency-free, exactly like
+// the other suites here.
+const offersSource = await fs.readFile(new URL('../lib/offers.js', import.meta.url), 'utf8')
+const storefrontSource = (await fs.readFile(new URL('../lib/storefront.js', import.meta.url), 'utf8'))
+  .replace(/^import .*$/m, '')
+const code = `${offersSource}\n${storefrontSource}`
+const {
+  formatMoney, normalizePhone, isValidPhone, whatsappNumber, whatsappLink,
+  normalizeProducts, categoriesOf, priceCart, cartCount, cartTotal,
+  timelineFor, statusLabel, orderMessage,
+} = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
+
+const product = (overrides = {}) => ({
+  id: 'p1', name: 'قميص', base_price: 2000, images: ['a.jpg'], image_url: '',
+  category: 'ملابس',
+  variants: [{ id: 'm', color: 'أبيض', size: 'M', available: 3 }, { id: 'l', color: 'أبيض', size: 'L', available: 2 }],
+  offers: [], ...overrides,
+})
+
+test('money is grouped and keeps the dinar suffix', () => {
+  assert.equal(formatMoney(0), '0 دج')
+  assert.equal(formatMoney(1234), '1 234 دج')
+  assert.match(formatMoney(3000), /3 000 دج/)
+})
+
+test('Algerian phone numbers are accepted however they are written', () => {
+  for (const value of ['0555123456', '0555 12 34 56', '+213 555 12 34 56', '00213555123456'.slice(2)]) {
+    assert.equal(isValidPhone(value), true, value)
+  }
+  for (const value of ['', '12345', '055512345', '0455123456', '05551234567']) {
+    assert.equal(isValidPhone(value), false, value)
+  }
+  assert.equal(normalizePhone('+213 555 12 34 56'), '0555123456')
+  assert.equal(whatsappNumber('0555123456'), '213555123456')
+  assert.equal(whatsappNumber('123'), '')
+  assert.match(whatsappLink('0555123456', 'مرحبا'), /^https:\/\/wa\.me\/213555123456\?text=/)
+})
+
+test('products are normalised for the storefront', () => {
+  const [ready] = normalizeProducts([product({ offers: [{ id: 'o1', kind: 'bundle', required_qty: 2, offer_price: 3000 }] })])
+  assert.equal(ready.image_url, 'a.jpg')
+  assert.equal(ready.offers[0].product_id, 'p1')
+  assert.equal(ready.variants.length, 2)
+
+  // Sold-out variants never reach the picker.
+  const [filtered] = normalizeProducts([product({ variants: [{ id: 'x', size: 'S', available: 0 }] })])
+  assert.deepEqual(filtered.variants, [])
+
+  // A product with no image at all must still render.
+  const [bare] = normalizeProducts([product({ images: [], image_url: '' })])
+  assert.equal(bare.image_url, '')
+})
+
+test('categories keep their first-seen order and drop blanks', () => {
+  const list = normalizeProducts([
+    product({ id: '1', category: 'ملابس' }),
+    product({ id: '2', category: 'أحذية' }),
+    product({ id: '3', category: 'ملابس' }),
+    product({ id: '4', category: '' }),
+  ])
+  assert.deepEqual(categoriesOf(list), ['ملابس', 'أحذية'])
+})
+
+test('cart pricing matches the till, including cross-size bundles', () => {
+  const offers = [{ id: 'o1', product_id: 'p1', kind: 'bundle', required_qty: 2, offer_price: 3000 }]
+  const cart = [
+    { variantId: 'm', productId: 'p1', productName: 'قميص', qty: 1, unitPrice: 2000, max: 3 },
+    { variantId: 'l', productId: 'p1', productName: 'قميص', qty: 1, unitPrice: 2000, max: 2 },
+  ]
+  const priced = priceCart(cart, offers)
+  assert.equal(cartCount(cart), 2)
+  assert.equal(cartTotal(priced), 3000)
+  assert.equal(priced[0].subtotal + priced[1].subtotal, 3000)
+  assert.ok(priced.every(line => line.offerId === 'o1'))
+
+  // One shirt alone stays at full price.
+  const single = priceCart([cart[0]], offers)
+  assert.equal(cartTotal(single), 2000)
+  assert.equal(single[0].offerId, null)
+})
+
+test('percentage offers discount the cart without touching the raw cart', () => {
+  const cart = [{ variantId: 'm', productId: 'p1', productName: 'قميص', qty: 2, unitPrice: 2000, max: 3 }]
+  const offers = [{ id: 'o2', product_id: 'p1', kind: 'percent', discount_percentage: 25 }]
+  const priced = priceCart(cart, offers)
+  assert.equal(cartTotal(priced), 3000)
+  assert.equal(cart[0].qty, 2, 'the source cart must not be mutated')
+  assert.equal(priceCart(cart, [])[0].subtotal, 4000)
+})
+
+test('the timeline reflects every status', () => {
+  const fresh = timelineFor('new')
+  assert.equal(fresh.length, 4)
+  assert.deepEqual(fresh.map(step => step.state), ['current', 'todo', 'todo', 'todo'])
+
+  const preparing = timelineFor('preparing')
+  assert.deepEqual(preparing.map(step => step.state), ['done', 'done', 'current', 'todo'])
+
+  const delivered = timelineFor('delivered')
+  assert.deepEqual(delivered.map(step => step.state), ['done', 'done', 'done', 'current'])
+
+  for (const terminal of ['rejected', 'cancelled']) {
+    const steps = timelineFor(terminal)
+    assert.equal(steps.length, 1)
+    assert.equal(steps[0].state, 'current')
+  }
+  assert.equal(statusLabel('preparing'), 'قيد التحضير')
+  assert.equal(statusLabel('rejected'), 'مرفوض')
+})
+
+test('the WhatsApp message names the items, the total and the handover', () => {
+  const message = orderMessage({
+    storeName: 'بوتيك',
+    cart: [{ productName: 'قميص', size: 'M', color: 'أبيض', qty: 2, subtotal: 3000 }],
+    total: 3000,
+    customer: { name: 'علي', phone: '0555123456', fulfillment: 'pickup' },
+  })
+  assert.match(message, /بوتيك/)
+  assert.match(message, /قميص/)
+  assert.match(message, /3 000 دج/)
+  assert.match(message, /الاستلام من المحل/)
+})
+
+test('the storefront only ever talks to the public RPCs', async () => {
+  const files = [
+    '../app/s/[slug]/page.js',
+    '../app/s/[slug]/track/[token]/page.js',
+    '../components/store/Storefront.js',
+    '../components/store/CartSheet.js',
+    '../components/store/TrackOrder.js',
+    '../components/store/ProductSheet.js',
+    '../components/store/StoreHeader.js',
+    '../lib/public-store.js',
+  ]
+  const sources = await Promise.all(files.map(file => fs.readFile(new URL(file, import.meta.url), 'utf8')))
+  const all = sources.join('\n')
+
+  // No table access, no service key: the browser holds only the anon key and
+  // the three storefront functions, which is what Phase A closed the tables behind.
+  for (const source of sources) {
+    // `.from('table')` is a table query; Array.from is not.
+    assert.doesNotMatch(source, /\.from\(\s*['"]/, 'storefront must not query tables directly')
+    assert.doesNotMatch(source, /service_role|SERVICE_ROLE/i)
+  }
+
+  const used = [...new Set([...all.matchAll(/rpc\('([a-z_]+)'/g)].map(match => match[1]))].sort()
+  assert.deepEqual(used, ['create_order', 'get_order_by_token', 'get_store_by_slug', 'get_store_products'])
+})
+
+test('the public pages resolve their dynamic segments', async () => {
+  const store = await fs.readFile(new URL('../app/s/[slug]/page.js', import.meta.url), 'utf8')
+  const track = await fs.readFile(new URL('../app/s/[slug]/track/[token]/page.js', import.meta.url), 'utf8')
+  assert.match(store, /await params/)
+  assert.match(track, /await params/)
+  // Both live outside /dashboard, so the shell and its auth gate do not apply.
+  assert.doesNotMatch(store, /DashboardShell/)
+  assert.doesNotMatch(track, /DashboardShell/)
+})

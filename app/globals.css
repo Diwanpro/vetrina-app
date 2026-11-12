@@ -50,3 +50,52 @@ select option:hover {
   background-color: #1a1a1a;
   color: #ffffff;
 }
+
+/* ------------------------------------------------ public storefront motion */
+/* Scoped to the /s routes by class name so the dashboard is unaffected. */
+@keyframes sf-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes sf-sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes sf-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sf-pop {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes sf-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes sf-halo {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.06); }
+}
+
+.sf-fade-up { animation: sf-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.sf-fade-in { animation: sf-fade-in 0.25s ease-out both; }
+.sf-sheet { animation: sf-sheet-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.sf-pop { animation: sf-pop 0.45s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.sf-halo { animation: sf-halo 6s ease-in-out infinite; }
+.sf-skeleton {
+  background-image: linear-gradient(90deg, #1a1a1a 25%, #232323 50%, #1a1a1a 75%);
+  background-size: 200% 100%;
+  animation: sf-shimmer 1.4s linear infinite;
+}
+
+/* Horizontal rails (categories, image thumbnails) scroll without a scrollbar. */
+.sf-rail { scrollbar-width: none; -ms-overflow-style: none; }
+.sf-rail::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sf-fade-up, .sf-fade-in, .sf-sheet, .sf-pop, .sf-halo, .sf-skeleton {
+    animation: none;
+  }
+}
