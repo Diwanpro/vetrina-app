@@ -7,6 +7,7 @@ import {
   IconAccounting,
   IconOrders,
   IconSettings,
+  IconTrips,
 } from './icons'
 
 export const NAV_ITEMS = [
@@ -16,6 +17,7 @@ export const NAV_ITEMS = [
   { href: '/dashboard/operations', label: 'العمليات اليومية', icon: IconSales },
   { href: '/dashboard/customers-credit', label: 'الزبائن والكريدي', icon: IconCredit },
   { href: '/dashboard/stock', label: 'المخزون والموردون', icon: IconInventory },
+  { href: '/dashboard/trips', label: 'رحلات الشراء', icon: IconTrips },
   { href: '/dashboard/management', label: 'الإدارة والمحاسبة', icon: IconAccounting },
   { href: '/dashboard/settings', label: 'الإعدادات', icon: IconSettings },
 ]
@@ -39,6 +41,7 @@ export const ROUTE_GROUPS = {
   '/dashboard/purchases': '/dashboard/stock',
   '/dashboard/offers': '/dashboard/stock',
   '/dashboard/looks': '/dashboard/stock',
+  '/dashboard/trips': '/dashboard/trips',
   '/dashboard/accounting': '/dashboard/management',
   '/dashboard/users': '/dashboard/management',
   '/dashboard/settings': '/dashboard/settings',

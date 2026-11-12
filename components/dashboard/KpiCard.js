@@ -1,4 +1,4 @@
-export default function KpiCard({ title, value, subtitle, icon: Icon, accent = 'gold' }) {
+export default function KpiCard({ title, value, subtitle, icon: Icon, accent = 'gold', onClick }) {
   const accentClass =
     accent === 'red'
       ? 'text-red-300 bg-red-500/10'
@@ -6,8 +6,8 @@ export default function KpiCard({ title, value, subtitle, icon: Icon, accent = '
         ? 'text-emerald-300 bg-emerald-500/10'
         : 'text-gold bg-gold/10'
 
-  return (
-    <article className="rounded-xl border border-white/5 bg-card p-3.5 shadow-[0_4px_18px_rgba(0,0,0,0.28)]">
+  const body = (
+    <>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs text-neutral-400">{title}</p>
@@ -18,6 +18,24 @@ export default function KpiCard({ title, value, subtitle, icon: Icon, accent = '
         </span>
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-neutral-500">{subtitle}</p>
-    </article>
+    </>
+  )
+
+  const base = 'rounded-xl border border-white/5 bg-card p-3.5 text-right shadow-[0_4px_18px_rgba(0,0,0,0.28)]'
+
+  // Without onClick this stays a plain article, exactly as before. With it the
+  // whole card becomes a real button so the keyboard and screen readers get the
+  // same affordance as a mouse.
+  if (!onClick) return <article className={base}>{body}</article>
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-haspopup="dialog"
+      className={`${base} w-full cursor-pointer transition hover:border-gold/30 hover:bg-white/[0.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60`}
+    >
+      {body}
+    </button>
   )
 }

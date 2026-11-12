@@ -24,12 +24,12 @@ const fn = (source, name) => {
   return body.slice(0, body.indexOf('$$;'))
 }
 
-test('the sidebar holds exactly the eight grouped destinations', async () => {
+test('the sidebar holds exactly the nine grouped destinations', async () => {
   const entries = [...nav.matchAll(/\{ href: '([^']+)', label: '([^']+)'/g)].map(m => [m[1], m[2]])
-  assert.equal(entries.length, 8)
+  assert.equal(entries.length, 9)
   assert.deepEqual(entries.map(e => e[1]), [
     'لوحة التحكم', 'نقطة البيع', 'الطلبات', 'العمليات اليومية', 'الزبائن والكريدي',
-    'المخزون والموردون', 'الإدارة والمحاسبة', 'الإعدادات',
+    'المخزون والموردون', 'رحلات الشراء', 'الإدارة والمحاسبة', 'الإعدادات',
   ])
   // Orders is the only entry with a live counter.
   assert.equal((nav.match(/badge: 'orders'/g) || []).length, 1)
