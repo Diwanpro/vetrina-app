@@ -36,7 +36,7 @@ export default function SettingsPage() {
   
   // --- STORE SETTINGS TAB STATE ---
   const [storeSettings, setStoreSettings] = useState({
-    name: '', address: '', phone: '',
+    name: '', address: '', phone: '', google_maps_url: '',
     receipt_footer: '', tax_rc: '', logo_on_receipt: false, prices_on_receipt: false,
     return_policy_days: '7', low_stock_alert: 10,
     enable_barcode: true, logo_url: ''
@@ -61,13 +61,14 @@ export default function SettingsPage() {
   async function loadStoreSettings() {
     if (!ctx?.storeId) return
     try {
-      const { data, error } = await supabase.from('stores').select('name, address, phone, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url').eq('id', ctx.storeId).single()
+      const { data, error } = await supabase.from('stores').select('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url').eq('id', ctx.storeId).single()
       if (error) throw error
       if (data) {
         setStoreSettings({
           name: data.name || '',
           address: data.address || '',
           phone: data.phone || '',
+          google_maps_url: data.google_maps_url || '',
           receipt_footer: data.receipt_footer || '',
           tax_rc: data.tax_rc || '',
           logo_on_receipt: data.logo_on_receipt ?? false,
@@ -98,14 +99,12 @@ export default function SettingsPage() {
         finalLogoUrl = pub?.publicUrl || ''
       }
 
-      // Use the supabase connector tool to execute the schema update and update row if RPC is missing.
-      // For the client code, we'll try to call an RPC.
-      // We will create the RPC via the connector tool in the agent step.
       const { error: rpcErr } = await supabase.rpc('engine_update_store_settings', {
         p_store: ctx.storeId,
         p_name: storeSettings.name,
         p_address: storeSettings.address,
         p_phone: storeSettings.phone,
+        p_google_maps_url: storeSettings.google_maps_url,
         p_receipt_footer: storeSettings.receipt_footer,
         p_tax_rc: storeSettings.tax_rc,
         p_logo_on_receipt: storeSettings.logo_on_receipt,
@@ -123,7 +122,7 @@ export default function SettingsPage() {
       setSettingsSuccess('تم حفظ إعدادات المحل')
       loadStoreSettings()
     } catch (err) {
-      setSettingsError(`خطأ: ${err.message}. (سيقوم الوكيل بتحديث المخطط)`)
+      setSettingsError(`خطأ: ${err.message}`)
     } finally {
       setSettingsBusy(false)
     }
@@ -188,6 +187,23 @@ export default function SettingsPage() {
     if (ctx?.storeId) loadStoreSettings()
   }, [ctx?.storeId])
 
+  // Accepts pasted links with or without a scheme and rejects anything that is
+  // not http(s), so a javascript: URL can never reach window.open. Only strings
+  // with no scheme at all get https:// prepended — otherwise "ftp://x" would be
+  // mangled into "https://ftp//x" instead of being rejected.
+  function toMapUrl(raw) {
+    const value = (raw || '').trim()
+    if (!value) return ''
+    const candidate = /^[a-z][a-z0-9+.-]*:/i.test(value) ? value : `https://${value}`
+    try {
+      const url = new URL(candidate)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return ''
+      if (!url.hostname.includes('.')) return ''
+      return url.toString()
+    } catch { return '' }
+  }
+  const mapUrl = toMapUrl(storeSettings.google_maps_url)
+
   return (
     <>
       <div className="mx-auto max-w-4xl space-y-5">
@@ -222,6 +238,31 @@ export default function SettingsPage() {
               <label className="block text-sm text-neutral-300">رقم الهاتف
                 <input value={storeSettings.phone} onChange={e => setStoreSettings({ ...storeSettings, phone: e.target.value })} className={`${fieldClass} mt-1`} />
               </label>
+              <div className="block text-sm text-neutral-300 sm:col-span-2">
+                <label htmlFor="store-maps-url" className="block">رابط الموقع (Google Maps)</label>
+                <div className="mt-1 flex gap-2">
+                  <input
+                    id="store-maps-url"
+                    dir="ltr"
+                    inputMode="url"
+                    placeholder="https://maps.app.goo.gl/..."
+                    value={storeSettings.google_maps_url}
+                    onChange={e => setStoreSettings({ ...storeSettings, google_maps_url: e.target.value })}
+                    className={fieldClass}
+                  />
+                  <button
+                    type="button"
+                    disabled={!mapUrl}
+                    onClick={() => window.open(mapUrl, '_blank', 'noopener,noreferrer')}
+                    className={`${secondaryClass} shrink-0 disabled:opacity-40`}
+                  >
+                    فتح الخريطة
+                  </button>
+                </div>
+                {storeSettings.google_maps_url.trim() && !mapUrl && (
+                  <span className="mt-1 block text-[11px] text-amber-300">رابط غير صالح — استخدم رابطاً يبدأ بـ https://</span>
+                )}
+              </div>
               <label className="block text-sm text-neutral-300">شعار المحل (صورة)
                 <input type="file" accept="image/*" onChange={e => setLogoFile(e.target.files?.[0] || null)} className={`${fieldClass} mt-1`} />
                 {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="شعار المحل" className="mt-2 h-20 w-20 rounded-lg object-cover" />}
