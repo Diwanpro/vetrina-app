@@ -40,7 +40,8 @@ DECLARE
   v_tenant uuid; v_owner uuid;
   v_store1 uuid; v_store2 uuid; v_store3 uuid;
   v_supplier1 uuid; v_supplier2 uuid; v_supplier3 uuid;
-  v_product uuid; v_variant uuid; v_customer uuid;
+  v_product uuid; v_variant uuid;
+  v_customer record;
   v_sale uuid; v_shift uuid; v_qty integer;
   i integer; j integer;
   v_size text; v_color text; v_cost integer; v_price integer;
@@ -49,22 +50,111 @@ DECLARE
   v_cash integer; v_total integer;
 
   -- name, category, subcategory, price, cost, sizes
-  products constant text[][] := ARRAY[
-    ['قميص كتان صيفي',     'ملابس',   'قمصان',   4200, 2400, 'S,M,L,XL'],
-    ['تيشيرت قطن بيومي',   'ملابس',   'تيشيرت',  1900, 1000, 'S,M,L,XL'],
-    ['جينز مستقيم كلاسيك', 'ملابس',   'بناطيل',  5600, 3200, '38,40,42,44'],
-    ['فستان مبطن للصيف',   'ملابس',   'فساتين',  6500, 3800, 'S,M,L'],
-    ['سترة خفيفة للمساء',  'ملابس',   'جاكيتات', 8200, 5000, 'M,L,XL'],
-    ['حذاء رياضي أبيض',    'أحذية',   'رياضية',  7400, 4300, '40,41,42,43,44'],
-    ['حذاء جلد كلاسيك',    'أحذية',   'كلاسيك',  9800, 6100, '40,41,42,43'],
-    ['صندل جلد صيفي',      'أحذية',   'صنادل',   3900, 2100, '39,40,41,42'],
-    ['شبشب منزلي قطني',    'أحذية',   'منزلي',   1500, 700,  '40,41,42,43'],
-    ['حزام جلد طبيعي',     'إكسسوار', 'أحزمة',   2200, 1100, '85,90,95'],
-    ['محفظة جلد صغيرة',    'إكسسوار', 'محافظ',   3100, 1700, 'مقاس واحد'],
-    ['نظارة شمسية مربعة',  'إكسسوار', 'نظارات',  3600, 1800, 'مقاس واحد'],
-    ['حقيبة كتف متوسطة',   'إكسسوار', 'حقائب',   5900, 3400, 'مقاس واحد'],
-    ['طاقية صيفية قطنية',  'إكسسوار', 'قبعات',   1200, 550,  'مقاس واحد'],
-    ['وشاح حريري مطبوع',   'إكسسوار', 'أوشحة',   2700, 1300, 'مقاس واحد']
+  -- One row per product, as parallel flat arrays. A nested `text[][]` literal
+  -- makes Postgres infer the element type from the first row's mix of text and
+  -- integers and fail with "invalid input syntax for type integer". Every
+  -- price and cost below is an unquoted integer.
+  p_name   constant text[]    := ARRAY[
+    'قميص كتان صيفي',
+    'تيشيرت قطن بيومي',
+    'جينز مستقيم كلاسيك',
+    'فستان مبطن للصيف',
+    'سترة خفيفة للمساء',
+    'حذاء رياضي أبيض',
+    'حذاء جلد كلاسيك',
+    'صندل جلد صيفي',
+    'شبشب منزلي قطني',
+    'حزام جلد طبيعي',
+    'محفظة جلد صغيرة',
+    'نظارة شمسية مربعة',
+    'حقيبة كتف متوسطة',
+    'طاقية صيفية قطنية',
+    'وشاح حريري مطبوع'
+  ];
+  p_cat    constant text[]    := ARRAY[
+    'ملابس',
+    'ملابس',
+    'ملابس',
+    'ملابس',
+    'ملابس',
+    'أحذية',
+    'أحذية',
+    'أحذية',
+    'أحذية',
+    'إكسسوار',
+    'إكسسوار',
+    'إكسسوار',
+    'إكسسوار',
+    'إكسسوار',
+    'إكسسوار'
+  ];
+  p_subcat constant text[]    := ARRAY[
+    'قمصان',
+    'تيشيرت',
+    'بناطيل',
+    'فساتين',
+    'جاكيتات',
+    'رياضية',
+    'كلاسيك',
+    'صنادل',
+    'منزلي',
+    'أحزمة',
+    'محافظ',
+    'نظارات',
+    'حقائب',
+    'قبعات',
+    'أوشحة'
+  ];
+  p_price  constant integer[] := ARRAY[
+    4200,
+    1900,
+    5600,
+    6500,
+    8200,
+    7400,
+    9800,
+    3900,
+    1500,
+    2200,
+    3100,
+    3600,
+    5900,
+    1200,
+    2700
+  ];
+  p_cost   constant integer[] := ARRAY[
+    2400,
+    1000,
+    3200,
+    3800,
+    5000,
+    4300,
+    6100,
+    2100,
+    700,
+    1100,
+    1700,
+    1800,
+    3400,
+    550,
+    1300
+  ];
+  p_sizes  constant text[]    := ARRAY[
+    'S,M,L,XL',
+    'S,M,L,XL',
+    '38,40,42,44',
+    'S,M,L',
+    'M,L,XL',
+    '40,41,42,43,44',
+    '40,41,42,43',
+    '39,40,41,42',
+    '40,41,42,43',
+    '85,90,95',
+    'مقاس واحد',
+    'مقاس واحد',
+    'مقاس واحد',
+    'مقاس واحد',
+    'مقاس واحد'
   ];
   colors constant text[] := ARRAY['أسود', 'أبيض', 'كحلي', 'بيج', 'أحمر'];
 
@@ -126,11 +216,11 @@ BEGIN
   SELECT id INTO v_supplier3 FROM public.suppliers WHERE tenant_id = v_tenant AND name = tag || ' مورد الإكسسوار';
 
   -- ============================================================== products
-  FOR i IN 1 .. array_length(products, 1) LOOP
-    v_name  := tag || ' ' || products[i][1];
-    v_price := products[i][4]::integer;
-    v_cost  := products[i][5]::integer;
-    v_size_list := string_to_array(products[i][6], ',');
+  FOR i IN 1 .. array_length(p_name, 1) LOOP
+    v_name  := tag || ' ' || p_name[i];
+    v_price := p_price[i];
+    v_cost  := p_cost[i];
+    v_size_list := string_to_array(p_sizes[i], ',');
 
     SELECT id INTO v_product FROM public.products WHERE tenant_id = v_tenant AND name = v_name;
     IF v_product IS NULL THEN
@@ -138,7 +228,7 @@ BEGIN
                                   base_price, type, images, image_url, is_active)
       VALUES (v_tenant, v_name,
               'قطعة موسمية متوفرة بعدة مقاسات.',
-              products[i][2], products[i][3], v_price, 'variable',
+              p_cat[i], p_subcat[i], v_price, 'variable',
               ARRAY['https://picsum.photos/seed/vetrina-' || i || '/800/1000'],
               'https://picsum.photos/seed/vetrina-' || i || '/800/1000',
               true)
@@ -174,7 +264,7 @@ BEGIN
     END LOOP;
   END LOOP;
 
-  RAISE NOTICE 'seed_data: % منتجاً مع مقاساتها ومخزونها', array_length(products, 1);
+  RAISE NOTICE 'seed_data: % منتجاً مع مقاساتها ومخزونها', array_length(p_name, 1);
 
   -- ============================================================= customers
   -- The unique index on (tenant_id, match_key) already prevents duplicates,
@@ -194,7 +284,7 @@ BEGIN
   -- Two products on "2 for 3000", the classic Algerian shop promotion. Written
   -- through the app's own RPC so the same guards apply.
   FOR i IN 1 .. 2 LOOP
-    v_name := tag || ' ' || products[i][1];
+    v_name := tag || ' ' || p_name[i];
     SELECT id INTO v_product FROM public.products WHERE tenant_id = v_tenant AND name = v_name;
     IF v_product IS NOT NULL AND NOT EXISTS (
       SELECT 1 FROM public.offers o
@@ -219,7 +309,7 @@ BEGIN
     SELECT p.id, v.id INTO v_product, v_variant
       FROM public.products p
       JOIN public.product_variants v ON v.product_id = p.id
-     WHERE p.tenant_id = v_tenant AND p.name = tag || ' ' || products[1 + (v_day % 15)][1]
+     WHERE p.tenant_id = v_tenant AND p.name = tag || ' ' || p_name[1 + (v_day % 15)]
      ORDER BY v.size LIMIT 1;
     CONTINUE WHEN v_variant IS NULL;
 
@@ -235,8 +325,11 @@ BEGIN
             CASE WHEN v_day % 3 = 0 THEN 0 ELSE v_total END,
             CASE v_day % 3 WHEN 0 THEN 'credit' ELSE 'cash' END,
             'synced', 'seed:sale:' || v_day,
-            now() - (7 - v_day) * interval '1 day' + interval '10 hours',
-            now() - (7 - v_day) * interval '1 day' + interval '10 hours')
+            -- Spread over the past week, never in the future. `v_day` runs
+            -- 1..10, so counting back from 10 keeps the newest at yesterday;
+            -- normalising to midday stops the +10h crossing midnight.
+            date_trunc('day', now()) - (10 - v_day) * interval '1 day' + interval '12 hours',
+            date_trunc('day', now()) - (10 - v_day) * interval '1 day' + interval '12 hours')
     RETURNING id INTO v_sale;
 
     -- cost_at_sale is what the profit report reads: snapshot it, never join
@@ -304,37 +397,41 @@ BEGIN
   -- ============================================================== expenses
   -- Approved, historical, and inside no open shift: they reduce nothing that a
   -- real drawer reconciliation reads.
+  -- request_id is a uuid column, so it cannot hold 'seed:expense:elec'. Fixed
+  -- uuid keys are used instead: a uuid constant is a constant, so the same key
+  -- yields the same id on every run and the re-run check stays idempotent.
   INSERT INTO public.expenses(store_id, amount, description, category, receipt_url,
                               created_by, status, request_id, created_at)
   SELECT v_store1, x.amount, x.description, x.category, NULL, v_owner, 'approved',
-         'seed:expense:' || x.slug, now() - x.days * interval '1 day'
+         (x.key)::uuid, now() - x.days * interval '1 day'
     FROM (VALUES
       -- Categories must match CATEGORIES in app/dashboard/_screens/expenses.js,
       -- otherwise the expense screen cannot render or filter them.
-      (12000, tag || ' فاتورة كهرباء',  'كهرباء وماء', 'elec', 2),
-      (35000, tag || ' إيجار المحل',    'إيجار',       'rent', 5),
-      ( 2400, tag || ' أكياس وتغليف',   'أخرى',        'pack', 1),
-      ( 1800, tag || ' أدوات تنظيف',    'أخرى',        'clean', 3),
-      ( 4500, tag || ' صيانة مكيف',     'صيانة',       'ac',   6)
-    ) AS x(amount, description, category, slug, days)
+      (12000, tag || ' فاتورة كهرباء',  'كهرباء وماء', '00000000-0000-4000-8000-000000000e01', 2),
+      (35000, tag || ' إيجار المحل',    'إيجار',       '00000000-0000-4000-8000-000000000e02', 5),
+      ( 2400, tag || ' أكياس وتغليف',   'أخرى',        '00000000-0000-4000-8000-000000000e03', 1),
+      ( 1800, tag || ' أدوات تنظيف',    'أخرى',        '00000000-0000-4000-8000-000000000e04', 3),
+      ( 4500, tag || ' صيانة مكيف',     'صيانة',       '00000000-0000-4000-8000-000000000e05', 6)
+    ) AS x(amount, description, category, key, days)
    WHERE NOT EXISTS (
-     SELECT 1 FROM public.expenses e WHERE e.request_id = 'seed:expense:' || x.slug);
+     SELECT 1 FROM public.expenses e WHERE e.request_id = (x.key)::uuid);
 
   -- ============================================================== purchases
   -- One received purchase from the shoe supplier, through the app's RPC, so
   -- stock and cost_price_avg move exactly as they would from the purchases
   -- screen. request_id makes a re-run return the existing row.
-  IF NOT EXISTS (SELECT 1 FROM public.purchases WHERE request_id = 'seed:purchase:1') THEN
+  IF NOT EXISTS (SELECT 1 FROM public.purchases
+                  WHERE request_id = '00000000-0000-4000-8000-000000000f01'::uuid) THEN
     SELECT v.id INTO v_variant
       FROM public.products p JOIN public.product_variants v ON v.product_id = p.id
-     WHERE p.tenant_id = v_tenant AND p.name = tag || ' ' || products[6][1]
+     WHERE p.tenant_id = v_tenant AND p.name = tag || ' ' || p_name[6]
      ORDER BY v.size LIMIT 1;
     IF v_variant IS NOT NULL THEN
       PERFORM public.engine_receive_purchase(
         v_store1, v_tenant, v_supplier2,
         jsonb_build_array(jsonb_build_object('variant_id', v_variant, 'quantity', 10,
-                                             'unit_cost', products[6][5]::integer)),
-        'seed:purchase:1'::uuid);
+                                             'unit_cost', p_cost[6])),
+        '00000000-0000-4000-8000-000000000f01'::uuid);
     END IF;
   END IF;
 
