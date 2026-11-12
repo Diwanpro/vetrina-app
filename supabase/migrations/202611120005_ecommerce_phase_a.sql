@@ -295,7 +295,8 @@ BEGIN
                'category', p.category,
                'subcategory', p.subcategory,
                'image_url', p.image_url,
-               'images', coalesce(p.images, '[]'::jsonb),
+               -- products.images is text[], so the jsonb_build_object converts it.
+               'images', coalesce(p.images, ARRAY[]::text[]),
                -- Prices are hidden from the storefront, but create_order always
                -- prices server-side, so the cart still works.
                'base_price', CASE WHEN coalesce(s.show_prices, true) THEN p.base_price ELSE NULL END,
@@ -343,8 +344,8 @@ BEGIN
          -- Optional merchandising rule: only show products that have a picture.
          AND (NOT coalesce(s.hide_products_without_image, true)
               OR nullif(btrim(coalesce(p.image_url, '')), '') IS NOT NULL
-              OR jsonb_typeof(coalesce(p.images, '[]'::jsonb)) = 'array'
-                 AND jsonb_array_length(coalesce(p.images, '[]'::jsonb)) > 0)
+              -- array_length, not jsonb_array_length: this column is text[].
+              OR coalesce(array_length(p.images, 1), 0) > 0)
     ) sorted;
 
   RETURN result;

@@ -103,3 +103,24 @@ test('tracking leaks no more than the token holder already knows', () => {
   assert.match(fn, /left\(o\.customer_phone, 2\) \|\| repeat\('\*'/)
   assert.doesNotMatch(fn, /'address'/)
 })
+
+test('products.images is treated as text[], never as jsonb', async () => {
+  const fix = await fs.readFile(
+    new URL('../supabase/migrations/202611120006_fix_store_products_images.sql', import.meta.url), 'utf8')
+
+  // The production column is text[]; defaulting it to jsonb failed at runtime
+  // with "COALESCE types text[] and jsonb cannot be matched".
+  for (const source of [sql, fix]) {
+    assert.doesNotMatch(source, /coalesce\(\s*p\.images\s*,\s*'\[\]'::jsonb\s*\)/i)
+    assert.doesNotMatch(source, /jsonb_array_length\(\s*coalesce\(\s*p\.images/i)
+    assert.doesNotMatch(source, /jsonb_typeof\(\s*p\.images/i)
+  }
+
+  assert.match(fix, /'images', coalesce\(p\.images, ARRAY\[\]::text\[\]\)/)
+  assert.match(fix, /coalesce\(array_length\(p\.images, 1\), 0\) > 0/)
+  assert.match(fix, /CREATE OR REPLACE FUNCTION public\.get_store_products\(p_store_id uuid\)/)
+
+  // The corrected function in 005 and the replacement in 006 must not drift.
+  const pick = source => source.slice(source.indexOf('CREATE OR REPLACE FUNCTION public.get_store_products'))
+  assert.equal(pick(fix).trim(), pick(sql).slice(0, pick(fix).trim().length).trim())
+})
