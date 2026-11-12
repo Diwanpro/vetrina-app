@@ -98,9 +98,6 @@ export default function SettingsPage() {
         finalLogoUrl = pub?.publicUrl || ''
       }
 
-      // Use the supabase connector tool to execute the schema update and update row if RPC is missing.
-      // For the client code, we'll try to call an RPC.
-      // We will create the RPC via the connector tool in the agent step.
       const { error: rpcErr } = await supabase.rpc('engine_update_store_settings', {
         p_store: ctx.storeId,
         p_name: storeSettings.name,

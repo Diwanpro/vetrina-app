@@ -1,181 +1,205 @@
 'use client'
-import { useEffect, useState } from 'react'
+
+import { useState, useEffect } from 'react'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
-import { Notice, Modal, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
+import { Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
+import { scopeQuery, csvText } from '@/lib/access'
+import { fetchAllRows } from '@/lib/cash'
 import { formatDzd } from '@/lib/app-context'
-import Payslip from '@/components/dashboard/Payslip'
-import { SALARY_TYPES, validateHr, salaryFields, salaryPayload } from '@/lib/commercial'
+
+const ROLE_OPTIONS = [
+  { label: 'المالك', value: 'owner' },
+  { label: 'المدير', value: 'manager' },
+  { label: 'الموظف', value: 'employee' },
+]
+
+const STATUS_OPTIONS = [
+  { label: 'نشط', value: 'active' },
+  { label: 'معلّق', value: 'suspended' },
+]
 
 export default function UsersPage() {
   const ctx = useDashboardSession()
-  const [employees, setEmployees] = useState([])
-  const [form, setForm] = useState({ firstName: '', lastName: '', salaryType: 'fixed', salaryAmount: '', commissionPercentage: '', username: '', pin: '', role: 'employee', storeId: ctx.storeId || ctx.stores[0]?.id || '' })
-  const [payslip, setPayslip] = useState(null)
-  const fields = salaryFields(form.salaryType)
-  const [modal, setModal] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState([])
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [version, setVersion] = useState(0)
-  const [confirmToggle, setConfirmToggle] = useState(null)
-  const change = event => { const { name, value } = event.target; setForm(previous => name === 'salaryType' ? { ...previous, salaryType: value, salaryAmount: '', commissionPercentage: '' } : { ...previous, [name]: value }) }
+  const [busy, setBusy] = useState(false)
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState('employee')
+  const [status, setStatus] = useState('active')
+  const [storeId, setStoreId] = useState(ctx?.stores?.[0]?.id || '')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+
+  async function refresh() {
+    if (!ctx?.tenantId) return
+    setBusy(true); setError('')
+    try {
+      const query = supabase.from('dashboard_users').select('id, name, email, role, status, store_id, created_at, stores!inner(name)').eq('tenant_id', ctx.tenantId).order('created_at', { ascending: false })
+      const data = await fetchAllRows(scopeQuery(query, ctx, 'store_id', 'stores.tenant_id'))
+      setRows(data)
+    } catch (err) { setError(err.message) } finally { setBusy(false) }
+  }
+
   useEffect(() => {
-    let live = true
-    setLoading(true); setEmployees([]); setError('')
-    if (ctx.role !== 'owner') { setLoading(false); return }
-    supabase.rpc('engine_hr_overview', { p_store: ctx.storeId }).then(result => {
-      if (result.error) throw result.error
-      if (live) setEmployees(result.data || [])
-    }).catch(err => { if (live) setError(err.message) }).finally(() => { if (live) setLoading(false) })
-    return () => { live = false }
-  }, [ctx.role, ctx.storeId, version])
-  // Never delete an employee: sales, shifts and payroll reference the row.
-  // Deactivating also bans the auth account so the PIN stops working at once.
-  async function setActive(user, active) {
-    setBusy(true); setError(''); setSuccess('')
+    if (ctx?.tenantId) refresh()
+  }, [ctx?.tenantId])
+
+  async function exportData() {
+    if (!navigator.onLine) throw new Error('تصدير بيانات المستخدمين يتطلب الاتصال')
+    if (ctx.role !== 'owner') throw new Error('غير مصرح بالتصدير')
+    const data = await fetchAllRows(scopeQuery(supabase.from('dashboard_users').select('id, name, email, role, status, store_id, created_at, stores!inner(name)').eq('tenant_id', ctx.tenantId).order('created_at', { ascending: false }), ctx))
+    download('vetrina-users.csv', csvText([
+      { key: 'id', label: 'المعرّف' }, { key: 'name', label: 'الاسم' }, { key: 'email', label: 'البريد الإلكتروني' }, { key: 'role', label: 'الدور' }, { key: 'status', label: 'الحالة' }, { key: 'store_id', label: 'الفرع' }, { key: 'created_at', label: 'تاريخ الإنشاء' },
+    ], data))
+  }
+
+  function download(name, text, type = 'text/csv;charset=utf-8') {
+    const url = URL.createObjectURL(new Blob([text], { type }))
+    const link = document.createElement('a'); link.href = url; link.download = name; link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  async function add() {
+    if (busy) return
+    if (!name || !email || !password) { setError('يرجى تعبئة الاسم والبريد الإلكتروني وكلمة المرور'); return }
+    if (password !== confirmPassword) { setError('كلمة المرور وتأكيدها غير متطابقين'); return }
+    if (!navigator.onLine) { setError('إضافة مستخدم تتطلب الاتصال'); return }
+    if (!['owner', 'manager'].includes(ctx.role)) { setError('غير مصرح بإضافة مستخدمين'); return }
+    
+    setBusy(true); setError('')
     try {
-      const { data, error } = await supabase.rpc('engine_set_employee_active', { p_user: user.id, p_active: active })
+      const { error: authErr } = await supabase.auth.signUp({
+        email, password,
+        options: {
+          data: {
+            full_name: name,
+            role,
+            status,
+            store_id: storeId || null,
+            tenant_id: ctx.tenantId,
+            created_by: ctx.user.id,
+          }
+        }
+      })
+      if (authErr) throw authErr
+      await refresh()
+      setName(''); setEmail(''); setPassword(''); setConfirmPassword(''); setRole('employee'); setStatus('active'); setStoreId(ctx?.stores?.[0]?.id || '')
+      setError('تمت إضافة المستخدم بنجاح')
+    } catch (err) { setError(err.message) } finally { setBusy(false) }
+  }
+
+  async function toggleStatus(id, currentStatus) {
+    if (busy) return
+    if (!['owner', 'manager'].includes(ctx.role)) { setError('غير مصرح بتغيير الحالة'); return }
+    if (!navigator.onLine) { setError('تغيير الحالة يتطلب الاتصال'); return }
+    const nextStatus = currentStatus === 'active' ? 'suspended' : 'active'
+    setBusy(true); setError('')
+    try {
+      const { error } = await supabase.from('dashboard_users').update({ status: nextStatus }).eq('id', id).eq('tenant_id', ctx.tenantId)
       if (error) throw error
-      if (!data?.ok) throw new Error(data?.error || 'تعذر تحديث حالة الموظف')
-      setConfirmToggle(null)
-      setSuccess(active ? 'تم تفعيل الموظف' : 'تم إيقاف الموظف ومنع دخوله')
-      setVersion(v => v + 1)
+      await refresh()
+      setError(`تم تغيير الحالة إلى ${nextStatus === 'active' ? 'نشط' : 'معلّق'}`)
     } catch (err) { setError(err.message) } finally { setBusy(false) }
   }
-  async function save(event) {
-    event.preventDefault(); if (busy) return
-    setBusy(true); setError(''); setSuccess('')
-    try {
-      if (ctx.role !== 'owner' || !navigator.onLine) throw new Error('يتطلب صلاحية المالك والاتصال بالإنترنت')
-      validateHr(form)
-      const { data, error } = await supabase.functions.invoke('create-employee', { body: { ...form, username: form.username.trim().toLowerCase(), ...salaryPayload(form) } })
-      if (error) {
-        let message = 'تعذر إنشاء الموظف. حدّث القائمة قبل إعادة المحاولة.'
-        try { message = (await error.context.json()).error || message } catch {}
-        throw new Error(message)
-      }
-      if (data?.error) throw new Error(data.error)
-      setForm(previous => ({ ...previous, firstName: '', lastName: '', username: '', pin: '', salaryAmount: '', commissionPercentage: '' })); setModal(false)
-      setSuccess('تم إنشاء حساب الموظف وملفه الوظيفي'); setVersion(v => v + 1)
-    } catch (err) { setError(err.message) } finally { setBusy(false) }
-  }
+
   return (
     <>
       <div className="mx-auto max-w-5xl space-y-5">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl text-gold">إدارة الموظفين</h1>
-            <p className="mt-2 text-xs text-neutral-500">الموارد البشرية · بيانات الأجور والحسابات</p>
-          </div>
-          <button className={primaryClass} onClick={() => { setError(''); setModal(true) }}>إضافة موظف</button>
-        </header>
-        <Notice error={error} success={success} />
+        <h1 className="text-xl text-neutral-100">المستخدمون</h1>
+        <Notice error={error} />
+        
+        {ctx.role !== 'employee' && (
+          <section className="rounded-2xl border border-white/10 bg-card p-5">
+            <h2 className="mb-3 text-gold">إضافة مستخدم جديد</h2>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <label className="block text-sm text-neutral-300">الاسم
+                <input required value={name} onChange={e => setName(e.target.value)} className={`${fieldClass} mt-1`} />
+              </label>
+              <label className="block text-sm text-neutral-300">البريد الإلكتروني
+                <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className={`${fieldClass} mt-1`} />
+              </label>
+              <label className="block text-sm text-neutral-300">كلمة المرور
+                <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className={`${fieldClass} mt-1`} />
+              </label>
+              <label className="block text-sm text-neutral-300">تأكيد كلمة المرور
+                <input type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className={`${fieldClass} mt-1`} />
+              </label>
+              <label className="block text-sm text-neutral-300">الدور
+                <CustomSelect value={role} onChange={e => setRole(e)} options={ROLE_OPTIONS} className={`${fieldClass} mt-1`} />
+              </label>
+              <label className="block text-sm text-neutral-300">الحالة
+                <CustomSelect value={status} onChange={e => setStatus(e)} options={STATUS_OPTIONS} className={`${fieldClass} mt-1`} />
+              </label>
+              <label className="block text-sm text-neutral-300">الفرع
+                <CustomSelect value={storeId} onChange={e => setStoreId(e)} options={ctx.stores.map(s => ({ label: s.name, value: s.id }))} className={`${fieldClass} mt-1`} />
+              </label>
+            </div>
+            <button disabled={busy} onClick={add} className={primaryClass}>{busy ? 'جاري الإضافة...' : 'إضافة مستخدم'}</button>
+          </section>
+        )}
+
         <section className="rounded-2xl border border-white/10 bg-card p-5">
-          <div className="mb-4 flex justify-between">
-            <h2 className="text-gold">الموظفون · {ctx.allBranches ? 'جميع الفروع' : ctx.stores.find(s => s.id === ctx.storeId)?.name}</h2>
-            <button disabled={loading || busy} className={secondaryClass} onClick={() => setVersion(v => v + 1)}>تحديث</button>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-gold">قائمة المستخدمين · {rows.length}</h2>
+            {ctx.role === 'owner' && (
+              <button disabled={busy} onClick={() => run(exportData)} className={secondaryClass}>تصدير CSV</button>
+            )}
           </div>
-          {loading ? (
-            <p className="text-neutral-400">جاري التحميل...</p>
-          ) : !employees.length ? (
-            <p className="text-neutral-400">لا يوجد موظفون في النطاق المختار.</p>
+          
+          {!rows.length ? (
+            <p className="text-sm text-neutral-500">لا يوجد مستخدمون مسجلون.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-right text-sm">
-                <thead className="text-neutral-500">
-                  <tr>
-                    {['الاسم', 'اسم المستخدم', 'الفرع / الدور', 'نوع الأجر', 'الأجر / العمولة', 'حضور الشهر', 'كشف الأجر'].map(label => (
-                      <th key={label} className="p-3 font-normal">{label}</th>
-                    ))}
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-white/10 text-sm text-neutral-400">
+                    <th className="py-3 px-4">الاسم</th>
+                    <th className="py-3 px-4">البريد الإلكتروني</th>
+                    <th className="py-3 px-4">الدور</th>
+                    <th className="py-3 px-4">الفرع</th>
+                    <th className="py-3 px-4">الحالة</th>
+                    <th className="py-3 px-4">تاريخ الإنشاء</th>
+                    <th className="py-3 px-4">الإجراءات</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {employees.map(user => (
-                    <tr key={user.id} className="border-t border-white/5 text-neutral-300">
-                      <td className="p-3">{[user.first_name, user.last_name].filter(Boolean).join(' ') || user.full_name || 'غير مسجل'}</td>
-                      <td className="p-3">{user.username}{user.is_active === false && <span className="block text-red-300">غير نشط</span>}</td>
-                      <td className="p-3">{ctx.stores.find(s => s.id === user.store_id)?.name || 'دون فرع'} · {user.role === 'manager' ? 'مدير' : 'موظف'}</td>
-                      <td className="p-3">{SALARY_TYPES[user.salary_type] || 'غير محدد'}</td>
-                      <td className="p-3 text-gold">
-                        {salaryFields(user.salary_type).amount && <span className="block">{formatDzd(user.salary_amount)}</span>}
-                        {salaryFields(user.salary_type).commission && <span className="block">{Number(user.commission_percentage || 0)}%</span>}
-                        {!user.salary_type && '—'}
+                  {rows.map(row => (
+                    <tr key={row.id} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-3 px-4 text-sm text-neutral-200">{row.name}</td>
+                      <td className="py-3 px-4 text-sm text-neutral-300">{row.email}</td>
+                      <td className="py-3 px-4 text-sm text-neutral-300">{
+                        ROLE_OPTIONS.find(opt => opt.value === row.role)?.label || row.role
+                      }</td>
+                      <td className="py-3 px-4 text-sm text-neutral-300">{
+                        ctx.stores.find(s => s.id === row.store_id)?.name || 'كل الفروع'
+                      }</td>
+                      <td className="py-3 px-4">
+                        <span className={`inline-flex rounded-full px-2 py-1 text-xs ${
+                          row.status === 'active' ? 'bg-emerald-950/40 border border-emerald-700/40 text-emerald-300' : 'bg-red-950/40 border border-red-700/40 text-red-300'
+                        }`}>
+                          {row.status === 'active' ? 'نشط' : 'معلّق'}
+                        </span>
                       </td>
-                      <td className="p-3">{user.attendance_days ?? 0} يوم</td>
-                      <td className="p-3">
-                        <div className="flex flex-wrap gap-2">
-                          <button className={secondaryClass} onClick={() => setPayslip(user)}>كشف الأجر</button>
-                          {user.is_active === false ? (
-                            <button disabled={busy} className={secondaryClass} onClick={() => setConfirmToggle({ user, active: true })}>تفعيل</button>
-                          ) : (
-                            <button disabled={busy} className="rounded-lg border border-red-800/50 px-3 py-2 text-sm text-red-300 disabled:opacity-50" onClick={() => setConfirmToggle({ user, active: false })}>إيقاف الموظف</button>
-                          )}
-                        </div>
+                      <td className="py-3 px-4 text-xs text-neutral-500">{new Date(row.created_at).toLocaleString('ar-DZ')}</td>
+                      <td className="py-3 px-4">
+                        {ctx.role !== 'employee' && row.id !== ctx.user.id && (
+                          <button disabled={busy} onClick={() => toggleStatus(row.id, row.status)} className={`rounded-lg px-3 py-1.5 text-xs ${
+                            row.status === 'active' ? 'border border-red-800/40 text-red-300' : 'border border-emerald-800/40 text-emerald-300'
+                          }`}>
+                            {row.status === 'active' ? 'تعليق' : 'تنشيط'}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </section>
-        <p className="text-xs text-neutral-500">العمولة نسبة من مبيعات الموظف المتزامنة. الحضور حسب توقيت الجزائر. صرف الرواتب والسلف متاح من شاشة المحاسبة.</p>
-        {modal && (
-          <Modal title="إضافة موظف" busy={busy} onClose={() => { setModal(false); setForm(previous => ({ ...previous, pin: '' })) }} wide>
-            <Notice error={error} />
-            <form onSubmit={save}>
-              <fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2">
-                {[['firstName', 'الاسم', 'text'], ['lastName', 'اللقب', 'text'], ['username', 'اسم المستخدم (لاتيني)', 'text'], ['pin', 'PIN (6–12 رقماً)', 'password']].map(([name, label, type]) => (
-                  <label key={name} className="text-sm text-neutral-300">
-                    {label}
-                    <input required name={name} type={type} maxLength={name === 'username' ? 40 : name === 'pin' ? 12 : 100} pattern={name === 'username' ? '[a-zA-Z0-9_]{3,40}' : name === 'pin' ? '[0-9]{6,12}' : undefined} inputMode={name === 'pin' ? 'numeric' : undefined} autoComplete={name === 'pin' ? 'new-password' : 'off'} value={form[name]} onChange={change} className={`${fieldClass} mt-2`} />
-                  </label>
-                ))}
-                <label className="text-sm text-neutral-300">نوع الأجر
-                  <CustomSelect name="salaryType" value={form.salaryType} onChange={e => change({ target: { name: 'salaryType', value: e } })} options={Object.entries(SALARY_TYPES).map(([value, label]) => ({ label, value }))} className={`${fieldClass} mt-2`} />
-                </label>
-                {fields.amount && (
-                  <label className="text-sm text-neutral-300">
-                    {form.salaryType === 'daily' ? 'أجر اليوم الواحد' : 'المبلغ'} (دج)
-                    <input required type="number" name="salaryAmount" min="0" max="2147483647" step="1" value={form.salaryAmount} onChange={change} className={`${fieldClass} mt-2`} />
-                  </label>
-                )}
-                {fields.commission && (
-                  <label className="text-sm text-neutral-300">
-                    نسبة العمولة (%)
-                    <input required type="number" name="commissionPercentage" min="0" max="100" step="0.01" value={form.commissionPercentage} onChange={change} className={`${fieldClass} mt-2`} />
-                  </label>
-                )}
-                <label className="text-sm text-neutral-300">الدور
-                  <CustomSelect name="role" value={form.role} onChange={e => change({ target: { name: 'role', value: e } })} options={[{ label: 'مدير', value: 'manager' }, { label: 'موظف', value: 'employee' }]} className={`${fieldClass} mt-2`} />
-                </label>
-                <label className="text-sm text-neutral-300">الفرع
-                  <CustomSelect required name="storeId" value={form.storeId} onChange={e => change({ target: { name: 'storeId', value: e } })} options={ctx.stores.map(s => ({ label: s.name, value: s.id }))} className={`${fieldClass} mt-2`} />
-                </label>
-                <button className={primaryClass}>{busy ? 'جاري الحفظ...' : 'إنشاء الموظف'}</button>
-              </fieldset>
-            </form>
-          </Modal>
-        )}
-        {payslip && <Payslip user={payslip} onClose={() => setPayslip(null)} />}
-        {confirmToggle && (
-          <Modal title={confirmToggle.active ? 'تفعيل الموظف' : 'إيقاف الموظف'} onClose={() => setConfirmToggle(null)} busy={busy}>
-            <p className="mb-3 text-sm text-neutral-300">{[confirmToggle.user.first_name, confirmToggle.user.last_name].filter(Boolean).join(' ') || confirmToggle.user.username}</p>
-            <p className="mb-4 rounded-lg border border-amber-700/30 bg-amber-950/20 p-3 text-xs text-amber-200">
-              {confirmToggle.active
-                ? 'سيستطيع الموظف الدخول مجدداً بنفس رمز الدخول.'
-                : 'لن يستطيع الموظف الدخول بعد الآن. لا يُحذف السجل، وتبقى مبيعاته ورواتبه وحضوره في التقارير.'}
-            </p>
-            <div className="flex gap-3">
-              <button disabled={busy} className={confirmToggle.active ? primaryClass : 'rounded-lg bg-red-900/60 px-4 py-2 text-sm text-red-100'} onClick={() => setActive(confirmToggle.user, confirmToggle.active)}>
-                {confirmToggle.active ? 'تفعيل' : 'إيقاف الموظف'}
-              </button>
-              <button disabled={busy} className={secondaryClass} onClick={() => setConfirmToggle(null)}>إلغاء</button>
-            </div>
-          </Modal>
-        )}
+          )}
+        </section>
       </div>
     </>
   )
