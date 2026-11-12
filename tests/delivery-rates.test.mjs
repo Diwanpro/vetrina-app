@@ -14,6 +14,9 @@ const { orderMessage } = await import(
   `data:text/javascript;base64,${Buffer.from(`${offersSource}\n${storefrontSource}`).toString('base64')}`)
 const { WILAYAS } = await import(
   `data:text/javascript;base64,${Buffer.from(wilayaSource).toString('base64')}`)
+// lib/delivery.js only imports './wilayas.js' with its extension, so it loads
+// directly and is tested as the checkout actually uses it.
+const { normalizeDeliveryRates, deliveryFeeFor, wilayaCodeOf } = await import('../lib/delivery.js')
 
 // Delivery pricing has two halves that must agree: the SQL decides the fee, the
 // sheet only shows it. The SQL half was exercised against a real PostgreSQL 16
@@ -21,6 +24,7 @@ const { WILAYAS } = await import(
 
 const read = path => fs.readFile(new URL(path, import.meta.url), 'utf8')
 const migration = await read('../supabase/migrations/202611120007_delivery_rates.sql')
+const repair = await read('../supabase/migrations/202611120008_delivery_rates_repair.sql')
 const cartSheet = await read('../components/store/CartSheet.js')
 const settings = await read('../app/dashboard/_screens/settings.js')
 
@@ -89,26 +93,96 @@ test('the storefront can read the rate table without the dashboard', () => {
 
 test('checkout sends the wilaya and the fee it displayed', () => {
   const flat = strip(cartSheet)
-  assert.match(flat, /p_wilaya: fulfillment === 'delivery' \? wilaya : null/)
-  assert.match(flat, /p_delivery_fee: deliveryFee/)
+  assert.match(flat, /p_wilaya: fulfillment === 'delivery' \? \(wilayaCodeOf\(wilaya\) \|\| wilaya\) : null/)
+  assert.match(flat, /p_delivery_fee: appliedFee/)
   // Pickup is free even if a wilaya was picked earlier.
-  assert.match(flat, /if \(fulfillment !== 'delivery' \|\| !wilaya\) return 0/)
+  assert.match(flat, /const appliedFee = fulfillment === 'delivery' \? deliveryFee : 0/)
+  // Confirm must never be blocked by delivery pricing.
+  assert.match(flat, /onClick=\{confirm\} disabled=\{busy\}/)
 })
 
-test('a wilaya without a price is neither offered nor chargeable', () => {
+test('selecting a wilaya looks the fee up immediately', () => {
   const flat = strip(cartSheet)
-  assert.match(flat, /\.filter\(wilaya => Number\.isFinite\(wilaya\.fee\) && wilaya\.fee >= 0\)/)
-  assert.match(flat, /deliverable\.some\(entry => entry\.code === wilaya\) \? 'لا نوصّل إلى هذه الولاية' : ''/)
-  assert.match(flat, /disabled=\{option\.key === 'delivery' && !deliveryAvailable\}/)
-  // Starting on delivery when the shop delivers nowhere would trap the customer.
-  assert.match(flat, /useState\(deliveryAvailable \? 'delivery' : 'pickup'\)/)
+  assert.match(flat, /function chooseWilaya\(value\) \{ setWilaya\(value\);? setDeliveryFee\(fulfillment === 'delivery' \? \(deliveryFeeFor\(rateTable, value\) \?\? 0\) : 0\) \}/)
+  assert.match(flat, /onChange=\{chooseWilaya\}/)
+  // Rates that arrive after the sheet mounts still update the fee.
+  assert.match(flat, /useEffect\(\(\) => \{ const fee = fulfillment === 'delivery' && wilaya \? deliveryFeeFor\(rateTable, wilaya\) : null;? setDeliveryFee\(fee \?\? 0\);? \}, \[rateTable, wilaya, fulfillment\]\)/)
+})
+
+test('the fee is rendered to the customer', () => {
+  const flat = strip(cartSheet)
+  assert.match(flat, /سعر التوصيل\{wilayaName \? ` — \$\{wilayaName\}` : ''\}/)
+  assert.match(flat, /deliveryFee > 0 \? formatMoney\(deliveryFee\) : 'اختر الولاية'/)
+  assert.match(flat, /لم يحدّد المحل أسعار التوصيل بعد/)
 })
 
 test('the shown total is goods plus delivery', () => {
   const flat = strip(cartSheet)
-  assert.match(flat, /const grandTotal = total \+ deliveryFee/)
-  assert.match(flat, /<span>رسوم التوصيل \(\{wilaya\}\)<\/span><span>\{formatMoney\(deliveryFee\)\}<\/span>/)
+  assert.match(flat, /const grandTotal = total \+ appliedFee/)
   assert.match(flat, /<span>الإجمالي<\/span><span>\{formatMoney\(grandTotal\)\}<\/span>/)
+})
+
+// --- the lookup itself -------------------------------------------------
+
+test('rate keys are read whether they are codes, padded codes or names', () => {
+  assert.deepEqual(normalizeDeliveryRates({ 16: 400, 31: 600 }), { 16: 400, 31: 600 })
+  assert.deepEqual(normalizeDeliveryRates({ '016': 500 }), { 16: 500 })
+  assert.deepEqual(normalizeDeliveryRates({ '9': 300 }), { '09': 300 })
+  assert.deepEqual(normalizeDeliveryRates({ 'البليدة': 450 }), { '09': 450 })
+  assert.deepEqual(normalizeDeliveryRates({ 'بليدة': 450 }), { '09': 450 })
+  assert.deepEqual(normalizeDeliveryRates({ '16 - البليدة': 450 }), { 16: 450 })
+  // Prices written as text, with the currency, or nested.
+  assert.deepEqual(normalizeDeliveryRates({ '16': '400' }), { 16: 400 })
+  assert.deepEqual(normalizeDeliveryRates({ '16': '400 دج' }), { 16: 400 })
+  assert.deepEqual(normalizeDeliveryRates({ '16': { price: 400 } }), { 16: 400 })
+  // A jsonb value that still arrives as a string is parsed.
+  assert.deepEqual(normalizeDeliveryRates('{"16":"450"}'), { 16: 450 })
+})
+
+test('rubbish keys and prices are dropped, never turned into 0', () => {
+  assert.deepEqual(normalizeDeliveryRates({ '99': 100 }), {})
+  assert.deepEqual(normalizeDeliveryRates({ '16': 'abc' }), {})
+  assert.deepEqual(normalizeDeliveryRates({ '16': -5 }), {})
+  assert.deepEqual(normalizeDeliveryRates({}), {})
+  assert.deepEqual(normalizeDeliveryRates(null), {})
+  assert.deepEqual(normalizeDeliveryRates('[1,2]'), {})
+  assert.deepEqual(normalizeDeliveryRates('not json'), {})
+})
+
+test('duplicates resolve the same way the SQL repair resolves them', () => {
+  // A canonical code beats a hand-typed name; inside a group the first wins.
+  assert.deepEqual(normalizeDeliveryRates({ '09': 900, 'بليدة': 600 }), { '09': 900 })
+  assert.deepEqual(
+    normalizeDeliveryRates({ '9': 400, '016': 500, 'البليدة': 600, 'بليدة': '700 دج', 'أدرار': '800', '99': 100, '16': 'abc' }),
+    { 16: 500, '09': 400, '01': 800 },
+  )
+})
+
+test('the fee lookup normalises the wilaya the dropdown sends', () => {
+  const table = { '16': 400, '31': 600 }
+  assert.equal(deliveryFeeFor(table, '16'), 400)
+  assert.equal(deliveryFeeFor(table, 16), 400)
+  assert.equal(deliveryFeeFor(table, '016'), 400)
+  assert.equal(deliveryFeeFor(table, '31'), 600)
+  assert.equal(deliveryFeeFor(table, '09'), null)
+  assert.equal(deliveryFeeFor({ '09': 350 }, 'البليدة'), 350)
+  assert.equal(deliveryFeeFor({}, '16'), null)
+  // 0 is a real fee (free delivery), not "missing".
+  assert.equal(deliveryFeeFor({ '16': 0 }, '16'), 0)
+  assert.equal(wilayaCodeOf('16'), '16')
+  assert.equal(wilayaCodeOf(''), '')
+  assert.equal(WILAYAS.length, 58)
+})
+
+test('the repair migration folds hand-written keys into canonical codes', () => {
+  assert.match(repair, /CREATE OR REPLACE FUNCTION public\.engine_wilaya_code\(p_value text\)/)
+  assert.match(repair, /digits::integer BETWEEN 1 AND 58/)
+  assert.match(repair, /jsonb_typeof\(delivery_rates\) = 'object'/)
+  // Canonical keys are visited first so the outcome is not iteration luck.
+  assert.match(repair, /ORDER BY canonical DESC, key/)
+  assert.match(repair, /AND NOT \(rebuilt \? code\)/)
+  // It must be safe to run twice.
+  assert.match(repair, /IF rebuilt <> store_row\.delivery_rates THEN/)
 })
 
 test('the settings screen edits all 58 wilayas through the RPC', () => {
