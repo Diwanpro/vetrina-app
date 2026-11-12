@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Sheet from './Sheet'
 import { formatMoney, offerBadge, stockHint, whatsappLink } from '@/lib/storefront'
+import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
 
 function offerText(offer) {
   if (offer.kind === 'percent') return `خصم ${offer.discount_percentage}%`
@@ -54,6 +55,8 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
   const price = product?.base_price
   const lowStock = stockHint(max)
   const askLink = whatsappLink(store?.phone, `مرحباً ${store?.name || ''}، أريد معرفة سعر: ${product?.name || ''}`)
+  const videoHref = safeVideoUrl(product?.external_video_url)
+  const videoLabel = videoButtonLabel(videoHref, 'شاهد الفيديو')
 
   // Choosing another colour can invalidate the size; fall back to one in stock.
   useEffect(() => {
@@ -103,6 +106,18 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
                 اسأل عن السعر
               </a>
             )}
+            {videoHref && (
+              <a
+                href={videoHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-gold/40 bg-gradient-to-l from-gold/20 to-gold/5 text-sm font-medium text-gold transition active:scale-[0.99]"
+              >
+                <span aria-hidden="true" className="flex h-7 w-7 items-center justify-center rounded-full bg-gold text-[10px] text-[#121212]">▶</span>
+                {videoLabel}
+              </a>
+            )}
+
             {product.description && (
               <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-neutral-400">{product.description}</p>
             )}

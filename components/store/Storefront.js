@@ -6,6 +6,7 @@ import {
   normalizeProducts, categoriesOf, priceCart, cartCount, cartTotal, formatMoney,
   offerBadge, isSoldOut, whatsappLink,
 } from '@/lib/storefront'
+import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
 import StoreHeader, { StoreHero } from './StoreHeader'
 import ProductSheet from './ProductSheet'
 import CartSheet from './CartSheet'
@@ -16,31 +17,52 @@ function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) 
   const badge = offerBadge(product.offers?.[0])
   const soldOut = isSoldOut(product)
   const askLink = whatsappLink(store?.phone, `مرحباً ${store?.name || ''}، أريد معرفة سعر: ${product.name}`)
+  // Only an http(s) link is ever rendered; the column can hold anything.
+  const videoHref = safeVideoUrl(product.external_video_url)
+  const videoLabel = videoButtonLabel(videoHref)
 
   return (
     <article
       className="sf-fade-up group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]"
       style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
     >
-      <button type="button" onClick={onOpen} className="block w-full text-start">
-        <div className="relative aspect-[3/4] overflow-hidden bg-[#0d0d0d]">
-          {product.image_url
-            ? <img src={product.image_url} alt={product.name} loading="lazy" className="h-full w-full object-cover transition duration-500 group-active:scale-105" />
-            : <div className="flex h-full items-center justify-center text-3xl text-white/10">▦</div>}
-          <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/70 to-transparent" />
-          {badge && (
-            <span className="absolute start-2 top-2 flex items-center gap-1 rounded-full border border-gold/50 bg-gradient-to-l from-[#E8C55A] to-[#C9A227] px-2.5 py-1 text-[10px] font-bold text-[#121212] shadow-[0_6px_18px_rgba(212,175,55,0.35)]">
-              <span aria-hidden="true">✦</span>
-              {badge}
-            </span>
-          )}
-          {soldOut && (
-            <span className="absolute inset-x-2 bottom-2 rounded-lg bg-black/70 py-1 text-center text-[11px] text-neutral-200 backdrop-blur">
-              نفدت الكمية
-            </span>
-          )}
-        </div>
-      </button>
+      <div className="relative aspect-[3/4] overflow-hidden bg-[#0d0d0d]">
+        {product.image_url
+          ? <img src={product.image_url} alt={product.name} loading="lazy" className="h-full w-full object-cover transition duration-500 group-active:scale-105" />
+          : <div className="flex h-full items-center justify-center text-3xl text-white/10">▦</div>}
+        <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/70 to-transparent" />
+        {/* The whole picture opens the product, but the video link sits above it
+            so tapping the badge plays the video instead of the modal. */}
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={`عرض ${product.name}`}
+          className="absolute inset-0 h-full w-full"
+        />
+        {badge && (
+          <span className="pointer-events-none absolute start-2 top-2 z-10 flex items-center gap-1 rounded-full border border-gold/50 bg-gradient-to-l from-[#E8C55A] to-[#C9A227] px-2.5 py-1 text-[10px] font-bold text-[#121212] shadow-[0_6px_18px_rgba(212,175,55,0.35)]">
+            <span aria-hidden="true">✦</span>
+            {badge}
+          </span>
+        )}
+        {soldOut && (
+          <span className="pointer-events-none absolute inset-x-2 bottom-2 z-10 rounded-lg bg-black/70 py-1 text-center text-[11px] text-neutral-200 backdrop-blur">
+            نفدت الكمية
+          </span>
+        )}
+        {videoHref && (
+          <a
+            href={videoHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={videoLabel}
+            className="absolute end-2 top-2 z-20 flex items-center gap-1 rounded-full border border-white/25 bg-black/65 py-1 pe-2.5 ps-1.5 text-[10px] font-medium text-neutral-50 shadow-lg backdrop-blur transition active:scale-95"
+          >
+            <span aria-hidden="true" className="flex h-5 w-5 items-center justify-center rounded-full bg-gold text-[9px] text-[#121212]">▶</span>
+            فيديو
+          </a>
+        )}
+      </div>
 
       <div className="p-3">
         <p className="line-clamp-2 min-h-[2.5rem] text-[13px] font-medium leading-snug text-neutral-100">{product.name}</p>
