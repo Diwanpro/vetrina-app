@@ -134,9 +134,9 @@ export default function UsersPage() {
                     <input required name={name} type={type} maxLength={name === 'username' ? 40 : name === 'pin' ? 12 : 100} pattern={name === 'username' ? '[a-zA-Z0-9_]{3,40}' : name === 'pin' ? '[0-9]{6,12}' : undefined} inputMode={name === 'pin' ? 'numeric' : undefined} autoComplete={name === 'pin' ? 'new-password' : 'off'} value={form[name]} onChange={change} className={`${fieldClass} mt-2`} />
                   </label>
                 ))}
-                <label className="text-sm text-neutral-300">نوع الأجر
+                <div className="text-sm text-neutral-300">نوع الأجر
                   <CustomSelect name="salaryType" value={form.salaryType} onChange={e => change({ target: { name: 'salaryType', value: e } })} options={Object.entries(SALARY_TYPES).map(([value, label]) => ({ label, value }))} className={`${fieldClass} mt-2`} />
-                </label>
+                </div>
                 {fields.amount && (
                   <label className="text-sm text-neutral-300">
                     {form.salaryType === 'daily' ? 'أجر اليوم الواحد' : 'المبلغ'} (دج)
@@ -149,12 +149,12 @@ export default function UsersPage() {
                     <input required type="number" name="commissionPercentage" min="0" max="100" step="0.01" value={form.commissionPercentage} onChange={change} className={`${fieldClass} mt-2`} />
                   </label>
                 )}
-                <label className="text-sm text-neutral-300">الدور
+                <div className="text-sm text-neutral-300">الدور
                   <CustomSelect name="role" value={form.role} onChange={e => change({ target: { name: 'role', value: e } })} options={[{ label: 'مدير', value: 'manager' }, { label: 'موظف', value: 'employee' }]} className={`${fieldClass} mt-2`} />
-                </label>
-                <label className="text-sm text-neutral-300">الفرع
+                </div>
+                <div className="text-sm text-neutral-300">الفرع
                   <CustomSelect required name="storeId" value={form.storeId} onChange={e => change({ target: { name: 'storeId', value: e } })} options={ctx.stores.map(s => ({ label: s.name, value: s.id }))} className={`${fieldClass} mt-2`} />
-                </label>
+                </div>
                 <button className={primaryClass}>{busy ? 'جاري الحفظ...' : 'إنشاء الموظف'}</button>
               </fieldset>
             </form>

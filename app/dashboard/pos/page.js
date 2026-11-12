@@ -444,7 +444,7 @@ export default function PosPage() {
               ))}
             </ul>
             <p className="mb-3 text-base font-bold text-gold">الإجمالي: {formatDzd(totals.amount)}</p>
-              <label className="mb-2 block">
+              <div className="mb-2 block">
                 <span className="mb-1 block text-xs text-neutral-400">طريقة الدفع</span>
                 <CustomSelect
                   value={payment}
@@ -452,7 +452,7 @@ export default function PosPage() {
                   options={PAYMENTS.map(p => ({ label: p.label, value: p.value }))}
                   className="w-full rounded-lg border border-[#D4AF37]/40 bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none focus:border-gold"
                 />
-              </label>
+              </div>
             <div className="mb-3 space-y-2 rounded-lg border border-gold/20 bg-black/30 p-3">
               <p className="flex justify-between text-sm"><span className="text-neutral-400">الإجمالي</span><span className="text-gold">{formatDzd(totals.amount)}</span></p>
               <label className="block">

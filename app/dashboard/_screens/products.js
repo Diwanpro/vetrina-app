@@ -336,7 +336,7 @@ export default function ProductsPage() {
                   <button type="button" disabled={saving || generating} onClick={regenerateBarcode} className="shrink-0 text-xs text-gold disabled:opacity-50">توليد جديد</button>
                 </div>
               </div>
-              <label className="block">
+              <div className="block">
                 <span className="mb-1 block text-xs text-neutral-400">نوع المقاس</span>
                 <CustomSelect
                   value={sizeType}
@@ -346,8 +346,8 @@ export default function ProductsPage() {
                   className={`${selectClass} mt-1`}
                 />
                 <span id="size-type-help" className="mt-1 block text-[11px] text-neutral-500">تغيير نوع المقاس يمسح كميات الجدول. أدخل الكميات بعد اختيار النوع.</span>
-              </label>
-              <label className="block">
+              </div>
+              <div className="block">
                 <span className="mb-1 block text-xs text-neutral-400">التصنيف</span>
                 <CustomSelect
                   value={form.category}
@@ -355,7 +355,7 @@ export default function ProductsPage() {
                   options={CATEGORIES.map(c => ({ label: c, value: c }))}
                   className={`${selectClass} mt-1`}
                 />
-              </label>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">
                   <span className="mb-1 block text-xs text-neutral-400">سعر البيع</span>

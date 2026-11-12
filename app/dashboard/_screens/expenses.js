@@ -169,7 +169,7 @@ export default function ExpensesPage() {
             onChange={e => setForm({ ...form, amount: e.target.value.replace(/[^0-9]/g, '') })}
             className={`${fieldClass} mt-1`} placeholder="0" />
         </label>
-        <label className="block text-sm text-neutral-300">التصنيف
+        <div className="block text-sm text-neutral-300">التصنيف
           <CustomSelect
             disabled={busy}
             value={form.category}
@@ -177,7 +177,7 @@ export default function ExpensesPage() {
             options={CATEGORIES.map(category => ({ label: category, value: category }))}
             className={`${fieldClass} mt-1`}
           />
-        </label>
+        </div>
         <label className="block text-sm text-neutral-300">الوصف
           <textarea required disabled={busy} rows={3} maxLength={1000} value={form.description}
             onChange={e => setForm({ ...form, description: e.target.value })}

@@ -260,9 +260,9 @@ export default function SettingsPage() {
           <section className="rounded-2xl border border-white/10 bg-card p-5">
             <h2 className="mb-3 text-gold">سياسات التشغيل</h2>
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block text-sm text-neutral-300">مدة سياسة الإرجاع
+              <div className="block text-sm text-neutral-300">مدة سياسة الإرجاع
                 <CustomSelect value={storeSettings.return_policy_days} onChange={e => setStoreSettings({ ...storeSettings, return_policy_days: e })} options={RETURN_POLICY_OPTIONS} className={`${fieldClass} mt-1`} />
-              </label>
+              </div>
               <label className="block text-sm text-neutral-300">عتبة تنبيه المخزون المنخفض
                 <input type="number" min="0" value={storeSettings.low_stock_alert} onChange={e => setStoreSettings({ ...storeSettings, low_stock_alert: Number(e.target.value) })} className={`${fieldClass} mt-1`} />
               </label>

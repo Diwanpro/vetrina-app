@@ -134,13 +134,13 @@ export default function LedgerModal({ kind, id, onClose, onPay }) {
               onChange={e => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
               className={`${fieldClass} mt-1`} placeholder="0" />
           </label>
-          <label className="block text-sm text-neutral-300">طريقة الدفع
+          <div className="block text-sm text-neutral-300">طريقة الدفع
             <CustomSelect disabled={busy} value={method} onChange={e => setMethod(e)} options={[
               { label: 'نقداً (يُضاف للصندوق)', value: 'cash' },
               { label: 'شيك', value: 'check' },
               { label: 'CCP', value: 'ccp' }
             ]} className={`${selectClass} mt-1`} />
-          </label>
+          </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={busy} className={secondaryClass} onClick={() => setAmount(String(remaining))}>المبلغ كامل</button>
             <button disabled={busy} className={primaryClass}>{busy ? 'جاري التسجيل...' : 'تأكيد الدفعة'}</button>
