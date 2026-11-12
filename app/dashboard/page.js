@@ -10,6 +10,7 @@ import { scopeQuery } from '@/lib/access'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
 import { CreditPaymentToast } from '@/components/dashboard/CreditLedger'
+import LowStockBell from '@/components/dashboard/LowStockBell'
 
 function currentTimeLabel() {
   return new Date().toLocaleTimeString('ar-DZ', { hour: '2-digit', minute: '2-digit' })
@@ -44,7 +45,13 @@ export default function DashboardPage() {
           .gte('created_at', from).lt('created_at', to).order('id')
         salesQuery = scopeQuery(salesQuery, ctx)
 
-        let inventoryQuery = supabase.from('inventory').select('id, stores!inner(tenant_id)', { count: 'exact', head: true }).lt('quantity', 5)
+        // The alert threshold is configured per store, not hardcoded.
+        let limit = 10
+        if (ctx.storeId) {
+          const store = await supabase.from('stores').select('low_stock_alert').eq('id', ctx.storeId).single()
+          if (Number.isFinite(Number(store.data?.low_stock_alert))) limit = Number(store.data.low_stock_alert)
+        }
+        let inventoryQuery = supabase.from('inventory').select('id, stores!inner(tenant_id)', { count: 'exact', head: true }).lte('quantity', limit)
         inventoryQuery = scopeQuery(inventoryQuery, ctx)
 
         let itemsQuery = supabase
@@ -109,6 +116,7 @@ export default function DashboardPage() {
     <DashboardShell active="/dashboard">
       <CreditPaymentToast />
       <div className="space-y-3">
+        <div className="flex justify-end"><LowStockBell /></div>
         {loading && <p role="status" className="text-sm text-neutral-400">جاري تحميل إحصائيات اليوم...</p>}
         {error && <p role="alert" className="rounded-lg border border-red-900 bg-red-950/20 p-3 text-sm text-red-200">تعذر تحديث الإحصائيات: {error}</p>}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">

@@ -62,7 +62,7 @@ test('the tab groups contain the screens the spec lists', async () => {
   const cases = [
     ['operations', ['سجل المبيعات', 'المستحقات', 'المصاريف']],
     ['customers-credit', ['الكريدي', 'الزبائن']],
-    ['stock', ['المنتجات', 'المخزون', 'نقل المخزون', 'الموردون', 'المشتريات']],
+    ['stock', ['المنتجات', 'المخزون', 'نقل المخزون', 'الموردون', 'المشتريات', 'العروض']],
     ['management', ['المحاسبة', 'الموظفون']],
   ]
   for (const [path, labels] of cases) {
@@ -89,7 +89,7 @@ test('grouped pages are open to all roles and still filter their tabs', async ()
 
 test('sub-pages no longer render their own shell', async () => {
   for (const name of ['sales', 'collections', 'expenses', 'credits', 'products', 'inventory',
-    'transfers', 'suppliers', 'accounting', 'users', 'customers', 'settings', 'purchases']) {
+    'transfers', 'suppliers', 'accounting', 'users', 'customers', 'settings', 'purchases', 'offers']) {
     const source = await read(`../app/dashboard/_screens/${name}.js`)
     assert.equal(source.includes('DashboardShell'), false, `${name} must not nest a shell`)
   }
