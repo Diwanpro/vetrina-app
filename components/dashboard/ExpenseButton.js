@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useDashboardSession } from './SessionProvider'
 import { Notice, Modal, fieldClass, primaryClass, secondaryClass } from './EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
 import { validMoney } from '@/lib/cash'
 import { RECEIPT_TYPES, validateReceipt } from '@/lib/commercial'
@@ -44,7 +45,7 @@ export default function ExpenseButton() {
   }
   return <><button type="button" className={secondaryClass} onClick={() => { setSuccess(''); setOpen(true) }}>تسجيل مصروف</button>{success && <span role="status" className="text-xs text-emerald-300">{success}</span>}
     {open && createPortal(<Modal title="تسجيل مصروف" busy={busy} onClose={() => setOpen(false)}><Notice error={error} /><form onSubmit={save}><fieldset disabled={busy} className="space-y-4">
-      <label className="block text-sm">الفرع<select required disabled={ctx.role !== 'owner'} value={store} onChange={e => setStore(e.target.value)} className={`${fieldClass} mt-2`}>{ctx.stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+      <label className="block text-sm">الفرع<CustomSelect required disabled={ctx.role !== 'owner'} value={store} onChange={e => setStore(e)} options={ctx.stores.map(s => ({ label: s.name, value: s.id }))} className={`${fieldClass} mt-2`} /></label>
       <label className="block text-sm">المبلغ (دج)<input required type="number" min="1" max="2147483647" step="1" value={amount} onChange={e => setAmount(e.target.value)} className={`${fieldClass} mt-2`} /></label>
       <label className="block text-sm">الوصف<textarea required maxLength={1000} value={description} onChange={e => setDescription(e.target.value)} className={`${fieldClass} mt-2`} /></label>
       <label className="block text-sm">إيصال (اختياري)<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={e => { const next = e.target.files?.[0] || null; try { validateReceipt(next); setFile(next); setError('') } catch (err) { e.target.value = ''; setFile(null); setError(err.message) } }} className={`${fieldClass} mt-2`} />{file && <span className="mt-2 block break-all text-xs text-gold">المرفق المحدد: {file.name}</span>}</label>

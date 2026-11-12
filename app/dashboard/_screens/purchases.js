@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import VoiceInput from '@/components/VoiceInput'
 import { Modal, Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
 import { getAppContext, formatDzd } from '@/lib/app-context'
 import { fetchAllRows } from '@/lib/cash'
@@ -107,20 +108,14 @@ export default function PurchasesPage() {
     finally { saving.current = false; setBusy(false) }
   }
 
-  return <>
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-      <div><p className="mb-1 text-xs text-gold">المشتريات · استلام السلاسل</p><h1 className="text-xl font-medium text-neutral-100">فاتورة شراء جديدة</h1><p className="mt-2 text-xs text-neutral-500">اختر المورد، أضف المنتجات بالألوان والمقاسات، ثم استلم الفاتورة.</p></div>
-      <a href="/dashboard/stock?tab=suppliers" className={secondaryClass}>إدارة الموردين</a>
-    </div>
-    <Notice error={error} success={success} />
-    {loading && <p className="mb-3 text-sm text-neutral-400">جاري التحميل...</p>}
-    <form onSubmit={save} className="space-y-4">
-      <fieldset disabled={busy || loading} className="space-y-4 disabled:opacity-60">
-        <div className="grid gap-5 rounded-2xl border border-white/10 bg-card p-5 lg:grid-cols-2">
-          <label className="block text-sm text-neutral-300"><span className="mb-2 block text-gold">01 · المورد</span>
-            <select required value={supplier} onChange={e => setSupplier(e.target.value)} className={fieldClass}>
-              <option value="">اختر المورد</option>{suppliers.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
-            </select>
+  return <>\n    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">\n      <div><p className="mb-1 text-xs text-gold">المشتريات · استلام السلاسل</p><h1 className="text-xl font-medium text-neutral-100">فاتورة شراء جديدة</h1><p className="mt-2 text-xs text-neutral-500">اختر المورد، أضف المنتجات بالألوان والمقاسات، ثم استلم الفاتورة.</p></div>\n      <a href="/dashboard/stock?tab=suppliers" className={secondaryClass}>إدارة الموردين</a>\n    </div>\n    <Notice error={error} success={success} />\n    {loading && <p className="mb-3 text-sm text-neutral-400">جاري التحميل...</p>}\n    <form onSubmit={save} className="space-y-4">\n      <fieldset disabled={busy || loading} className="space-y-4 disabled:opacity-60">\n        <div className="grid gap-5 rounded-2xl border border-white/10 bg-card p-5 lg:grid-cols-2">\n          <label className="block text-sm text-neutral-300"><span className="mb-2 block text-gold">01 · المورد</span>
+            <CustomSelect
+              required
+              value={supplier}
+              onChange={e => setSupplier(e)}
+              options={[{ label: 'اختر المورد', value: '' }, ...suppliers.map(row => ({ label: row.name, value: row.id }))]}
+              className={fieldClass}
+            />
             {!suppliers.length && !loading && <span className="mt-2 block text-xs text-neutral-500">أضف مورداً من صفحة الموردين أولاً.</span>}
           </label>
           <div>
@@ -144,47 +139,6 @@ export default function PurchasesPage() {
               <div className="flex gap-2"><button type="button" onClick={() => openMatrix(group.product.id)} className={secondaryClass}>تعديل السلسلة</button><button type="button" aria-label={`حذف ${group.product.name}`} onClick={() => setItems(prev => prev.filter(item => !group.items.some(row => row.variant_id === item.variant_id)))} className="px-2 text-xs text-red-300">حذف</button></div>
             </div>
             <div className="overflow-x-auto"><table className="w-full text-right text-xs"><thead className="text-neutral-500"><tr><th className="p-2">اللون</th><th className="p-2">المقاس</th><th className="p-2">الكمية</th><th className="p-2">تكلفة الوحدة</th><th className="p-2">الإجمالي</th></tr></thead><tbody>
-              {group.items.map(item => { const variant = variantById.get(item.variant_id); return <tr key={item.variant_id} className="border-t border-white/5 text-neutral-300"><td className="p-2">{variant?.color || 'بدون لون'}</td><td className="p-2">{variant?.size || 'موحّد'}</td><td className="p-2">{item.quantity}</td><td className="p-2">{formatDzd(item.unit_cost)}</td><td className="p-2 text-gold">{formatDzd(purchaseTotal([item]))}</td></tr> })}
-            </tbody></table></div>
+              {group.items.map(item => { const variant = variantById.get(item.variant_id); return <tr key={item.variant_id} className="border-t border-white/5 text-neutral-300"><td className="p-2">{variant?.color || 'بدون لون'}</td><td className="p-2">{variant?.size || 'موحّد'}</td><td className="p-2">{item.quantity}</td><td className="p-2">{formatDzd(item.unit_cost)}</td><td className="p-2 text-gold">{formatDzd(purchaseTotal([item]))}</td></tr> })}\n            </tbody></table></div>
             <p className="mt-3 border-t border-white/5 pt-3 text-left text-sm text-gold">إجمالي السلسلة: {formatDzd(purchaseTotal(group.items))}</p>
-          </article>)}</div>}
-        </section>
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-gold/30 bg-card p-5">
-          <div><p className="mb-1 text-xs text-neutral-400">{groups.length} منتج · {items.reduce((sum, item) => sum + Number(item.quantity), 0)} قطعة</p><p className="text-xl font-medium text-gold">الإجمالي: {formatDzd(total)}</p><p className="mt-2 text-xs text-neutral-500">يضاف كامل المبلغ إلى دين المورد عند الاستلام.</p></div>
-          <button disabled={!supplier || !items.length} className={`${primaryClass} min-w-48 py-3`}>{busy ? 'جاري الاستلام...' : 'حفظ واستلام الفاتورة'}</button>
-        </div>
-      </fieldset>
-    </form>
-    {adding && <Modal title="إضافة سلسلة · الألوان والمقاسات" wide busy={busy} onClose={() => setAdding(false)}>
-      <form onSubmit={applyMatrix} className="space-y-4">
-        <Notice error={matrixError} />
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-sm text-neutral-300">المنتج<select autoFocus required value={productId} onChange={e => selectProduct(e.target.value)} className={`${fieldClass} mt-2`}><option value="">اختر المنتج</option>{products.map(product => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label>
-          <label className="text-sm text-neutral-300">تكلفة الوحدة لكل قطع السلسلة (دج)<input required type="number" min="0" step="1" max="2147483647" value={unitCost} onChange={e => setUnitCost(e.target.value)} className={`${fieldClass} mt-2`} /></label>
-        </div>
-        {productId && <>
-          <p className="text-xs text-neutral-500">أدخل الكميات المطلوبة. الخانات الفارغة أو الصفرية لا تضاف للفاتورة. — يعني أن هذا اللون والمقاس غير مسجل.</p>
-          <div className="overflow-x-auto rounded-xl border border-white/10"><table className="w-full text-center text-sm"><caption className="sr-only">كميات السلسلة حسب اللون والمقاس</caption>
-            <thead className="bg-[#222] text-gold"><tr><th scope="col" className="p-3 text-right">اللون / المقاس</th>{sizes.map(size => <th scope="col" key={size} className="p-3">{size || 'موحّد'}</th>)}</tr></thead>
-            <tbody>{colors.map(color => <tr key={color} className="border-t border-white/5"><th scope="row" className="whitespace-nowrap p-3 text-right text-xs font-normal text-neutral-300">{color || 'بدون لون'}</th>{sizes.map(size => {
-              const matches = selectedVariants.filter(variant => (variant.color ?? '') === color && (variant.size ?? '') === size)
-              return <td key={size} className="p-2">{matches.length ? matches.map(variant => <input key={variant.id} aria-label={`كمية ${color || 'بدون لون'} مقاس ${size || 'موحّد'}${matches.length > 1 ? ` ${variant.barcode || ''}` : ''}`} type="number" min="0" step="1" max="2147483647" placeholder="0" value={quantities[variant.id] ?? ''} onChange={e => setQuantities(prev => ({ ...prev, [variant.id]: e.target.value }))} className="my-1 w-20 rounded-lg border border-neutral-700 bg-[#141414] px-2 py-2 text-center text-neutral-100 outline-none focus:border-gold" />) : <span className="text-neutral-700">—</span>}</td>
-            })}</tr>)}</tbody>
-          </table></div>
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-gold/5 p-3 text-sm">
-            <span className="text-neutral-300">القطع: {selectedVariants.reduce((sum, variant) => sum + Math.max(0, Number(quantities[variant.id]) || 0), 0)}</span>
-            <span className="text-gold">الإجمالي: {formatDzd(selectedVariants.reduce((sum, variant) => sum + Math.max(0, Number(quantities[variant.id]) || 0), 0) * (Number(unitCost) || 0))}</span>
-          </div>
-        </>}
-        <div className="flex gap-3 border-t border-white/10 pt-4"><button disabled={!productId} className={`${primaryClass} flex-1`}>تأكيد السلسلة</button><button type="button" onClick={() => setAdding(false)} className={secondaryClass}>إلغاء</button></div>
-      </form>
-    </Modal>}
-    <section className="mt-6 rounded-2xl border border-white/10 bg-card p-5">
-      <h2 className="mb-4 text-sm text-neutral-200">آخر 20 فاتورة شراء</h2>
-      {!history.length ? <p className="text-sm text-neutral-500">لا توجد فواتير بعد.</p> : <div className="overflow-x-auto"><table className="w-full text-right text-sm">
-        <thead className="text-neutral-500"><tr><th className="p-2">المورد</th><th className="p-2">وصف المنتج</th><th className="p-2">التاريخ</th><th className="p-2">الإجمالي</th></tr></thead>
-        <tbody>{history.map(row => <tr key={row.id} className="border-t border-white/5 text-neutral-300"><td className="p-2">{row.supplier_name}</td><td className="max-w-sm whitespace-pre-wrap p-2 text-xs text-neutral-400">{row.description || '—'}</td><td className="whitespace-nowrap p-2">{new Date(row.created_at).toLocaleString('ar-DZ')}</td><td className="whitespace-nowrap p-2 text-gold">{formatDzd(row.total_amount)}</td></tr>)}</tbody>
-      </table></div>}
-    </section>
-  </>
-}
+          </article>)}</div>}\n        </section>\n        <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-gold/30 bg-card p-5">\n          <div><p className="mb-1 text-xs text-neutral-400">{groups.length} منتج · {items.reduce((sum, item) => sum + Number(item.quantity), 0)} قطعة</p><p className="text-xl font-medium text-gold">الإجمالي: {formatDzd(total)}</p><p className="mt-2 text-xs text-neutral-500">يضاف كامل المبلغ إلى دين المورد عند الاستلام.</p></div>\n          <button disabled={!supplier || !items.length} className={`${primaryClass} min-w-48 py-3`}>{busy ? 'جاري الاستلام...' : 'حفظ واستلام الفاتورة'}</button>\n        </div>\n      </fieldset>\n    </form>\n    {adding && <Modal title="إضافة سلسلة · الألوان والمقاسات" wide busy={busy} onClose={() => setAdding(false)}>\n      <form onSubmit={applyMatrix} className="space-y-4">\n        <Notice error={matrixError} />\n        <div className="grid gap-4 sm:grid-cols-2">\n          <label className="text-sm text-neutral-300">المنتج<CustomSelect value={productId} onChange={e => selectProduct(e)} options={[{ label: 'اختر المنتج', value: '' }, ...products.map(product => ({ label: product.name, value: product.id }))]} className={`${fieldClass} mt-2`} /></label>\n          <label className="text-sm text-neutral-300">تكلفة الوحدة لكل قطع السلسلة (دج)<input required type="number" min="0" step="1" max="2147483647" value={unitCost} onChange={e => setUnitCost(e.target.value)} className={`${fieldClass} mt-2`} /></label>\n        </div>\n        {productId && <>\n          <p className="text-xs text-neutral-500">أدخل الكميات المطلوبة. الخانات الفارغة أو الصفرية لا تضاف للفاتورة. — يعني أن هذا اللون والمقاس غير مسجل.</p>\n          <div className="overflow-x-auto rounded-xl border border-white/10"><table className="w-full text-center text-sm"><caption className="sr-only">كميات السلسلة حسب اللون والمقاس</caption>\n            <thead className="bg-[#222] text-gold"><tr><th scope="col" className="p-3 text-right">اللون / المقاس</th>{sizes.map(size => <th scope="col" key={size} className="p-3">{size || 'موحّد'}</th>)}</tr></thead>\n            <tbody>{colors.map(color => <tr key={color} className="border-t border-white/5"><th scope="row" className="whitespace-nowrap p-3 text-right text-xs font-normal text-neutral-300">{color || 'بدون لون'}</th>{sizes.map(size => {\n              const matches = selectedVariants.filter(variant => (variant.color ?? '') === color && (variant.size ?? '') === size)\n              return <td key={size} className="p-2">{matches.length ? matches.map(variant => <input key={variant.id} aria-label={`كمية ${color || 'بدون لون'} مقاس ${size || 'موحّد'}${matches.length > 1 ? ` ${variant.barcode || ''}` : ''}`} type="number" min="0" step="1" max="2147483647" placeholder="0" value={quantities[variant.id] ?? ''} onChange={e => setQuantities(prev => ({ ...prev, [variant.id]: e.target.value }))} className="my-1 w-20 rounded-lg border border-neutral-700 bg-[#141414] px-2 py-2 text-center text-neutral-100 outline-none focus:border-gold" />) : <span className="text-neutral-700">—</span>}</td>\n            })}</tr>)}</tbody>\n          </table></div>\n          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-gold/5 p-3 text-sm">\n            <span className="text-neutral-300">القطع: {selectedVariants.reduce((sum, variant) => sum + Math.max(0, Number(quantities[variant.id]) || 0), 0)}</span>\n            <span className="text-gold">الإجمالي: {formatDzd(selectedVariants.reduce((sum, variant) => sum + Math.max(0, Number(quantities[variant.id]) || 0), 0) * (Number(unitCost) || 0))}</span>\n          </div>\n        </>}\n        <div className="flex gap-3 border-t border-white/10 pt-4"><button disabled={!productId} className={`${primaryClass} flex-1`}>تأكيد السلسلة</button><button type="button" onClick={() => setAdding(false)} className={secondaryClass}>إلغاء</button></div>\n      </form>\n    </Modal>}\n    <section className="mt-6 rounded-2xl border border-white/10 bg-card p-5">\n      <h2 className="mb-4 text-sm text-neutral-200">آخر 20 فاتورة شراء</h2>\n      {!history.length ? <p className="text-sm text-neutral-500">لا توجد فواتير بعد.</p> : <div className="overflow-x-auto"><table className="w-full text-right text-sm">\n        <thead className="text-neutral-500"><tr><th className="p-2">المورد</th><th className="p-2">وصف المنتج</th><th className="p-2">التاريخ</th><th className="p-2">الإجمالي</th></tr></thead>\n        <tbody>{history.map(row => <tr key={row.id} className="border-t border-white/5 text-neutral-300"><td className="p-2">{row.supplier_name}</td><td className="max-w-sm whitespace-pre-wrap p-2 text-xs text-neutral-400">{row.description || '—'}</td><td className="whitespace-nowrap p-2">{new Date(row.created_at).toLocaleString('ar-DZ')}</td><td className="whitespace-nowrap p-2 text-gold">{formatDzd(row.total_amount)}</td></tr>)}</tbody>\n      </table></div>}\n    </section>\n  </>\n}

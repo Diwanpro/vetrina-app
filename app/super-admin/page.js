@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { LICENSE_TYPES, validateBranches } from '@/lib/licenses'
 import { fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
 
 const SESSION_KEY = 'vetrina.super-admin'
@@ -121,9 +122,7 @@ export default function SuperAdminPage() {
         <h2 className="text-gold">مفتاح جديد</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm text-neutral-300">نوع الترخيص
-            <select value={type} disabled={busy} onChange={e => setType(e.target.value)} className={`${fieldClass} mt-1`}>
-              {Object.entries(LICENSE_TYPES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
+            <CustomSelect value={type} disabled={busy} onChange={e => setType(e)} options={Object.entries(LICENSE_TYPES).map(([value, label]) => ({ label, value }))} className={`${fieldClass} mt-1`} />
           </label>
           <label className="text-sm text-neutral-300">عدد الفروع
             <input dir="ltr" inputMode="numeric" required disabled={busy} value={branches}

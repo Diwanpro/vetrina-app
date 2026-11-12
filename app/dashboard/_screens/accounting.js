@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, fieldClass, secondaryClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
 import MoneyDistribution from '@/components/dashboard/MoneyDistribution'
 import EmployeePayments from '@/components/dashboard/EmployeePayments'
 import { supabase } from '@/lib/supabase'
@@ -62,7 +63,20 @@ export default function AccountingPage() {
     : ''
   return <><div className="mx-auto max-w-6xl space-y-5">
     <header><h1 className="text-xl text-gold">المحاسبة والمصاريف</h1><p className="mt-2 text-sm text-neutral-500">{ctx.allBranches ? 'جميع الفروع' : ctx.stores.find(s => s.id === ctx.storeId)?.name} · البيانات المتزامنة فقط. زر تسجيل المصروف متاح للجميع في الشريط العلوي.</p></header>
-    <div className="flex gap-3"><select aria-label="الفترة المحاسبية" className={`${fieldClass} max-w-xs`} value={period} onChange={e => { setPeriod(e.target.value); setPage(0) }}><option value="month">هذا الشهر</option><option value="year">هذه السنة</option><option value="all">كل الوقت</option></select><button className={secondaryClass} disabled={loading} onClick={refresh}>تحديث</button></div>
+    <div className="flex gap-3">
+      <CustomSelect
+        aria-label="الفترة المحاسبية"
+        className="max-w-xs"
+        value={period}
+        onChange={e => { setPeriod(e); setPage(0) }}
+        options={[
+          { label: 'هذا الشهر', value: 'month' },
+          { label: 'هذه السنة', value: 'year' },
+          { label: 'كل الوقت', value: 'all' },
+        ]}
+      />
+      <button className={secondaryClass} disabled={loading} onClick={refresh}>تحديث</button>
+    </div>
     <Notice error={error} />{loading && <p className="text-neutral-400">جاري التحميل...</p>}
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{cards.map(([label, value]) => <section key={label} className="rounded-2xl border border-gold/20 bg-card p-5"><h2 className="text-sm text-neutral-400">{label}</h2><p className={`mt-3 break-words text-2xl ${Number(value) < 0 ? 'text-red-300' : 'text-gold'}`}>{formatDzd(value)}</p></section>)}</div>
     {data && costNote && <p className="text-xs text-neutral-500">تفصيل تكلفة المبيعات: {costNote}. تُحسب التكلفة من البنود المبيعة فقط، ولا تُخصم قيمة المخزون المتبقي.</p>}

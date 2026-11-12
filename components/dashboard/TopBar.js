@@ -7,6 +7,7 @@ import { pendingRows } from '@/lib/local-db'
 import { syncPending } from '@/lib/sync'
 import ExpenseButton from './ExpenseButton'
 import ShiftManager from './ShiftManager'
+import CustomSelect from '@/components/ui/CustomSelect'
 
 export default function TopBar() {
   const ctx = useDashboardSession()
@@ -50,29 +51,10 @@ export default function TopBar() {
         </p>
         <p className={`mt-0.5 truncate whitespace-nowrap text-[11px] ${online ? 'text-neutral-500' : 'text-amber-300'}`}>
           {online ? 'متصل بالإنترنت' : 'وضع دون اتصال'}
-          {/* The pending counter is the only part worth keeping on a phone. */}
-          {pending.length > 0 && <span> · {pending.length} بانتظار المزامنة</span>}
-        </p>
+          {/* The pending counter is the only part worth keeping on a phone. */}\n          {pending.length > 0 && <span> · {pending.length} بانتظار المزامنة</span>}\n        </p>
       </div>
 
-      {/* Branch selector: full width on its own row on mobile, inline from sm up. */}
-      <div className="order-last w-full min-w-0 sm:order-none sm:w-auto">
-        {ctx.role === 'owner' ? <label className="block text-xs text-neutral-400">
-          <span className="sr-only">اختيار الفرع</span>
-          <select aria-label="اختيار الفرع"
-            value={ctx.allBranches ? 'all' : ctx.storeId || ''}
-            onChange={event => {
-              if (confirm('تغيير الفرع سيغلق المسودات غير المحفوظة. متابعة؟')) changeBranch(ctx, event.target.value)
-              else event.target.value = ctx.allBranches ? 'all' : ctx.storeId || ''
-            }}
-            className="select-field w-full max-w-full rounded-lg border border-gold/20 bg-[#1c1c1c] px-2 py-2 text-xs text-gold sm:w-auto sm:max-w-48">
-            <option value="all">كل الفروع</option>
-            {!ctx.stores.length && <option value="">لا توجد فرع</option>}
-            {ctx.stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}
-          </select>
-        </label>
-          : <span className="block truncate whitespace-nowrap text-xs text-neutral-400">{storeName}</span>}
-      </div>
+      {/* Branch selector: full width on its own row on mobile, inline from sm up. */}\n      <div className="order-last w-full min-w-0 sm:order-none sm:w-auto">\n        {ctx.role === 'owner' ? <label className="block text-xs text-neutral-400">\n          <span className="sr-only">اختيار الفرع</span>\n          <CustomSelect aria-label="اختيار الفرع"\n            value={ctx.allBranches ? 'all' : ctx.storeId || ''}\n            onChange={event => {\n              if (confirm('تغيير الفرع سيغلق المسودات غير المحفوظة. متابعة؟')) changeBranch(ctx, event)\n              else event.target.value = ctx.allBranches ? 'all' : ctx.storeId || ''\n            }}\n            options={[{ label: 'كل الفروع', value: 'all' }, ...(!ctx.stores.length ? [{ label: 'لا توجد فرع', value: '' }] : []), ...ctx.stores.map(store => ({ label: store.name, value: store.id }))]}\n            className=\"w-full max-w-full rounded-lg border border-gold/20 bg-[#1c1c1c] px-2 py-2 text-xs text-gold sm:w-auto sm:max-w-48\"\n          />\n        </label>\n          : <span className=\"block truncate whitespace-nowrap text-xs text-neutral-400\">{storeName}</span>}\n      </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
         {pending.length > 0 && <button
@@ -82,17 +64,9 @@ export default function TopBar() {
             try { await syncPending() } catch (err) { setError(err.message) } finally { setSyncing(false) }
           }}
           className="rounded-lg border border-gold/20 px-2 py-2 text-xs text-gold disabled:opacity-40">
-          {/* Long label only where there is room for it. */}
-          <span className="hidden sm:inline">{syncing ? 'جاري المزامنة...' : 'مزامنة الآن'}</span>
-          <span className="sm:hidden">{syncing ? '...' : 'مزامنة'}</span>
-        </button>}
-        <ExpenseButton />
-        {ctx.storeId && <ShiftManager />}
-      </div>
+          {/* Long label only where there is room for it. */}\n          <span className="hidden sm:inline">{syncing ? 'جاري المزامنة...' : 'مزامنة الآن'}</span>\n          <span className="sm:hidden">{syncing ? '...' : 'مزامنة'}</span>\n        </button>}\n        <ExpenseButton />\n        {ctx.storeId && <ShiftManager />}\n      </div>
     </div>
 
     {(error || pendingErrors) && <p role="alert" className="px-3 pb-2 text-xs text-red-300 md:px-4">
       {error || 'توجد فواتير تحتاج مراجعة؛ افتح الإعدادات للاطلاع على سبب تعذر المزامنة.'}
-    </p>}
-  </header>
-}
+    </p>}\n  </header>\n}

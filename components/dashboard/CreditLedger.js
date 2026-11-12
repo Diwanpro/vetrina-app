@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Modal, Notice, fieldClass, primaryClass, secondaryClass, selectClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
 import { formatDzd } from '@/lib/app-context'
 
@@ -73,11 +74,11 @@ export function CreditPaymentModal({ credit, onClose, onSaved }) {
           placeholder="0" className={`${fieldClass} mt-1`} />
       </label>
       <label className="block text-sm text-neutral-300">طريقة الدفع
-        <select disabled={busy} value={method} onChange={e => setMethod(e.target.value)} className={`${selectClass} mt-1`}>
-          <option value="cash">نقداً (يُضاف للصندوق)</option>
-          <option value="check">شيك</option>
-          <option value="ccp">CCP</option>
-        </select>
+        <CustomSelect disabled={busy} value={method} onChange={e => setMethod(e)} options={[
+          { label: 'نقداً (يُضاف للصندوق)', value: 'cash' },
+          { label: 'شيك', value: 'check' },
+          { label: 'CCP', value: 'ccp' }
+        ]} className={`${selectClass} mt-1`} />
       </label>
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={busy} className={secondaryClass} onClick={() => setAmount(String(remaining))}>المبلغ كامل</button>
