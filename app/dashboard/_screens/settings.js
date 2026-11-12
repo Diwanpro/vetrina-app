@@ -14,6 +14,7 @@ import { fetchAllRows } from '@/lib/cash'
 import { localRows, pendingRows } from '@/lib/local-db'
 import { syncPending } from '@/lib/sync'
 import { formatDzd } from '@/lib/app-context'
+import { WILAYAS } from '@/lib/wilayas'
 
 // --- STORE SETTINGS TAB CONSTANTS ---
 const RETURN_POLICY_OPTIONS = [
@@ -45,6 +46,9 @@ export default function SettingsPage() {
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [settingsError, setSettingsError] = useState('')
   const [settingsSuccess, setSettingsSuccess] = useState('')
+  // Wilaya code -> price, kept as strings while the owner is typing.
+  const [deliveryRates, setDeliveryRates] = useState({})
+  const [ratesBusy, setRatesBusy] = useState(false)
   
   // --- EXISTING STATE ---
   const [rows, setRows] = useState([])
@@ -61,9 +65,12 @@ export default function SettingsPage() {
   async function loadStoreSettings() {
     if (!ctx?.storeId) return
     try {
-      const { data, error } = await supabase.from('stores').select('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url').eq('id', ctx.storeId).single()
+      const { data, error } = await supabase.from('stores').select('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates').eq('id', ctx.storeId).single()
       if (error) throw error
       if (data) {
+        setDeliveryRates(Object.fromEntries(
+          Object.entries(data.delivery_rates || {}).map(([code, value]) => [code, String(value)])
+        ))
         setStoreSettings({
           name: data.name || '',
           address: data.address || '',
@@ -180,6 +187,33 @@ export default function SettingsPage() {
     }
   }
 
+  // Delivery prices are stored as {"16": 400}; empty fields are simply absent,
+  // which is how a wilaya says "we do not deliver there".
+  async function saveDeliveryRates() {
+    if (!ctx?.storeId) return
+    setRatesBusy(true); setSettingsError(''); setSettingsSuccess('')
+    try {
+      const payload = {}
+      for (const wilaya of WILAYAS) {
+        const raw = String(deliveryRates[wilaya.code] ?? '').trim()
+        if (!raw) continue
+        if (!/^[0-9]{1,6}$/.test(raw)) throw new Error(`سعر غير صالح لولاية ${wilaya.name}`)
+        payload[wilaya.code] = Number(raw)
+      }
+      const { error: rpcError } = await supabase.rpc('engine_update_delivery_rates', {
+        p_store: ctx.storeId,
+        p_rates: payload,
+      })
+      if (rpcError) throw rpcError
+      setSettingsSuccess('تم حفظ أسعار التوصيل')
+      loadStoreSettings()
+    } catch (err) {
+      setSettingsError(`خطأ: ${err.message}`)
+    } finally {
+      setRatesBusy(false)
+    }
+  }
+
   // --- TABS ---
   const [activeTab, setActiveTab] = useState('identity') // identity, receipt, policies, system, general
 
@@ -212,10 +246,11 @@ export default function SettingsPage() {
         
         {/* TABS NAVIGATION */}
         <div className="flex flex-wrap gap-2 border-b border-white/10 pb-3">
-          {['identity', 'receipt', 'policies', 'system', 'general'].map(tab => (
+          {['identity', 'delivery', 'receipt', 'policies', 'system', 'general'].map(tab => (
             <button key={tab} type="button" onClick={() => setActiveTab(tab)}
               className={`px-3 py-2 text-sm rounded-lg ${activeTab === tab ? 'bg-gold text-[#121212]' : 'text-neutral-400 hover:bg-white/5'}`}>
               {tab === 'identity' && 'إعدادات المحل'}
+              {tab === 'delivery' && 'أسعار التوصيل'}
               {tab === 'receipt' && 'تخصيص الإيصال'}
               {tab === 'policies' && 'سياسات التشغيل'}
               {tab === 'system' && 'تفضيلات النظام'}
@@ -273,6 +308,49 @@ export default function SettingsPage() {
         )}
 
         {/* TAB 2: RECEIPT CUSTOMIZATION */}
+        {/* DELIVERY RATES TAB */}
+        {activeTab === 'delivery' && (
+          <section className="rounded-2xl border border-gold/20 bg-card p-5">
+            <h2 className="mb-1 text-gold">أسعار التوصيل حسب الولاية</h2>
+            <p className="mb-4 text-xs leading-relaxed text-neutral-500">
+              اترك الحقل فارغاً للولايات التي لا توصّل إليها. السعر يُضاف إلى إجمالي طلب الزبون،
+              ولا يُحتسب من مبيعات المحل عند التسليم.
+            </p>
+
+            <div className="max-h-[30rem] overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2">
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {WILAYAS.map(wilaya => (
+                  <label key={wilaya.code} className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-white/[0.03]">
+                    <span className="w-6 shrink-0 text-[11px] tabular-nums text-neutral-500">{wilaya.code}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-neutral-300">{wilaya.name}</span>
+                    <input
+                      inputMode="numeric"
+                      aria-label={`سعر التوصيل إلى ${wilaya.name}`}
+                      value={deliveryRates[wilaya.code] ?? ''}
+                      onChange={event => {
+                        const digits = event.target.value.replace(/[^0-9]/g, '')
+                        setDeliveryRates(previous => ({ ...previous, [wilaya.code]: digits }))
+                      }}
+                      placeholder="—"
+                      className="w-20 rounded-lg border border-white/10 bg-[#1A1A1A] px-2 py-1.5 text-center text-sm tabular-nums text-neutral-100 focus:border-gold/60 focus:outline-none"
+                    />
+                    <span className="w-6 shrink-0 text-[11px] text-neutral-500">دج</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-[11px] text-neutral-500">
+                {Object.values(deliveryRates).filter(value => String(value).trim() !== '').length} ولاية مفعّلة من {WILAYAS.length}
+              </p>
+              <button disabled={ratesBusy} onClick={saveDeliveryRates} className={primaryClass}>
+                {ratesBusy ? 'جاري الحفظ...' : 'حفظ أسعار التوصيل'}
+              </button>
+            </div>
+          </section>
+        )}
+
         {activeTab === 'receipt' && (
           <section className="rounded-2xl border border-white/10 bg-card p-5">
             <h2 className="mb-3 text-gold">تخصيص الإيصال</h2>
