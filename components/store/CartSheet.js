@@ -22,19 +22,11 @@ export default function CartSheet({
   onQty, onRemove, onConfirmed,
 }) {
   // {"16": 400} from the store settings, normalised so that {"9": 400},
-  // {"016": "400"} or {"البليدة": 400} all resolve too. A wilaya without a
-  // price is simply not served.
+  // {"016": "400"} or {"البليدة": 400} all resolve too.
   const rateTable = useMemo(
     () => normalizeDeliveryRates(store?.delivery_rates),
     [store?.delivery_rates],
   )
-  const deliverable = useMemo(
-    () => WILAYAS
-      .filter(wilaya => rateTable[wilaya.code] != null)
-      .map(wilaya => ({ ...wilaya, fee: rateTable[wilaya.code] })),
-    [rateTable],
-  )
-  const deliveryAvailable = deliverable.length > 0
 
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -42,7 +34,7 @@ export default function CartSheet({
   const [commune, setCommune] = useState('')
   const [address, setAddress] = useState('')
   const [note, setNote] = useState('')
-  const [fulfillment, setFulfillment] = useState(deliveryAvailable ? 'delivery' : 'pickup')
+  const [fulfillment, setFulfillment] = useState('delivery')
   const [deliveryFee, setDeliveryFee] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -70,14 +62,14 @@ export default function CartSheet({
   const appliedFee = fulfillment === 'delivery' ? deliveryFee : 0
   const grandTotal = total + appliedFee
   const wilayaName = WILAYAS.find(entry => entry.code === wilaya)?.name || ''
+  // No price for this wilaya is not a dead end: the courier is paid on arrival,
+  // so the order still goes through, with no delivery fee and a flag on it.
+  const feeOnArrival = fulfillment === 'delivery' && Boolean(wilaya)
+    && deliveryFeeFor(rateTable, wilaya) == null
 
   const nameError = name.trim().length < 2 ? 'أدخل اسمك الكامل' : ''
   const phoneError = !phone ? 'رقم الهاتف مطلوب' : (!isValidPhone(phone) ? 'رقم غير صالح (مثال: 0555123456)' : '')
-  const wilayaError = fulfillment !== 'delivery'
-    ? ''
-    : (!wilaya
-        ? 'اختر الولاية'
-        : (deliveryFeeFor(rateTable, wilaya) == null ? 'لا نوصّل إلى هذه الولاية' : ''))
+  const wilayaError = fulfillment === 'delivery' && !wilaya ? 'اختر الولاية' : ''
   const invalid = Boolean(nameError || phoneError || wilayaError)
 
   async function confirm() {
@@ -96,6 +88,9 @@ export default function CartSheet({
           commune: commune.trim() || null,
           address: address.trim() || null,
           note: note.trim() || null,
+          // The server derives this from the rate table too; sending it keeps
+          // the order readable even for a client that is behind.
+          delivery_fee_on_arrival: feeOnArrival,
         },
         // The server prices the lines; only the variant and quantity are ours.
         p_items: cart.map(item => ({ variant_id: item.variantId, qty: item.qty })),
@@ -123,6 +118,7 @@ export default function CartSheet({
       cart: priced,
       total,
       deliveryFee: appliedFee,
+      feeOnArrival,
       customer: { name, phone, fulfillment },
     })
     window.open(whatsappLink(store.phone, message), '_blank', 'noopener')
@@ -244,8 +240,8 @@ export default function CartSheet({
                         label: fulfillment === 'delivery' ? 'الولاية *' : 'الولاية (اختياري)',
                         value: '',
                       },
-                      ...(fulfillment === 'delivery' ? deliverable : WILAYAS).map(entry => ({
-                        label: `${entry.code} — ${entry.name}${entry.fee != null ? ` · ${formatMoney(entry.fee)}` : ''}`,
+                      ...WILAYAS.map(entry => ({
+                        label: `${entry.code} — ${entry.name}${rateTable[entry.code] != null ? ` · ${formatMoney(rateTable[entry.code])}` : ''}`,
                         value: entry.code,
                       })),
                     ]}
@@ -287,8 +283,7 @@ export default function CartSheet({
                     key={option.key}
                     type="button"
                     onClick={() => setFulfillment(option.key)}
-                    disabled={option.key === 'delivery' && !deliveryAvailable}
-                    className={`min-h-11 rounded-xl px-2 text-xs font-medium transition disabled:opacity-40 ${
+                    className={`min-h-11 rounded-xl px-2 text-xs font-medium transition ${
                       fulfillment === option.key ? 'bg-gold text-[#121212]' : 'text-neutral-300'
                     }`}
                   >
@@ -298,10 +293,14 @@ export default function CartSheet({
               </div>
             </div>
 
-            {!deliveryAvailable && (
-              <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-200">
-                التوصيل غير متاح حالياً لأن المحل لم يحدّد أسعاره بعد. يمكنك الاستلام من المحل أو التواصل معه.
-              </p>
+            {feeOnArrival && (
+              <div
+                role="status"
+                className="flex gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[11px] leading-relaxed text-amber-200"
+              >
+                <span aria-hidden="true" className="text-sm leading-none">🛵</span>
+                <span>رسوم التوصيل غير محددة مسبقاً. سيتم الدفع لمكتب التوصيل عند الاستلام.</span>
+              </div>
             )}
 
             <div className="flex items-center justify-between rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
@@ -332,18 +331,12 @@ export default function CartSheet({
               </>
             )}
             {fulfillment === 'delivery' && (
-              deliveryAvailable ? (
-                <div className="flex justify-between text-neutral-400">
-                  <span>سعر التوصيل{wilayaName ? ` — ${wilayaName}` : ''}</span>
-                  <span className={deliveryFee > 0 ? 'font-medium text-neutral-100' : ''}>
-                    {deliveryFee > 0 ? formatMoney(deliveryFee) : 'اختر الولاية'}
-                  </span>
-                </div>
-              ) : (
-                <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
-                  لم يحدّد المحل أسعار التوصيل بعد. اختر «الاستلام من المحل» أو تواصل معه.
-                </p>
-              )
+              <div className="flex justify-between text-neutral-400">
+                <span>سعر التوصيل{wilayaName ? ` — ${wilayaName}` : ''}</span>
+                <span className={deliveryFee > 0 ? 'font-medium text-neutral-100' : ''}>
+                  {!wilaya ? 'اختر الولاية' : (deliveryFee > 0 ? formatMoney(deliveryFee) : 'يُدفع عند الاستلام')}
+                </span>
+              </div>
             )}
             {showPrices && (
               <div className="flex justify-between border-t border-white/10 pt-1 text-base font-bold text-gold">

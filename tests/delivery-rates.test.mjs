@@ -25,8 +25,11 @@ const { normalizeDeliveryRates, deliveryFeeFor, wilayaCodeOf } = await import('.
 const read = path => fs.readFile(new URL(path, import.meta.url), 'utf8')
 const migration = await read('../supabase/migrations/202611120007_delivery_rates.sql')
 const repair = await read('../supabase/migrations/202611120008_delivery_rates_repair.sql')
+const fallback = await read('../supabase/migrations/202611120009_delivery_fallback_and_stock_visibility.sql')
 const cartSheet = await read('../components/store/CartSheet.js')
 const settings = await read('../app/dashboard/_screens/settings.js')
+const productSheet = await read('../components/store/ProductSheet.js')
+const storefront = await read('../components/store/Storefront.js')
 
 const code = migration.split('\n').filter(line => !line.trim().startsWith('--')).join('\n')
 // Collapse layout whitespace so the guards read the SQL, not its indentation.
@@ -112,8 +115,64 @@ test('selecting a wilaya looks the fee up immediately', () => {
 test('the fee is rendered to the customer', () => {
   const flat = strip(cartSheet)
   assert.match(flat, /سعر التوصيل\{wilayaName \? ` — \$\{wilayaName\}` : ''\}/)
-  assert.match(flat, /deliveryFee > 0 \? formatMoney\(deliveryFee\) : 'اختر الولاية'/)
-  assert.match(flat, /لم يحدّد المحل أسعار التوصيل بعد/)
+  assert.match(flat, /deliveryFee > 0 \? formatMoney\(deliveryFee\) : 'يُدفع عند الاستلام'/)
+  assert.match(flat, /رسوم التوصيل غير محددة مسبقاً\. سيتم الدفع لمكتب التوصيل عند الاستلام\./)
+})
+
+test('delivery is offered even when the shop priced no wilaya', () => {
+  const flat = strip(cartSheet)
+  // The toggle is never disabled and every wilaya is listed.
+  assert.doesNotMatch(flat, /disabled=\{option\.key === 'delivery'/)
+  assert.match(flat, /\.\.\.WILAYAS\.map\(entry => \(\{ label: `\$\{entry\.code\} — \$\{entry\.name\}/)
+  // No rate means zero fee, a flag, and a note the shop can act on.
+  assert.match(flat, /const feeOnArrival = fulfillment === 'delivery' && Boolean\(wilaya\) && deliveryFeeFor\(rateTable, wilaya\) == null/)
+  assert.match(flat, /delivery_fee_on_arrival: feeOnArrival/)
+  assert.match(flat, /const wilayaError = fulfillment === 'delivery' && !wilaya \? 'اختر الولاية' : ''/)
+})
+
+test('the API records who is paid for the delivery', () => {
+  const flat = strip(fallback)
+  assert.match(flat, /ADD COLUMN IF NOT EXISTS delivery_fee_on_arrival boolean NOT NULL DEFAULT false/)
+  assert.match(flat, /IF rate IS NULL THEN delivery_fee := 0; fee_on_arrival := true;/)
+  assert.match(flat, /IF p_delivery_fee IS NOT NULL AND p_delivery_fee <> 0 THEN RAISE EXCEPTION 'رسوم التوصيل غير مطابقة'/)
+  // A priced wilaya still has to match to the dinar.
+  assert.match(flat, /IF p_delivery_fee IS NOT NULL AND p_delivery_fee IS DISTINCT FROM delivery_fee THEN RAISE EXCEPTION 'رسوم التوصيل غير مطابقة'/)
+  // The order carries the flag next to the fee.
+  assert.match(flat, /subtotal, discount_total, delivery_fee, delivery_fee_on_arrival, total,/)
+  assert.match(flat, /subtotal_total, discount_total, delivery_fee, fee_on_arrival, grand_total,/)
+})
+
+test('sold-out sizes reach the picker instead of vanishing', () => {
+  const flat = strip(fallback)
+  assert.match(flat, /'available', greatest\(i\.quantity - coalesce\(i\.reserved_qty, 0\), 0\)/)
+  assert.doesNotMatch(flat, /AND \(i\.quantity - coalesce\(i\.reserved_qty, 0\)\) > 0\)\s*\)\s*\},\s*'offers'/)
+  assert.match(flat, /\(greatest\(i\.quantity - coalesce\(i\.reserved_qty, 0\), 0\) > 0\) DESC/)
+})
+
+test('the size picker greys out what cannot be bought', () => {
+  const flat = strip(productSheet)
+  assert.match(flat, /const soldOutClass = 'cursor-not-allowed border-white\/5 bg-white\/\[0\.02\] text-neutral-500 opacity-50 blur-sm'/)
+  assert.match(flat, /disabled=\{!sellable\}/)
+  // No exact stock numbers, only the low-stock warning.
+  assert.doesNotMatch(flat, /\$\{max\} قطعة متوفرة/)
+  assert.match(flat, /max <= 0 \? 'غير متوفر بهذا المقاس' : \(lowStock \|\| 'متوفر'\)/)
+})
+
+test('the card never counts stock and asks for the price on WhatsApp', () => {
+  const flat = strip(storefront)
+  assert.match(flat, /disabled=\{soldOut\}/)
+  assert.match(flat, /اسأل عن السعر/)
+  assert.match(flat, /whatsappLink\(store\?\.phone, `مرحباً \$\{store\?\.name \|\| ''\}، أريد معرفة سعر: \$\{product\.name\}`\)/)
+  // Offers become a badge on the card.
+  assert.match(flat, /const badge = offerBadge\(product\.offers\?\.\[0\]\)/)
+  // "أضف" is a labelled button, not a bare quantity control.
+  assert.match(flat, /أضف\s*<\/button>/)
+})
+
+test('prices stay behind show_prices everywhere they are shown', () => {
+  const flat = strip(storefront)
+  assert.match(flat, /const showPrices = store\?\.show_prices !== false/)
+  assert.match(flat, /showPrices \? \(\s*<span className="text-sm font-bold text-gold">\{formatMoney\(product\.base_price\)\}<\/span>/)
 })
 
 test('the shown total is goods plus delivery', () => {
