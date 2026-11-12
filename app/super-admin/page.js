@@ -121,9 +121,9 @@ export default function SuperAdminPage() {
       <form onSubmit={generate} className="space-y-4 rounded-2xl border border-white/10 bg-card p-5">
         <h2 className="text-gold">مفتاح جديد</h2>
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm text-neutral-300">نوع الترخيص
+          <div className="text-sm text-neutral-300">نوع الترخيص
             <CustomSelect value={type} disabled={busy} onChange={e => setType(e)} options={Object.entries(LICENSE_TYPES).map(([value, label]) => ({ label, value }))} className={`${fieldClass} mt-1`} />
-          </label>
+          </div>
           <label className="text-sm text-neutral-300">عدد الفروع
             <input dir="ltr" inputMode="numeric" required disabled={busy} value={branches}
               onChange={e => setBranches(e.target.value)} className={`${fieldClass} mt-1`} />

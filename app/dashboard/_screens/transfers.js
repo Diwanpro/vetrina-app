@@ -82,13 +82,13 @@ export default function TransfersPage() {
           }
         }} className="rounded-2xl border border-gold/20 bg-card p-5">
           <fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2">
-            <label className="text-sm text-neutral-300">من الفرع
+            <div className="text-sm text-neutral-300">من الفرع
               <CustomSelect required value={from} onChange={e => setFrom(e)} options={[{ label: 'اختر الفرع', value: '' }, ...ctx.stores.map(store => ({ label: store.name, value: store.id }))]} className={`${fieldClass} mt-2`} />
-            </label>
-            <label className="text-sm text-neutral-300">إلى الفرع
+            </div>
+            <div className="text-sm text-neutral-300">إلى الفرع
               <CustomSelect required value={to} onChange={e => setTo(e)} options={[{ label: 'اختر الفرع', value: '' }, ...ctx.stores.filter(store => store.id !== from).map(store => ({ label: store.name, value: store.id }))]} className={`${fieldClass} mt-2`} />
-            </label>
-            <label className="block text-sm text-neutral-300">المنتج / اللون / المقاس
+            </div>
+            <div className="block text-sm text-neutral-300">المنتج / اللون / المقاس
               <CustomSelect disabled={loading} required value={variant} onChange={e => setVariant(e)}
                 options={[{ label: loading ? 'جاري التحميل...' : 'اختر الصنف', value: '' }, ...stock.map(row => ({
                   label: `${row.product_variants.products.name} - ${row.product_variants.color} - ${row.product_variants.size} (المتاح: ${row.quantity})`,
@@ -96,7 +96,7 @@ export default function TransfersPage() {
                 }))]}
                 className={`${selectClass} mt-2`} />
               {!loading && stock.length === 0 && <span className="mt-1 block text-[11px] text-neutral-500">لا يوجد مخزون في الفرع المحدد.</span>}
-            </label>
+            </div>
             <label className="text-sm text-neutral-300">الكمية
               <input required type="number" min="1" step="1" max={stock.find(row => row.variant_id === variant)?.quantity || 0} value={quantity} onChange={e => setQuantity(e.target.value)} className={`${fieldClass} mt-2`} />
             </label>

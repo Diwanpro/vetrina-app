@@ -88,13 +88,13 @@ export default function MixedPaymentModal({ ctx, remainder, onCancel, onConfirm 
     </p>
     <Notice error={error} />
     <form onSubmit={submit} className="space-y-3">
-        <label className="block text-sm text-neutral-300">طريقة التسديد
+        <div className="block text-sm text-neutral-300">طريقة التسديد
           <CustomSelect value={method} disabled={busy} onChange={e => setMethod(e)} options={[
             { label: 'كريدي', value: 'credit' },
             { label: 'شيك', value: 'check' },
             { label: 'بريدي', value: 'ccp' }
           ]} className={`${selectClass} mt-1`} />
-        </label>
+        </div>
 
         <div className="block text-sm text-neutral-300">
           <span className="mb-1 block">اسم الزبون {!isPaper && <span className="text-red-300">*</span>}</span>

@@ -118,7 +118,7 @@ export default function PurchasesPage() {
     <form onSubmit={save} className="space-y-4">
       <fieldset disabled={busy || loading} className="space-y-4 disabled:opacity-60">
         <div className="grid gap-5 rounded-2xl border border-white/10 bg-card p-5 lg:grid-cols-2">
-          <label className="block text-sm text-neutral-300"><span className="mb-2 block text-gold">01 · المورد</span>
+          <div className="block text-sm text-neutral-300"><span className="mb-2 block text-gold">01 · المورد</span>
             <CustomSelect
               required
               value={supplier}
@@ -127,7 +127,7 @@ export default function PurchasesPage() {
               className={fieldClass}
             />
             {!suppliers.length && !loading && <span className="mt-2 block text-xs text-neutral-500">أضف مورداً من صفحة الموردين أولاً.</span>}
-          </label>
+          </div>
           <div>
             <div className="mb-2 flex items-start justify-between gap-3">
               <label htmlFor="purchase-description" className="text-sm text-neutral-300">وصف المنتج <span className="text-xs text-neutral-500">(للفاتورة)</span></label>
@@ -164,7 +164,7 @@ export default function PurchasesPage() {
       <form onSubmit={applyMatrix} className="space-y-4">
         <Notice error={matrixError} />
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="text-sm text-neutral-300">المنتج<CustomSelect value={productId} onChange={e => selectProduct(e)} options={[{ label: 'اختر المنتج', value: '' }, ...products.map(product => ({ label: product.name, value: product.id }))]} className={`${fieldClass} mt-2`} /></label>
+          <div className="text-sm text-neutral-300">المنتج<CustomSelect value={productId} onChange={e => selectProduct(e)} options={[{ label: 'اختر المنتج', value: '' }, ...products.map(product => ({ label: product.name, value: product.id }))]} className={`${fieldClass} mt-2`} /></div>
           <label className="text-sm text-neutral-300">تكلفة الوحدة لكل قطع السلسلة (دج)<input required type="number" min="0" step="1" max="2147483647" value={unitCost} onChange={e => setUnitCost(e.target.value)} className={`${fieldClass} mt-2`} /></label>
         </div>
         {productId && <>

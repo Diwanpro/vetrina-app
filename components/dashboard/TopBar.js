@@ -58,18 +58,18 @@ export default function TopBar() {
 
       {/* Branch selector: full width on its own row on mobile, inline from sm up. */}
       <div className="order-last w-full min-w-0 sm:order-none sm:w-auto">
-        {ctx.role === 'owner' ? <label className="block text-xs text-neutral-400">
+        {ctx.role === 'owner' ? <div className="block text-xs text-neutral-400">
           <span className="sr-only">اختيار الفرع</span>
           <CustomSelect aria-label="اختيار الفرع"
             value={ctx.allBranches ? 'all' : ctx.storeId || ''}
-            onChange={event => {
-              if (confirm('تغيير الفرع سيغلق المسودات غير المحفوظة. متابعة؟')) changeBranch(ctx, event)
-              else event.target.value = ctx.allBranches ? 'all' : ctx.storeId || ''
+            onChange={next => {
+              if (next === (ctx.allBranches ? 'all' : ctx.storeId || '')) return
+              if (confirm('تغيير الفرع سيغلق المسودات غير المحفوظة. متابعة؟')) changeBranch(ctx, next)
             }}
             options={[{ label: 'كل الفروع', value: 'all' }, ...(!ctx.stores.length ? [{ label: 'لا توجد فرع', value: '' }] : []), ...ctx.stores.map(store => ({ label: store.name, value: store.id }))]}
             className="w-full max-w-full rounded-lg border border-gold/20 bg-[#1c1c1c] px-2 py-2 text-xs text-gold sm:w-auto sm:max-w-48"
           />
-        </label>
+        </div>
           : <span className="block truncate whitespace-nowrap text-xs text-neutral-400">{storeName}</span>}
       </div>
 
