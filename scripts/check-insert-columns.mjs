@@ -36,10 +36,14 @@ function loadSchemaFromText(text) {
     const [table, column, nullable, def, type, len] = parts.map(p => p.trim())
     if (!table || !column || table === 'table_name') continue
     if (!schema.has(table)) schema.set(table, new Map())
+    // A dump may list only name/type/nullable. "UNKNOWN" is not "no default":
+    // treating the two as equal produced false 23502 warnings on id columns
+    // that really do default to gen_random_uuid().
+    const unknown = !def || def === 'UNKNOWN' || def === '?'
     schema.get(table).set(column, {
       nullable: nullable.toUpperCase() === 'YES',
-      // "NULL" in a dump means no default; '' likewise.
-      default: def && def !== 'NULL' && def !== '' ? def : null,
+      defaultKnown: !unknown,
+      default: unknown ? null : (def !== 'NULL' && def !== '' ? def : null),
       type: type || '',
       len: len && len !== 'NULL' ? Number(len) : null,
     })
@@ -153,6 +157,7 @@ function isExplicitNull(expr) {
 // ---------------------------------------------------------------- the check
 function check(schema, sql) {
   const problems = []
+  const unverified = []
   const checked = []
   const inserts = extractInserts(sql)
   if (inserts.length === 0) problems.push('no INSERT INTO public.* found — parser out of date?')
@@ -171,9 +176,14 @@ function check(schema, sql) {
       }
     }
 
-    // 2. every NOT NULL column without a default must be supplied
+    // 2. every NOT NULL column without a default must be supplied.
+    // Where the dump does not state a default we cannot prove the omission is
+    // unsafe, so it is reported as unverified rather than failed.
     for (const [column, meta] of tableSchema) {
-      if (!meta.nullable && meta.default === null && !columns.includes(column)) {
+      if (meta.nullable || columns.includes(column)) continue
+      if (!meta.defaultKnown) {
+        unverified.push(`${table}.${column}: NOT NULL, insert omits it, and the dump does not state a default`)
+      } else if (meta.default === null) {
         problems.push(`${table}.${column}: NOT NULL, no default, and the insert omits it`)
       }
     }
@@ -214,7 +224,7 @@ function check(schema, sql) {
 
     checked.push({ table, columns: columns.length, rows: allRows.length })
   }
-  return { problems, checked }
+  return { problems, unverified, checked }
 }
 
 // --------------------------------------------------------------------- main
@@ -246,9 +256,14 @@ const seedPath = args.find(a => a.endsWith('.sql')) ||
   new URL('../supabase/seed_data.sql', import.meta.url).pathname
 const seed = fs.readFileSync(seedPath, 'utf8')
 
-const { problems, checked } = check(schema, seed)
+const { problems, unverified, checked } = check(schema, seed)
 console.log(`tables in dump: ${schema.size}`)
 for (const row of checked) console.log(`  INSERT ${row.table}: ${row.columns} columns, ${row.rows} row(s) verified`)
+
+if (unverified.length) {
+  console.log(`\n${unverified.length} unverified (not failures — the dump omits defaults):`)
+  for (const u of unverified) console.log(`  ? ${u}`)
+}
 
 if (problems.length) {
   console.error(`\n${problems.length} problem(s):`)
