@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Modal, Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
 import { formatDzd } from '@/lib/app-context'
 import { fetchAllRows } from '@/lib/cash'
@@ -169,9 +170,13 @@ export default function ExpensesPage() {
             className={`${fieldClass} mt-1`} placeholder="0" />
         </label>
         <label className="block text-sm text-neutral-300">التصنيف
-          <select disabled={busy} value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} className={`${fieldClass} mt-1`}>
-            {CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}
-          </select>
+          <CustomSelect
+            disabled={busy}
+            value={form.category}
+            onChange={e => setForm({ ...form, category: e })}
+            options={CATEGORIES.map(category => ({ label: category, value: category }))}
+            className={`${fieldClass} mt-1`}
+          />
         </label>
         <label className="block text-sm text-neutral-300">الوصف
           <textarea required disabled={busy} rows={3} maxLength={1000} value={form.description}

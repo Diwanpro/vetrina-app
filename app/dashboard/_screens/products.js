@@ -8,6 +8,7 @@ import { SIZE_TYPES, sizesForType, emptySizeRow, emptySizeMatrix, filledSizeCell
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
 import { selectClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
 
 const CATEGORIES = ['ملابس', 'أحذية', 'إكسسوارات']
 const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
@@ -337,26 +338,23 @@ export default function ProductsPage() {
               </div>
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">نوع المقاس</span>
-                <select value={sizeType} disabled={saving} onChange={e => changeSizeType(e.target.value)}
-                  aria-describedby="size-type-help"
-                  className={`${selectClass} mt-1`}>
-                  {SIZE_TYPES.map(option => (
-                    <option key={option.value} value={option.value}>{option.label} ({option.sizes.join(', ')})</option>
-                  ))}
-                </select>
+                <CustomSelect
+                  value={sizeType}
+                  disabled={saving}
+                  onChange={e => changeSizeType(e)}
+                  options={SIZE_TYPES.map(option => ({ label: `${option.label} (${option.sizes.join(', ')})`, value: option.value }))}
+                  className={`${selectClass} mt-1`}
+                />
                 <span id="size-type-help" className="mt-1 block text-[11px] text-neutral-500">تغيير نوع المقاس يمسح كميات الجدول. أدخل الكميات بعد اختيار النوع.</span>
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">التصنيف</span>
-                <select
+                <CustomSelect
                   value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  onChange={e => setForm({ ...form, category: e })}
+                  options={CATEGORIES.map(c => ({ label: c, value: c }))}
                   className={`${selectClass} mt-1`}
-                >
-                  {CATEGORIES.map((c) => (
-                    <option key={c}>{c}</option>
-                  ))}
-                </select>
+                />
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">

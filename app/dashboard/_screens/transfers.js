@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, fieldClass, primaryClass, selectClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
 import { fetchAllRows, validMoney } from '@/lib/cash'
 import { localRows } from '@/lib/local-db'
@@ -32,44 +33,18 @@ export default function TransfersPage() {
     }).catch(err => { if (live) setError(err.message) }).finally(() => { if (live) setLoading(false) })
     return () => { live = false }
   }, [from, success, ctx.tenantId])
-  return <><div className="mx-auto max-w-4xl space-y-5"><h1 className="text-xl text-neutral-100">نقل المخزون بين الفروع</h1><p className="text-sm text-neutral-500">للمالك فقط · يتم خصم وإضافة المخزون في عملية واحدة.</p><Notice error={error} success={success} />
-    <form onSubmit={async event => {
-      event.preventDefault(); if (busy) return
-      setBusy(true); setError(''); setSuccess('')
-      try {
-        if (!navigator.onLine) throw new Error('نقل المخزون يتطلب الاتصال')
-        if (ctx.role !== 'owner' || !ctx.stores.some(store => store.id === from) || !ctx.stores.some(store => store.id === to) || from === to) throw new Error('اختر فرعين مختلفين من مؤسستك')
-        if (!variant || !validMoney(quantity) || Number(quantity) <= 0) throw new Error('اختر المقاس والكمية الموجبة')
-        if ((await localRows()).some(row => row.tenant_id === ctx.tenantId && row.kind === 'sale' && row.status !== 'synced' && [from, to].includes(row.store_id))) throw new Error('زامن فواتير هذه الفروع المحلية قبل نقل المخزون')
-        const key = JSON.stringify([from, to, variant, quantity])
-        if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() }
-        const { error } = await supabase.rpc('engine_transfer', { p_from: from, p_to: to, p_tenant: ctx.tenantId, p_variant: variant, p_quantity: Number(quantity), p_request: request.current.id })
-        if (error) throw error
-        setSuccess('تم نقل المخزون بنجاح'); setQuantity(''); setVariant(''); request.current = null
-      } catch (err) { setError(err.message) } finally { setBusy(false) }
-    }} className="rounded-2xl border border-gold/20 bg-card p-5"><fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2">
-      <label className="text-sm text-neutral-300">من الفرع<select required value={from} onChange={e => setFrom(e.target.value)} className={`${fieldClass} mt-2`}><option value="">اختر الفرع</option>{ctx.stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
-      <label className="text-sm text-neutral-300">إلى الفرع<select required value={to} onChange={e => setTo(e.target.value)} className={`${fieldClass} mt-2`}><option value="">اختر الفرع</option>{ctx.stores.filter(store => store.id !== from).map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
+  return <>\n    <div className="mx-auto max-w-4xl space-y-5"><h1 className="text-xl text-neutral-100">نقل المخزون بين الفروع</h1><p className="text-sm text-neutral-500">للمالك فقط · يتم خصم وإضافة المخزون في عملية واحدة.</p><Notice error={error} success={success} />\n    <form onSubmit={async event => {\n      event.preventDefault(); if (busy) return\n      setBusy(true); setError(''); setSuccess('')\n      try {\n        if (!navigator.onLine) throw new Error('نقل المخزون يتطلب الاتصال')\n        if (ctx.role !== 'owner' || !ctx.stores.some(store => store.id === from) || !ctx.stores.some(store => store.id === to) || from === to) throw new Error('اختر فرعين مختلفين من مؤسستك')\n        if (!variant || !validMoney(quantity) || Number(quantity) <= 0) throw new Error('اختر المقاس والكمية الموجبة')\n        if ((await localRows()).some(row => row.tenant_id === ctx.tenantId && row.kind === 'sale' && row.status !== 'synced' && [from, to].includes(row.store_id))) throw new Error('زامن فواتير هذه الفروع المحلية قبل نقل المخزون')\n        const key = JSON.stringify([from, to, variant, quantity])\n        if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() }\n        const { error } = await supabase.rpc('engine_transfer', { p_from: from, p_to: to, p_tenant: ctx.tenantId, p_variant: variant, p_quantity: Number(quantity), p_request: request.current.id })\n        if (error) throw error\n        setSuccess('تم نقل المخزون بنجاح'); setQuantity(''); setVariant(''); request.current = null\n      } catch (err) { setError(err.message) } finally { setBusy(false) }\n    }} className="rounded-2xl border border-gold/20 bg-card p-5\"><fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2">\n      <label className="text-sm text-neutral-300">من الفرع<CustomSelect required value={from} onChange={e => setFrom(e)} options={[{ label: 'اختر الفرع', value: '' }, ...ctx.stores.map(store => ({ label: store.name, value: store.id }))]} className={`${fieldClass} mt-2`} /></label>
+      <label className="text-sm text-neutral-300">إلى الفرع<CustomSelect required value={to} onChange={e => setTo(e)} options={[{ label: 'اختر الفرع', value: '' }, ...ctx.stores.filter(store => store.id !== from).map(store => ({ label: store.name, value: store.id }))]} className={`${fieldClass} mt-2`} /></label>
       <label className="block text-sm text-neutral-300">المنتج / اللون / المقاس
-        <select disabled={loading} required value={variant} onChange={e => setVariant(e.target.value)}
-          className={`${selectClass} mt-2`}>
-          <option value="">{loading ? 'جاري التحميل...' : 'اختر الصنف'}</option>
-          {/* Grouped by product so a long list is still readable. */}
-          {[...new Set(stock.map(row => row.product_variants.products.name))].map(name =>
-            <optgroup key={name} label={name}>
-              {stock.filter(row => row.product_variants.products.name === name).map(row => (
-                <option key={row.variant_id} value={row.variant_id}>
-                  {row.product_variants.products.name} - {row.product_variants.color} - {row.product_variants.size} (المتاح: {row.quantity})
-                </option>
-              ))}
-            </optgroup>
-          )}
-        </select>
+        <CustomSelect disabled={loading} required value={variant} onChange={e => setVariant(e)}
+          options={[{ label: loading ? 'جاري التحميل...' : 'اختر الصنف', value: '' }, ...stock.map(row => ({
+            label: `${row.product_variants.products.name} - ${row.product_variants.color} - ${row.product_variants.size} (المتاح: ${row.quantity})`,
+            value: row.variant_id
+          }))]}
+          className={`${selectClass} mt-2`} />
         {!loading && stock.length === 0 && <span className="mt-1 block text-[11px] text-neutral-500">لا يوجد مخزون في الفرع المحدد.</span>}
       </label>
       <label className="text-sm text-neutral-300">الكمية<input required type="number" min="1" step="1" max={stock.find(row => row.variant_id === variant)?.quantity || 0} value={quantity} onChange={e => setQuantity(e.target.value)} className={`${fieldClass} mt-2`} /></label>
       <button disabled={loading || ctx.stores.length < 2} className={primaryClass}>{busy ? 'جاري النقل...' : 'تأكيد النقل'}</button>
     </fieldset></form>
-    <section className="rounded-2xl border border-white/10 bg-card p-5"><h2 className="mb-4 text-gold">آخر عمليات النقل</h2><div className="space-y-3">{history.map(row => <div key={row.id} className="rounded-lg border border-white/5 p-3 text-sm text-neutral-300">من {ctx.stores.find(store => store.id === row.from_store_id)?.name} إلى {ctx.stores.find(store => store.id === row.to_store_id)?.name}<span className="mt-1 block text-xs text-neutral-500">{new Date(row.created_at).toLocaleString('ar-DZ')} · {row.status === 'completed' ? 'مكتمل' : row.status}</span></div>)}{!history.length && <p className="text-sm text-neutral-500">لا توجد عمليات نقل.</p>}</div></section>
-  </div></>
-}
+    <section className="rounded-2xl border border-white/10 bg-card p-5"><h2 className="mb-4 text-gold">آخر عمليات النقل</h2><div className="space-y-3">{history.map(row => <div key={row.id} className="rounded-lg border border-white/5 p-3 text-sm text-neutral-300">من {ctx.stores.find(store => store.id === row.from_store_id)?.name} إلى {ctx.stores.find(store => store.id === row.to_store_id)?.name}<span className="mt-1 block text-xs text-neutral-500">{new Date(row.created_at).toLocaleString('ar-DZ')} · {row.status === 'completed' ? 'مكتمل' : row.status}</span></div>)}{!history.length && <p className="text-sm text-neutral-500">لا توجد عمليات نقل.</p>}</div></section>\n  </div></>\n}

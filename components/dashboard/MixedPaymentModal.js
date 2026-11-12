@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Modal, Notice, fieldClass, selectClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
 import { formatDzd } from '@/lib/app-context'
 import CustomerPicker from '@/components/dashboard/CustomerPicker'
@@ -88,11 +89,11 @@ export default function MixedPaymentModal({ ctx, remainder, onCancel, onConfirm 
     <Notice error={error} />
     <form onSubmit={submit} className="space-y-3">
         <label className="block text-sm text-neutral-300">طريقة التسديد
-          <select value={method} disabled={busy} onChange={e => setMethod(e.target.value)} className={`${selectClass} mt-1`}>
-            <option value="credit">كريدي</option>
-            <option value="check">شيك</option>
-            <option value="ccp">بريدي</option>
-          </select>
+          <CustomSelect value={method} disabled={busy} onChange={e => setMethod(e)} options={[
+            { label: 'كريدي', value: 'credit' },
+            { label: 'شيك', value: 'check' },
+            { label: 'بريدي', value: 'ccp' }
+          ]} className={`${selectClass} mt-1`} />
         </label>
 
         <div className="block text-sm text-neutral-300">

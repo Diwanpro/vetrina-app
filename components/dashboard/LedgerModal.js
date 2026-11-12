@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Modal, Notice, primaryClass, secondaryClass, fieldClass, selectClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
 import { formatDzd } from '@/lib/app-context'
 
@@ -134,11 +135,11 @@ export default function LedgerModal({ kind, id, onClose, onPay }) {
               className={`${fieldClass} mt-1`} placeholder="0" />
           </label>
           <label className="block text-sm text-neutral-300">طريقة الدفع
-            <select disabled={busy} value={method} onChange={e => setMethod(e.target.value)} className={`${selectClass} mt-1`}>
-              <option value="cash">نقداً (يُضاف للصندوق)</option>
-              <option value="check">شيك</option>
-              <option value="ccp">CCP</option>
-            </select>
+            <CustomSelect disabled={busy} value={method} onChange={e => setMethod(e)} options={[
+              { label: 'نقداً (يُضاف للصندوق)', value: 'cash' },
+              { label: 'شيك', value: 'check' },
+              { label: 'CCP', value: 'ccp' }
+            ]} className={`${selectClass} mt-1`} />
           </label>
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={busy} className={secondaryClass} onClick={() => setAmount(String(remaining))}>المبلغ كامل</button>
