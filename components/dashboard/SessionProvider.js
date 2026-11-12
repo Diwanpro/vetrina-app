@@ -77,6 +77,7 @@ export default function SessionProvider({ children }) {
   // their own scope when they load.
   const needsBranch = ctx.allBranches && ![
     '/dashboard', '/dashboard/settings', '/dashboard/transfers', '/dashboard/users', '/dashboard/accounting',
+    '/dashboard/orders',
     '/dashboard/operations', '/dashboard/customers-credit', '/dashboard/stock', '/dashboard/management',
   ].includes(path)
   return <SessionContext.Provider value={ctx}>

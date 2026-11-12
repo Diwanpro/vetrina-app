@@ -3,6 +3,7 @@
 import { useDashboardSession } from './SessionProvider'
 import { routeAllowed } from '@/lib/access'
 import { NAV_ITEMS, activeGroup } from './navItems'
+import OrdersBadge from './OrdersBadge'
 
 export default function BottomNav({ active = '/dashboard' }) {
   const ctx = useDashboardSession()
@@ -17,11 +18,12 @@ export default function BottomNav({ active = '/dashboard' }) {
             <a
               key={item.href}
               href={item.href}
-              className={`flex min-w-[72px] flex-1 flex-col items-center py-2 px-1 ${
+              className={`relative flex min-w-[72px] flex-1 flex-col items-center py-2 px-1 ${
                 isActive ? 'text-gold' : 'text-neutral-500'
               }`}
             >
               <Icon className="w-4 h-4" />
+              {item.badge === 'orders' && <OrdersBadge className="end-3 top-0" />}
               <span className="mt-1 text-[9px] leading-tight whitespace-nowrap">{item.label}</span>
             </a>
           )

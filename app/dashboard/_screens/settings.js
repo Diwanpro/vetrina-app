@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import ActivationForm from '@/components/dashboard/ActivationForm'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
@@ -46,6 +47,11 @@ export default function SettingsPage() {
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [settingsError, setSettingsError] = useState('')
   const [settingsSuccess, setSettingsSuccess] = useState('')
+  // Public store link: the slug lives on the row, the origin only in the browser.
+  const [slug, setSlug] = useState('')
+  const [origin, setOrigin] = useState('')
+  const [copied, setCopied] = useState(false)
+  const qrRef = useRef(null)
   // Wilaya code -> price, kept as strings while the owner is typing.
   const [deliveryRates, setDeliveryRates] = useState({})
   const [ratesBusy, setRatesBusy] = useState(false)
@@ -65,9 +71,10 @@ export default function SettingsPage() {
   async function loadStoreSettings() {
     if (!ctx?.storeId) return
     try {
-      const { data, error } = await supabase.from('stores').select('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates').eq('id', ctx.storeId).single()
+      const { data, error } = await supabase.from('stores').select('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates, slug').eq('id', ctx.storeId).single()
       if (error) throw error
       if (data) {
+        setSlug(data.slug || '')
         setDeliveryRates(Object.fromEntries(
           Object.entries(data.delivery_rates || {}).map(([code, value]) => [code, String(value)])
         ))
@@ -187,6 +194,62 @@ export default function SettingsPage() {
     }
   }
 
+  // The storefront URL is public and shareable; nothing here is secret.
+  const storeUrl = slug ? `${origin}/s/${slug}` : ''
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') setOrigin(window.location.origin)
+  }, [])
+
+  async function copyStoreLink() {
+    if (!storeUrl) return
+    try {
+      await navigator.clipboard.writeText(storeUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setSettingsError('تعذر النسخ تلقائياً. حدّد الرابط وانسخه يدوياً.')
+    }
+  }
+
+  // A print window is used instead of printing the dashboard: the sheet has to
+  // be the QR alone, at a size a customer can scan from a shop door.
+  function printQrCode() {
+    if (!storeUrl) return
+    const svg = qrRef.current?.querySelector('svg')?.outerHTML || ''
+    const logo = storeSettings.logo_url
+      ? `<img src="${storeSettings.logo_url}" alt="" class="logo" />`
+      : ''
+    const sheet = `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8" />
+      <title>${storeSettings.name || 'QR'}</title>
+      <style>
+        @page { margin: 12mm; }
+        body { font-family: system-ui, 'Segoe UI', Tahoma, sans-serif; text-align: center; color: #111; }
+        .logo { max-height: 90px; max-width: 90px; object-fit: contain; margin-bottom: 8px; }
+        h1 { font-size: 22px; margin: 4px 0 2px; }
+        p { color: #555; font-size: 13px; margin: 2px 0 16px; }
+        .qr { display: inline-block; padding: 12px; border: 2px solid #111; border-radius: 12px; }
+        .url { direction: ltr; font-size: 12px; color: #333; margin-top: 14px; }
+      </style></head>
+      <body>
+        ${logo}
+        <h1>${storeSettings.name || ''}</h1>
+        <p>امسح الرمز لتتصفح المتجر وتطلب مباشرة</p>
+        <div class="qr">${svg}</div>
+        <div class="url">${storeUrl}</div>
+      </body></html>`
+    const sheetWindow = window.open('', '_blank', 'width=720,height=900')
+    if (!sheetWindow) {
+      setSettingsError('المتصفح منع نافذة الطباعة. اسمح بالنوافذ المنبثقة ثم أعد المحاولة.')
+      return
+    }
+    sheetWindow.document.write(sheet)
+    sheetWindow.document.close()
+    sheetWindow.focus()
+    // Wait for the logo to load before the dialog covers the page.
+    sheetWindow.setTimeout(() => sheetWindow.print(), 350)
+  }
+
   // Delivery prices are stored as {"16": 400}; empty fields are simply absent,
   // which is how a wilaya says "we do not deliver there".
   async function saveDeliveryRates() {
@@ -304,6 +367,50 @@ export default function SettingsPage() {
               </label>
             </div>
             <button disabled={settingsBusy} onClick={saveStoreSettings} className={primaryClass}>{settingsBusy ? 'جاري الحفظ...' : 'حفظ الهوية'}</button>
+          </section>
+        )}
+
+        {/* TAB 1b: PUBLIC LINK AND QR */}
+        {activeTab === 'identity' && (
+          <section className="mt-4 rounded-2xl border border-gold/20 bg-card p-5">
+            <h2 className="mb-1 text-gold">رابط المتجر والـ QR</h2>
+            <p className="mb-4 text-xs leading-relaxed text-neutral-500">
+              هذا الرابط يفتح متجرك للزبائن. اطبعه على واجهة المحل أو الفاتورة، أو أرسله في واتساب.
+            </p>
+
+            {!slug ? (
+              <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                لم يتم تعيين رابط (slug) لهذا المحل بعد. تواصل معنا لتفعيل المتجر العام.
+              </p>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
+                <div>
+                  <p dir="ltr" className="select-all break-all rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-start text-sm text-neutral-200">
+                    {storeUrl}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onClick={copyStoreLink} className={secondaryClass}>
+                      {copied ? 'تم النسخ ✓' : 'نسخ الرابط'}
+                    </button>
+                    <button type="button" onClick={printQrCode} className={secondaryClass}>
+                      طباعة الـ QR
+                    </button>
+                    <a
+                      href={storeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`${secondaryClass} inline-flex items-center`}
+                    >
+                      فتح المتجر
+                    </a>
+                  </div>
+                </div>
+
+                <div ref={qrRef} className="mx-auto rounded-xl border border-gold/30 bg-white p-3">
+                  <QRCodeSVG value={storeUrl} size={140} level="M" marginSize={0} />
+                </div>
+              </div>
+            )}
           </section>
         )}
 
