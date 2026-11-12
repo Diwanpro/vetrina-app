@@ -400,9 +400,14 @@ BEGIN
   -- ==================================================== pending collections
   -- Cheques that have not cleared. They are paper, not cash: `pending` status
   -- and no shift_id means the drawer never sees them.
+  -- receipt_url is NOT NULL on this table (a 23502 proved it), so a placeholder
+  -- is supplied rather than NULL. It points at nothing real on purpose: these
+  -- are demo cheques, and a fake path in the receipts bucket would look like a
+  -- document that exists.
   INSERT INTO public.pending_collections(store_id, customer_name, amount, payment_method,
                                          receipt_url, status, created_at)
-  SELECT v_store1, x.customer_name, x.amount, x.method, NULL, 'pending', now() - interval '3 day'
+  SELECT v_store1, x.customer_name, x.amount, x.method,
+         'https://example.com/seed-receipt.jpg', 'pending', now() - interval '3 day'
     FROM (VALUES
       (tag || ' أمين بن عيسى', 5500, 'check'),
       (tag || ' سارة حمداوي',  4200, 'ccp'),
@@ -420,7 +425,10 @@ BEGIN
   -- yields the same id on every run and the re-run check stays idempotent.
   INSERT INTO public.expenses(store_id, amount, description, category, receipt_url,
                               created_by, status, request_id, created_at)
-  SELECT v_store1, x.amount, x.description, x.category, NULL, v_owner, 'approved',
+  -- The expense RPC accepts a NULL receipt, but that nullability is not
+  -- verified for this table, so a placeholder avoids repeating the 23502 above.
+  SELECT v_store1, x.amount, x.description, x.category,
+         'https://example.com/seed-receipt.jpg', v_owner, 'approved',
          (x.key)::uuid, now() - x.days * interval '1 day'
     FROM (VALUES
       -- Categories must match CATEGORIES in app/dashboard/_screens/expenses.js,
