@@ -13,7 +13,7 @@
 -- ── What it deliberately does NOT do ────────────────────────────────────────
 -- It will not invent a shift, a drawer balance, or a cash movement.
 --
---   * Seeded sales are historical and already `synced`. A sale paid by cash
+--   * Seeded sales are historical and already `completed` + synced. A sale paid by cash
 --     carries `cash_amount = 0` so it can never be mistaken for money in a
 --     drawer: a demo must not make a real close-shift reconciliation wrong.
 --   * Because of that, seeded sales do NOT appear in today's dashboard KPIs —
@@ -310,7 +310,7 @@ BEGIN
 
   -- ================================================================ sales
   -- 10 historical invoices across the last 7 days, two per branch pattern.
-  -- `synced` + a `seed:` local_id keep them out of the outbox entirely, and
+  -- `synced_at` + a `seed:` local_id keep them out of the outbox entirely, and
   -- cash_amount is zero unless the customer actually paid cash — the drawer
   -- maths must never see a number this script invented.
   FOR v_day IN 1 .. 10 LOOP
@@ -337,7 +337,12 @@ BEGIN
             -- Only the card/cash split the till would really have taken.
             CASE WHEN v_day % 3 = 0 THEN 0 ELSE v_total END,
             CASE v_day % 3 WHEN 0 THEN 'credit' ELSE 'cash' END,
-            'synced', 'seed:sale:' || v_day,
+            -- 'completed', not 'synced': sales.status is the invoice lifecycle
+            -- (completed / cancelled / returned) and nothing more. "Has been
+            -- synchronised" is expressed by synced_at being set, below.
+            -- Every financial query filters status = 'completed', so any other
+            -- value makes the sale invisible to reports, ledgers and payroll.
+            'completed', 'seed:sale:' || v_day,
             -- Spread over the past week, never in the future. `v_day` runs
             -- 1..10, so counting back from 10 keeps the newest at yesterday;
             -- normalising to midday stops the +10h crossing midnight.
