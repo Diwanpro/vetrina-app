@@ -12,6 +12,7 @@ import { formatDzd, getAppContext } from '@/lib/app-context'
 import { selectClass } from '@/components/dashboard/EngineUI'
 import CustomSelect from '@/components/ui/CustomSelect'
 import SearchableSelect from '@/components/ui/SearchableSelect'
+import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
 
 const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
 function firstImage(product) {
@@ -37,14 +38,53 @@ export default function ProductsPage() {
     base_price: '',
     cost_price: '',
     barcode: '',
+    external_video_url: '',
     imageFile: null,
     imagePreview: '',
   })
+  // The video link is the one product field a merchant edits after the fact,
+  // because a campaign video is usually ready after the product exists.
+  const [videoTarget, setVideoTarget] = useState(null)
+  const [videoValue, setVideoValue] = useState('')
+  const [videoBusy, setVideoBusy] = useState(false)
+  const [videoError, setVideoError] = useState('')
   const [sizeType, setSizeType] = useState(SIZE_TYPES[0].value)
   const sizes = sizesForType(sizeType)
   const [matrix, setMatrix] = useState(() => emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
   const [newColor, setNewColor] = useState('')
   const [customSubs, setCustomSubs] = useState({})
+
+  function openVideoEditor(product) {
+    setVideoTarget(product)
+    setVideoValue(product.external_video_url || '')
+    setVideoError('')
+  }
+
+  async function saveVideoLink() {
+    if (!videoTarget) return
+    const raw = videoValue.trim()
+    const clean = raw ? safeVideoUrl(raw) : ''
+    if (raw && !clean) {
+      setVideoError('رابط غير صالح. الصق رابطاً يبدأ بـ https:// (تيك توك، إنستغرام، فيسبوك…)')
+      return
+    }
+    setVideoBusy(true)
+    setVideoError('')
+    try {
+      const { error: updateError } = await supabase
+        .from('products')
+        .update({ external_video_url: clean || null })
+        .eq('id', videoTarget.id)
+      if (updateError) throw updateError
+      setVideoTarget(null)
+      setVideoValue('')
+      await loadProducts()
+    } catch (err) {
+      setVideoError(err.message)
+    } finally {
+      setVideoBusy(false)
+    }
+  }
 
   async function loadProducts() {
     setLoading(true)
@@ -53,7 +93,7 @@ export default function ProductsPage() {
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, description, category, subcategory, base_price, images, image_url, product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
+        .select('id, name, description, category, subcategory, base_price, images, image_url, external_video_url, product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).order('created_at', { ascending: false }).order('id'))
       setProducts(rows)
     } catch (err) { setError(err.message) }
@@ -171,6 +211,11 @@ export default function ProductsPage() {
       setError('يرجى إدخال اسم المنتج وسعر البيع')
       return
     }
+    const videoUrl = form.external_video_url.trim() ? safeVideoUrl(form.external_video_url) : ''
+    if (form.external_video_url.trim() && !videoUrl) {
+      setError('رابط الفيديو غير صالح. الصق رابطاً يبدأ بـ https:// (تيك توك، إنستغرام، فيسبوك…)')
+      return
+    }
     if (!ctx.tenantId || !ctx.storeId) {
       setError('لا يمكن الحفظ: لم يتم العثور على المتجر أو المؤسسة')
       return
@@ -221,6 +266,7 @@ export default function ProductsPage() {
         type: 'variable',
         images,
         image_url: images[0] || null,
+        external_video_url: videoUrl || null,
         is_active: true,
       })
       .select('id')
@@ -271,7 +317,7 @@ export default function ProductsPage() {
     }
 
     setOpen(false)
-    setForm({ name: '', description: '', category: MAIN_CATEGORIES[0], subcategory: '', base_price: '', cost_price: '', barcode: '', imageFile: null, imagePreview: '' })
+    setForm({ name: '', description: '', category: MAIN_CATEGORIES[0], subcategory: '', base_price: '', cost_price: '', barcode: '', external_video_url: '', imageFile: null, imagePreview: '' })
     setSizeType(SIZE_TYPES[0].value)
     setMatrix(emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
     setNewColor('')
@@ -321,6 +367,18 @@ export default function ProductsPage() {
                   <p className="text-[11px] text-neutral-500">{p.category || '—'}{p.subcategory ? ` · ${p.subcategory}` : ''}</p>
                   <a href={`/dashboard/products/barcodes?product=${encodeURIComponent(p.id)}`} target="_blank" rel="noopener noreferrer"
                     className="mt-2 mb-2 block rounded-lg border border-gold/20 px-2 py-1.5 text-center text-xs text-gold">طباعة الباركود</a>
+                  <button
+                    type="button"
+                    onClick={() => openVideoEditor(p)}
+                    className={`mb-2 flex w-full items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-xs ${
+                      p.external_video_url
+                        ? 'border-sky-400/30 bg-sky-400/10 text-sky-200'
+                        : 'border-white/10 text-neutral-300'
+                    }`}
+                  >
+                    <span aria-hidden="true">▶</span>
+                    {p.external_video_url ? 'فيديو المنتج' : 'رابط فيديو'}
+                  </button>
                   <div className="mt-1 flex items-center justify-between">
                     <span className="text-sm font-medium text-gold">{formatDzd(p.base_price)}</span>
                     <span className="text-[11px] text-neutral-500">المخزون: {stock}</span>
@@ -329,6 +387,62 @@ export default function ProductsPage() {
               </article>
             )
           })}
+        </div>
+      )}
+
+      {videoTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <section role="dialog" aria-modal="true" aria-label="رابط فيديو المنتج" className="w-full max-w-md rounded-2xl border border-gold/20 bg-[#171717] p-5 text-neutral-100">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-medium text-gold">فيديو المنتج</h2>
+              <button type="button" onClick={() => setVideoTarget(null)} disabled={videoBusy} className="text-xs text-neutral-400 disabled:opacity-50">إغلاق</button>
+            </div>
+            <p className="mb-3 truncate text-xs text-neutral-400">{videoTarget.name}</p>
+            <label className="block text-xs text-neutral-400">
+              رابط فيديو المنتج (تيك توك / إنستغرام / فيسبوك)
+              <input
+                type="url"
+                dir="ltr"
+                inputMode="url"
+                autoFocus
+                value={videoValue}
+                onChange={event => setVideoValue(event.target.value)}
+                placeholder="https://www.tiktok.com/@shop/video/..."
+                className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-start text-sm text-white outline-none focus:border-gold"
+              />
+            </label>
+            {videoValue.trim() && safeVideoUrl(videoValue) && (
+              <a
+                href={safeVideoUrl(videoValue)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-[11px] text-sky-300 underline underline-offset-4"
+              >
+                {videoButtonLabel(videoValue, 'معاينة')}
+              </a>
+            )}
+            {videoError && <p role="alert" className="mt-2 text-xs text-red-300">{videoError}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              {videoTarget.external_video_url && (
+                <button
+                  type="button"
+                  disabled={videoBusy}
+                  onClick={() => setVideoValue('')}
+                  className="rounded-lg border border-white/10 bg-[#222] px-3 py-2 text-sm text-neutral-200 disabled:opacity-50"
+                >
+                  حذف الرابط
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={videoBusy}
+                onClick={saveVideoLink}
+                className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-[#121212] disabled:opacity-50"
+              >
+                {videoBusy ? 'جاري الحفظ...' : 'حفظ'}
+              </button>
+            </div>
+          </section>
         </div>
       )}
 
@@ -453,6 +567,22 @@ export default function ProductsPage() {
                 {form.imagePreview && (
                   <img src={form.imagePreview} alt="" className="mt-2 h-20 w-20 rounded-lg object-cover" />
                 )}
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs text-neutral-400">رابط فيديو المنتج (تيك توك / إنستغرام / فيسبوك)</span>
+                <input
+                  type="url"
+                  dir="ltr"
+                  inputMode="url"
+                  value={form.external_video_url}
+                  onChange={(e) => setForm({ ...form, external_video_url: e.target.value })}
+                  placeholder="https://www.tiktok.com/@shop/video/..."
+                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-start text-sm outline-none focus:border-gold"
+                />
+                <span className="mt-1 block text-[11px] text-neutral-500">
+                  يظهر زر «شاهد الفيديو» في المتجر العام. اتركه فارغاً إن لم يكن هناك فيديو.
+                </span>
               </label>
 
               <div>
