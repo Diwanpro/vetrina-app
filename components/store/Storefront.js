@@ -4,14 +4,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
   normalizeProducts, categoriesOf, priceCart, cartCount, cartTotal, formatMoney,
+  offerBadge, isSoldOut, whatsappLink,
 } from '@/lib/storefront'
 import StoreHeader, { StoreHero } from './StoreHeader'
 import ProductSheet from './ProductSheet'
 import CartSheet from './CartSheet'
 import OrderSuccess from './OrderSuccess'
 
-function ProductCard({ product, showPrices, index, onOpen, onQuickAdd }) {
+function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) {
   const single = product.variants.length === 1 ? product.variants[0] : null
+  const badge = offerBadge(product.offers?.[0])
+  const soldOut = isSoldOut(product)
+  const askLink = whatsappLink(store?.phone, `مرحباً ${store?.name || ''}، أريد معرفة سعر: ${product.name}`)
+
   return (
     <article
       className="sf-fade-up group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]"
@@ -23,11 +28,15 @@ function ProductCard({ product, showPrices, index, onOpen, onQuickAdd }) {
             ? <img src={product.image_url} alt={product.name} loading="lazy" className="h-full w-full object-cover transition duration-500 group-active:scale-105" />
             : <div className="flex h-full items-center justify-center text-3xl text-white/10">▦</div>}
           <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/70 to-transparent" />
-          {product.offers?.length > 0 && (
-            <span className="absolute start-2 top-2 rounded-full border border-gold/40 bg-black/60 px-2 py-0.5 text-[10px] text-gold backdrop-blur">
-              {product.offers[0].kind === 'percent'
-                ? `−${product.offers[0].discount_percentage}%`
-                : `${product.offers[0].required_qty} بـ${product.offers[0].offer_price}`}
+          {badge && (
+            <span className="absolute start-2 top-2 flex items-center gap-1 rounded-full border border-gold/50 bg-gradient-to-l from-[#E8C55A] to-[#C9A227] px-2.5 py-1 text-[10px] font-bold text-[#121212] shadow-[0_6px_18px_rgba(212,175,55,0.35)]">
+              <span aria-hidden="true">✦</span>
+              {badge}
+            </span>
+          )}
+          {soldOut && (
+            <span className="absolute inset-x-2 bottom-2 rounded-lg bg-black/70 py-1 text-center text-[11px] text-neutral-200 backdrop-blur">
+              نفدت الكمية
             </span>
           )}
         </div>
@@ -36,16 +45,27 @@ function ProductCard({ product, showPrices, index, onOpen, onQuickAdd }) {
       <div className="p-3">
         <p className="line-clamp-2 min-h-[2.5rem] text-[13px] font-medium leading-snug text-neutral-100">{product.name}</p>
         <div className="mt-2 flex items-center justify-between gap-2">
-          <span className="text-sm font-bold text-gold">
-            {showPrices ? formatMoney(product.base_price) : 'اسأل عن السعر'}
-          </span>
+          {showPrices ? (
+            <span className="text-sm font-bold text-gold">{formatMoney(product.base_price)}</span>
+          ) : (
+            <a
+              href={askLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] font-medium text-gold underline decoration-gold/30 underline-offset-4"
+            >
+              اسأل عن السعر
+            </a>
+          )}
           <button
             type="button"
             aria-label={`أضف ${product.name} إلى السلة`}
-            onClick={() => (single ? onQuickAdd(product, single) : onOpen())}
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-gold text-lg font-bold text-[#121212] shadow-[0_4px_14px_rgba(212,175,55,0.3)] active:scale-90"
+            disabled={soldOut}
+            onClick={() => (single && single.available > 0 ? onQuickAdd(product, single) : onOpen())}
+            className="flex min-h-9 items-center gap-1 rounded-xl bg-gold px-3 text-[11px] font-bold text-[#121212] shadow-[0_4px_14px_rgba(212,175,55,0.3)] transition active:scale-95 disabled:opacity-30"
           >
-            +
+            <span aria-hidden="true" className="text-sm leading-none">+</span>
+            أضف
           </button>
         </div>
       </div>
@@ -119,6 +139,7 @@ export default function Storefront({ slug }) {
   const orderingEnabled = store?.accepts_orders !== false
 
   function addToCart(product, variant, qty = 1) {
+    if (!variant || Number(variant.available) <= 0) return
     setCart(previous => {
       const existing = previous.find(item => item.variantId === variant.id)
       if (existing) {
@@ -218,6 +239,7 @@ export default function Storefront({ slug }) {
                 <ProductCard
                   key={product.id}
                   product={product}
+                  store={store}
                   index={index}
                   showPrices={showPrices}
                   onOpen={() => setSelected(product)}
@@ -257,6 +279,7 @@ export default function Storefront({ slug }) {
         onAdd={addToCart}
         showPrices={showPrices}
         orderingEnabled={orderingEnabled}
+        store={store}
       />
 
       {store && (

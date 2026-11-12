@@ -12,7 +12,7 @@ const code = `${offersSource}\n${storefrontSource}`
 const {
   formatMoney, normalizePhone, isValidPhone, whatsappNumber, whatsappLink,
   normalizeProducts, categoriesOf, priceCart, cartCount, cartTotal,
-  timelineFor, statusLabel, orderMessage,
+  timelineFor, statusLabel, orderMessage, offerBadge, stockHint, isSoldOut,
 } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 
 const product = (overrides = {}) => ({
@@ -47,9 +47,11 @@ test('products are normalised for the storefront', () => {
   assert.equal(ready.offers[0].product_id, 'p1')
   assert.equal(ready.variants.length, 2)
 
-  // Sold-out variants never reach the picker.
-  const [filtered] = normalizeProducts([product({ variants: [{ id: 'x', size: 'S', available: 0 }] })])
-  assert.deepEqual(filtered.variants, [])
+  // Sold-out variants are kept so the picker can grey them out; the count is
+  // clamped so a negative reservation can never look like stock.
+  const [filtered] = normalizeProducts([product({ variants: [{ id: 'x', size: 'S', available: -2 }] })])
+  assert.equal(filtered.variants.length, 1)
+  assert.equal(filtered.variants[0].available, 0)
 
   // A product with no image at all must still render.
   const [bare] = normalizeProducts([product({ images: [], image_url: '' })])
@@ -160,4 +162,23 @@ test('the public pages resolve their dynamic segments', async () => {
   // Both live outside /dashboard, so the shell and its auth gate do not apply.
   assert.doesNotMatch(store, /DashboardShell/)
   assert.doesNotMatch(track, /DashboardShell/)
+})
+
+test('the card badge names the offer without a wall of text', () => {
+  assert.equal(offerBadge({ kind: 'percent', discount_percentage: 20 }), '−20%')
+  assert.equal(offerBadge({ kind: 'bundle', required_qty: 2, offer_price: 3000 }), '2 بـ 3 000 دج')
+  assert.equal(offerBadge({ kind: 'bundle', required_qty: 2, offer_price: 3000, name: 'عرض' }), '2 بـ 3 000 دج')
+  assert.equal(offerBadge(null), '')
+  assert.equal(offerBadge({ kind: 'percent', discount_percentage: 0, name: 'عرض الصيف' }), 'عرض الصيف')
+})
+
+test('stock is only spelled out when it is about to run out', () => {
+  assert.equal(stockHint(5), '')
+  assert.equal(stockHint(3), '')
+  assert.equal(stockHint(2), 'بقي 2')
+  assert.equal(stockHint(1), 'بقي 1')
+  assert.equal(stockHint(0), '')
+  assert.equal(isSoldOut({ variants: [{ available: 0 }, { available: 2 }] }), false)
+  assert.equal(isSoldOut({ variants: [{ available: 0 }] }), true)
+  assert.equal(isSoldOut({}), true)
 })

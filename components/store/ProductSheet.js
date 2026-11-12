@@ -2,19 +2,25 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Sheet from './Sheet'
-import { formatMoney } from '@/lib/storefront'
+import { formatMoney, offerBadge, stockHint, whatsappLink } from '@/lib/storefront'
 
 function offerText(offer) {
   if (offer.kind === 'percent') return `خصم ${offer.discount_percentage}%`
   return `${offer.required_qty} بـ ${formatMoney(offer.offer_price)}`
 }
 
+// A sold-out chip stays readable but is clearly unusable: dimmed, blurred, and
+// not clickable. The exact quantity is never printed unless it is about to run
+// out, which is the only time the number helps the customer.
+const soldOutClass = 'cursor-not-allowed border-white/5 bg-white/[0.02] text-neutral-500 opacity-50 blur-sm'
+const chipClass = 'min-h-11 rounded-xl border px-4 text-sm transition'
+const activeClass = 'border-gold bg-gold/15 font-medium text-gold'
+
 /**
- * Product detail. Only variants with stock in this store are offered, because
- * the RPC already dropped the empty ones; the colour and size rails cross-filter
- * so a customer cannot pick a combination that does not exist.
+ * Product detail. Every stocked variant is listed, sold-out ones included, so
+ * the size rail shows what the shop really sells instead of quietly hiding it.
  */
-export default function ProductSheet({ product, open, onClose, onAdd, showPrices, orderingEnabled = true }) {
+export default function ProductSheet({ product, open, onClose, onAdd, showPrices, orderingEnabled = true, store }) {
   const [color, setColor] = useState('')
   const [size, setSize] = useState('')
   const [qty, setQty] = useState(1)
@@ -22,10 +28,17 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
   const variants = product?.variants || []
   const colors = useMemo(() => [...new Set(variants.map(variant => variant.color || ''))], [variants])
 
-  // Reset the picker whenever another product is opened.
+  const inStock = (entry, targetColor) => variants.some(variant =>
+    (variant.color || '') === targetColor
+    && (entry == null || (variant.size || '') === entry)
+    && Number(variant.available) > 0)
+
+  // Reset the picker whenever another product is opened: start on something the
+  // customer can actually buy.
   useEffect(() => {
     if (!open || !product) return
-    const first = product.variants?.[0]
+    const first = (product.variants || []).find(variant => Number(variant.available) > 0)
+      || product.variants?.[0]
     setColor(first?.color || '')
     setSize(first?.size || '')
     setQty(1)
@@ -36,15 +49,19 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
     [variants, color]
   )
 
-  // Choosing another colour can invalidate the size; fall back to a real one.
-  useEffect(() => {
-    if (!sizesForColor.length) return
-    if (!sizesForColor.includes(size)) setSize(sizesForColor[0])
-  }, [sizesForColor, size])
-
   const variant = variants.find(entry => (entry.color || '') === color && (entry.size || '') === size)
   const max = Number(variant?.available || 0)
   const price = product?.base_price
+  const lowStock = stockHint(max)
+  const askLink = whatsappLink(store?.phone, `مرحباً ${store?.name || ''}، أريد معرفة سعر: ${product?.name || ''}`)
+
+  // Choosing another colour can invalidate the size; fall back to one in stock.
+  useEffect(() => {
+    if (!sizesForColor.length) return
+    if (sizesForColor.includes(size) && max > 0) return
+    const available = sizesForColor.find(entry => inStock(entry, color))
+    setSize(available ?? sizesForColor[0])
+  }, [sizesForColor, size, color, max])
 
   return (
     <Sheet open={open} onClose={onClose} labelledBy="product-title" full>
@@ -74,9 +91,18 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
 
           <div className="sf-rail flex-1 overflow-y-auto px-5 pb-4 pt-4">
             <h2 id="product-title" className="text-xl font-bold text-neutral-50">{product.name}</h2>
-            <p className="mt-1 text-lg font-bold text-gold">
-              {showPrices ? formatMoney(price) : 'اسأل عن السعر'}
-            </p>
+            {showPrices ? (
+              <p className="mt-1 text-lg font-bold text-gold">{formatMoney(price)}</p>
+            ) : (
+              <a
+                href={askLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-block text-sm font-medium text-gold underline decoration-gold/30 underline-offset-4"
+              >
+                اسأل عن السعر
+              </a>
+            )}
             {product.description && (
               <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-neutral-400">{product.description}</p>
             )}
@@ -85,7 +111,7 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
               <div className="mt-4 flex flex-wrap gap-2">
                 {product.offers.map(offer => (
                   <span key={offer.id} className="rounded-full border border-gold/25 bg-gold/5 px-3 py-1.5 text-[11px] text-gold/90">
-                    {offer.name || offerText(offer)}
+                    {offer.name || offerBadge(offer) || offerText(offer)}
                   </span>
                 ))}
               </div>
@@ -97,16 +123,17 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
                 <div className="flex flex-wrap gap-2">
                   {colors.map(value => {
                     const active = value === color
+                    const sellable = inStock(null, value)
                     return (
                       <button
                         key={value || 'none'}
                         type="button"
+                        disabled={!sellable}
+                        aria-disabled={!sellable}
                         onClick={() => setColor(value)}
-                        className={`min-h-11 rounded-xl border px-4 text-sm transition ${
-                          active
-                            ? 'border-gold bg-gold/15 font-medium text-gold'
-                            : 'border-white/10 bg-white/5 text-neutral-300'
-                        }`}
+                        className={`${chipClass} ${
+                          active && sellable ? activeClass : 'border-white/10 bg-white/5 text-neutral-300'
+                        } ${sellable ? '' : soldOutClass}`}
                       >
                         {value || 'بدون لون'}
                       </button>
@@ -122,18 +149,24 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
                 <div className="flex flex-wrap gap-2">
                   {sizesForColor.map(value => {
                     const active = value === size
+                    const sellable = inStock(value, color)
+                    const left = variants.find(entry =>
+                      (entry.color || '') === color && (entry.size || '') === value)?.available
                     return (
                       <button
                         key={value || 'none'}
                         type="button"
+                        disabled={!sellable}
+                        aria-disabled={!sellable}
                         onClick={() => { setSize(value); setQty(1) }}
-                        className={`min-h-11 min-w-12 rounded-xl border px-4 text-sm transition ${
-                          active
-                            ? 'border-gold bg-gold/15 font-medium text-gold'
-                            : 'border-white/10 bg-white/5 text-neutral-300'
-                        }`}
+                        className={`${chipClass} min-w-12 ${
+                          active && sellable ? activeClass : 'border-white/10 bg-white/5 text-neutral-300'
+                        } ${sellable ? '' : soldOutClass}`}
                       >
                         {value || 'موحّد'}
+                        {sellable && stockHint(left) && (
+                          <span className="ms-1 text-[10px] font-normal text-emerald-300/80">{stockHint(left)}</span>
+                        )}
                       </button>
                     )
                   })}
@@ -145,7 +178,7 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
               <div>
                 <p className="text-xs text-neutral-400">الكمية</p>
                 <p className="mt-0.5 text-[11px] text-neutral-500">
-                  {max > 0 ? `${max} قطعة متوفرة` : 'غير متوفر'}
+                  {max <= 0 ? 'غير متوفر بهذا المقاس' : (lowStock || 'متوفر')}
                 </p>
               </div>
               <div className="flex items-center gap-3">
