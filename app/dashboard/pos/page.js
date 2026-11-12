@@ -145,7 +145,8 @@ export default function PosPage() {
       if (found) return prev.map(item => item.variantId === variant.id
         ? { ...item, qty: Math.min(item.qty + 1, qty), max: qty } : item)
       return [...prev, {
-        variantId: variant.id, name: product.name, color: variant.color, size: variant.size,
+        variantId: variant.id, productId: product.id, name: product.name,
+        color: variant.color, size: variant.size,
         price: Number(product.base_price || 0), originalPrice: Number(product.base_price || 0),
         minPrice: Number(variant.min_price || 0), qty: 1, max: qty,
       }]
@@ -435,7 +436,7 @@ export default function PosPage() {
                         <button type="button" disabled={saving}
                           onClick={() => {
                             const next = cart.filter(item => item.variantId !== i.variantId)
-                            setCart(next)
+                            updateCart(next)
                             if (!next.length) { setCartOpen(false); setCheckout(false) }
                           }}
                           className="text-red-300">حذف</button>
@@ -487,7 +488,7 @@ export default function PosPage() {
                     <div className="mt-2 flex items-center gap-3">
                       <button type="button" aria-label={`إنقاص كمية ${i.name}`} disabled={saving || i.qty <= 1} onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">−</button>
                       <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving || i.qty >= i.max} onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">+</button>
-                      <button type="button" disabled={saving} onClick={() => { const next = cart.filter(item => item.variantId !== i.variantId); setCart(next); if (!next.length) { setCheckout(false); setCartOpen(false) } }} className="text-red-300">حذف</button>
+                      <button type="button" disabled={saving} onClick={() => { const next = cart.filter(item => item.variantId !== i.variantId); updateCart(next); if (!next.length) { setCheckout(false); setCartOpen(false) } }} className="text-red-300">حذف</button>
                     </div>
                   </div>
                   <div className="text-left">

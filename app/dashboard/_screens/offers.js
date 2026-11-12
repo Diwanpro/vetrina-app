@@ -18,7 +18,6 @@ export default function OffersPage() {
   const [products, setProducts] = useState([])
   const [offers, setOffers] = useState([])
   const [productId, setProductId] = useState('')
-  const [variantId, setVariantId] = useState('')
   const [kind, setKind] = useState('percent')
   const [percent, setPercent] = useState('')
   const [requiredQty, setRequiredQty] = useState('2')
@@ -48,11 +47,15 @@ export default function OffersPage() {
 
   const product = products.find(row => row.id === productId)
   const variants = product?.product_variants || []
-  const variant = variants.find(row => row.id === variantId)
 
-  // Owner-facing preview, including whether the offer loses money.
+  // A product-level offer covers every size and colour, so the cost shown is
+  // the range across its variants and the loss check uses the dearest one.
+  const costs = variants.map(row => Number(row.cost_price_avg || 0))
+  const costMax = costs.length ? Math.max(...costs) : 0
+  const costMin = costs.length ? Math.min(...costs) : 0
+
   const preview = useMemo(() => {
-    if (!variant || !product) return null
+    if (!product) return null
     const unitPrice = Number(product.base_price || 0)
     const candidate = kind === 'percent'
       ? { id: 'preview', kind: 'percent', discount_percentage: Number(percent || 0) }
@@ -60,22 +63,21 @@ export default function OffersPage() {
     const qty = kind === 'percent' ? 1 : Number(requiredQty || 0)
     const priced = priceLine({ qty, unitPrice, offer: candidate })
     if (!priced) return null
-    const cost = Number(variant.cost_price_avg || 0)
     const perUnit = qty > 0 ? Math.round(priced.subtotal / qty) : 0
-    return { subtotal: priced.subtotal, perUnit, cost, loss: perUnit < cost, qty }
-  }, [variant, product, kind, percent, requiredQty, offerPrice])
+    return { subtotal: priced.subtotal, perUnit, loss: perUnit < costMax, qty }
+  }, [product, kind, percent, requiredQty, offerPrice, costMax])
 
   async function save(event) {
     event.preventDefault()
     if (busy) return
     setError(''); setSuccess('')
-    if (!variantId) { setError('اختر المقاس'); return }
+    if (!productId) { setError('اختر المنتج'); return }
     setBusy(true)
     try {
       const { error: rpcError } = await supabase.rpc('engine_save_offer', {
         p_tenant: ctx.tenantId,
         p_product: productId,
-        p_variant: variantId,
+        p_variant: null, // the offer applies to every size and colour
         p_kind: kind,
         p_discount: kind === 'percent' ? Number(percent) : null,
         p_required_qty: kind === 'bundle' ? Number(requiredQty) : null,
@@ -83,7 +85,7 @@ export default function OffersPage() {
         p_name: name,
       })
       if (rpcError) throw rpcError
-      setSuccess('تم حفظ العرض')
+      setSuccess('تم حفظ العرض على كل مقاسات المنتج')
       setPercent(''); setOfferPrice(''); setName('')
       await load()
     } catch (err) { setError(err.message || 'تعذر حفظ العرض') } finally { setBusy(false) }
@@ -111,10 +113,8 @@ export default function OffersPage() {
     } catch (err) { setError(err.message) }
   }
 
-  function variantLabel(offer) {
-    const owner = products.find(row => row.id === offer.product_id)
-    const found = owner?.product_variants?.find(row => row.id === offer.variant_id)
-    return `${owner?.name || '—'} · ${found?.color || 'بدون لون'} / ${found?.size || 'موحّد'}`
+  function productName(offer) {
+    return products.find(row => row.id === offer.product_id)?.name || 'منتج'
   }
 
   return (
@@ -124,26 +124,16 @@ export default function OffersPage() {
 
       <form onSubmit={save} className="space-y-4 rounded-2xl border border-gold/20 bg-card p-5">
         <h2 className="text-gold">عرض جديد</h2>
+        <p className="text-xs text-neutral-500">
+          العرض يُطبَّق على المنتج كاملاً: كل المقاسات والألوان تُحتسب معاً في عرض الحزمة.
+        </p>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="block text-sm text-neutral-300">
             <span className="mb-1 block">المنتج</span>
             <CustomSelect
               value={productId}
-              onChange={next => { setProductId(next); setVariantId('') }}
+              onChange={setProductId}
               options={[{ label: 'اختر المنتج', value: '' }, ...products.map(row => ({ label: row.name, value: row.id }))]}
-              className={`${fieldClass} mt-1`}
-            />
-          </div>
-          <div className="block text-sm text-neutral-300">
-            <span className="mb-1 block">المقاس / اللون</span>
-            <CustomSelect
-              value={variantId}
-              onChange={setVariantId}
-              disabled={!productId}
-              options={[
-                { label: productId ? 'اختر المقاس' : 'اختر المنتج أولاً', value: '' },
-                ...variants.map(row => ({ label: `${row.color || 'بدون لون'} / ${row.size || 'موحّد'}`, value: row.id })),
-              ]}
               className={`${fieldClass} mt-1`}
             />
           </div>
@@ -183,7 +173,11 @@ export default function OffersPage() {
               سعر البيع بعد العرض: <span className="text-gold">{formatDzd(preview.subtotal)}</span>
               {preview.qty > 1 && <span className="text-neutral-500"> · {formatDzd(preview.perUnit)} للوحدة</span>}
             </p>
-            <p className="mt-1 text-xs text-neutral-500">متوسط التكلفة: {formatDzd(preview.cost)} للوحدة</p>
+            <p className="mt-1 text-xs text-neutral-500">
+              {variants.length > 1 && costMin !== costMax
+                ? `التكلفة بين ${formatDzd(costMin)} و ${formatDzd(costMax)} حسب المقاس`
+                : `متوسط التكلفة: ${formatDzd(costMax)} للوحدة`}
+            </p>
             {preview.loss && <p className="mt-1 text-xs text-red-300">تحذير: هذا العرض يبيع بأقل من التكلفة.</p>}
           </div>
         )}
@@ -199,9 +193,10 @@ export default function OffersPage() {
             {offers.map(offer => (
               <li key={offer.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/5 p-3">
                 <div className="min-w-0">
-                  <p className="text-sm text-neutral-200">{offer.name || variantLabel(offer)}</p>
+                  <p className="text-sm text-neutral-200">{offer.name || productName(offer)}</p>
                   <p className="mt-1 text-xs text-neutral-500">
-                    {variantLabel(offer)} · {offer.kind === 'percent'
+                    {productName(offer)}
+                    {offer.variant_id ? ' · مقاس واحد' : ' · كل المقاسات'} · {offer.kind === 'percent'
                       ? `${offer.discount_percentage}% خصم`
                       : `${offer.required_qty} بسعر ${formatDzd(offer.offer_price)}`}
                   </p>
