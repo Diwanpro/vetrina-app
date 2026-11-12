@@ -22,10 +22,13 @@ const product = (overrides = {}) => ({
   offers: [], ...overrides,
 })
 
-test('money is grouped and keeps the dinar suffix', () => {
-  assert.equal(formatMoney(0), '0 دج')
-  assert.equal(formatMoney(1234), '1 234 دج')
-  assert.match(formatMoney(3000), /3 000 دج/)
+test('money is grouped with commas and keeps the dinar suffix', () => {
+  // No thin-space grouping: it reads as two numbers next to a currency in RTL.
+  assert.ok(formatMoney(0).includes('0 دج'))
+  assert.ok(formatMoney(1234).includes('1,234 دج'))
+  assert.ok(formatMoney(3000).includes('3,000 دج'))
+  assert.ok(formatMoney(1000000).includes('1,000,000 دج'))
+  assert.doesNotMatch(formatMoney(3800), /3\s800/)
 })
 
 test('Algerian phone numbers are accepted however they are written', () => {
@@ -124,7 +127,7 @@ test('the WhatsApp message names the items, the total and the handover', () => {
   })
   assert.match(message, /بوتيك/)
   assert.match(message, /قميص/)
-  assert.match(message, /3 000 دج/)
+  assert.match(message, /3,000 دج/)
   assert.match(message, /الاستلام من المحل/)
 })
 
@@ -166,8 +169,9 @@ test('the public pages resolve their dynamic segments', async () => {
 
 test('the card badge names the offer without a wall of text', () => {
   assert.equal(offerBadge({ kind: 'percent', discount_percentage: 20 }), '−20%')
-  assert.equal(offerBadge({ kind: 'bundle', required_qty: 2, offer_price: 3000 }), '2 بـ 3 000 دج')
-  assert.equal(offerBadge({ kind: 'bundle', required_qty: 2, offer_price: 3000, name: 'عرض' }), '2 بـ 3 000 دج')
+  const plain = text => String(text).replace(/[\u2066-\u2069]/g, '')
+  assert.equal(plain(offerBadge({ kind: 'bundle', required_qty: 2, offer_price: 3000 })), '2 بـ 3,000 دج')
+  assert.equal(plain(offerBadge({ kind: 'bundle', required_qty: 2, offer_price: 3000, name: 'عرض' })), '2 بـ 3,000 دج')
   assert.equal(offerBadge(null), '')
   assert.equal(offerBadge({ kind: 'percent', discount_percentage: 0, name: 'عرض الصيف' }), 'عرض الصيف')
 })

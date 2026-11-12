@@ -246,7 +246,7 @@ test('the repair migration folds hand-written keys into canonical codes', () => 
 
 test('the settings screen edits all 58 wilayas through the RPC', () => {
   const flat = strip(settings)
-  assert.match(flat, /select\('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates'\)/)
+  assert.match(flat, /select\('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates, slug'\)/)
   assert.match(flat, /supabase\.rpc\('engine_update_delivery_rates', \{ p_store: ctx\.storeId, p_rates: payload,? \}\)/)
   assert.match(flat, /WILAYAS\.map\(wilaya => \(/)
   assert.equal(WILAYAS.length, 58)
@@ -254,16 +254,19 @@ test('the settings screen edits all 58 wilayas through the RPC', () => {
 
 // --- the message the shop receives on WhatsApp -------------------------
 
+// formatMoney wraps the amount in bidi isolates; strip them before matching.
+const plain = text => String(text).replace(/[\u2066-\u2069]/g, '')
+
 const cart = [{ productName: 'قميص', size: 'M', color: 'أسود', qty: 2, subtotal: 4000 }]
 
 test('the WhatsApp message shows the delivery fee and the real total', () => {
-  const message = orderMessage({ storeName: 'متجري', cart, total: 4000, deliveryFee: 400, customer: { name: 'علي' } })
+  const message = plain(orderMessage({ storeName: 'متجري', cart, total: 4000, deliveryFee: 400, customer: { name: 'علي' } }))
   assert.match(message, /رسوم التوصيل: 400 دج/)
-  assert.match(message, /الإجمالي: 4 400 دج/)
+  assert.match(message, /الإجمالي: 4,400 دج/)
 })
 
 test('a pickup message stays free and unchanged', () => {
-  const message = orderMessage({ storeName: 'متجري', cart, total: 4000, customer: { name: 'علي', fulfillment: 'pickup' } })
+  const message = plain(orderMessage({ storeName: 'متجري', cart, total: 4000, customer: { name: 'علي', fulfillment: 'pickup' } }))
   assert.doesNotMatch(message, /رسوم التوصيل/)
-  assert.match(message, /الإجمالي: 4 000 دج/)
+  assert.match(message, /الإجمالي: 4,000 دج/)
 })

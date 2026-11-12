@@ -136,3 +136,12 @@ export function IconExpenses({ className = 'w-5 h-5' }) {
 export function IconAccounting({ className = 'w-5 h-5' }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="5" y="2" width="14" height="20" rx="2" /><path d="M8 6h8M8 10h8M8 14h2M14 14h2M8 18h2M14 18h2" /></svg>
 }
+
+export function IconOrders({ className = 'w-5 h-5' }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <path d="M6 4h9l3 3v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
+      <path d="M8.5 9h7M8.5 13h7M8.5 17h4" strokeLinecap="round" />
+    </svg>
+  )
+}
