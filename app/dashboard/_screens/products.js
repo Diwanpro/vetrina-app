@@ -1,16 +1,18 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import VoiceInput from '@/components/VoiceInput'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
 import { fetchAllRows } from '@/lib/cash'
 import { SIZE_TYPES, sizesForType, emptySizeRow, emptySizeMatrix, filledSizeCells } from '@/lib/product-sizes'
+import { MAIN_CATEGORIES, subcategoriesFor } from '@/lib/categories'
+import { loadCustomSubcategories, saveCustomSubcategory } from '@/lib/subcategories'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
 import { selectClass } from '@/components/dashboard/EngineUI'
 import CustomSelect from '@/components/ui/CustomSelect'
+import SearchableSelect from '@/components/ui/SearchableSelect'
 
-const CATEGORIES = ['ملابس', 'أحذية', 'إكسسوارات']
 const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
 function firstImage(product) {
   if (Array.isArray(product.images) && product.images.length) return product.images[0]
@@ -30,7 +32,8 @@ export default function ProductsPage() {
   const [form, setForm] = useState({
     name: '',
     description: '',
-    category: CATEGORIES[0],
+    category: MAIN_CATEGORIES[0],
+    subcategory: '',
     base_price: '',
     cost_price: '',
     barcode: '',
@@ -41,6 +44,7 @@ export default function ProductsPage() {
   const sizes = sizesForType(sizeType)
   const [matrix, setMatrix] = useState(() => emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
   const [newColor, setNewColor] = useState('')
+  const [customSubs, setCustomSubs] = useState({})
 
   async function loadProducts() {
     setLoading(true)
@@ -49,7 +53,7 @@ export default function ProductsPage() {
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, description, category, base_price, images, image_url, product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
+        .select('id, name, description, category, subcategory, base_price, images, image_url, product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).order('created_at', { ascending: false }).order('id'))
       setProducts(rows)
     } catch (err) { setError(err.message) }
@@ -57,6 +61,47 @@ export default function ProductsPage() {
   }
 
   useEffect(() => { loadProducts(); return () => { barcodeTask.current += 1 } }, [])
+
+  // Loaded once per page load, not per focus: a refresh is enough to pick up
+  // subcategories another device added. A failure here must never block the
+  // catalogue, so it is logged rather than surfaced.
+  useEffect(() => {
+    if (!ctx.tenantId) return
+    let cancelled = false
+    loadCustomSubcategories(supabase, ctx.tenantId)
+      .then(rows => { if (!cancelled) setCustomSubs(rows) })
+      .catch(err => console.error('[products] custom subcategories failed', err))
+    return () => { cancelled = true }
+  }, [ctx.tenantId])
+
+  // Defaults from lib/categories.js, plus this tenant's saved custom entries,
+  // plus anything already used by existing products (covers rows created
+  // before this feature existed).
+  const subcategoryOptions = useMemo(() => {
+    const seeded = subcategoriesFor(form.category)
+    const custom = customSubs[form.category] || []
+    const used = products
+      .filter(product => product.category === form.category && product.subcategory)
+      .map(product => product.subcategory)
+    return [...new Set([...seeded, ...custom, ...used])].map(label => ({ label, value: label }))
+  }, [form.category, customSubs, products])
+
+  async function createSubcategory(name) {
+    try {
+      const saved = await saveCustomSubcategory(supabase, {
+        tenantId: ctx.tenantId,
+        category: form.category,
+        name,
+      })
+      if (!saved) return
+      setCustomSubs(previous => ({
+        ...previous,
+        [saved.category]: [...new Set([...(previous[saved.category] || []), saved.name])],
+      }))
+    } catch (err) {
+      setError(err.message || 'تعذر حفظ التصنيف الفرعي')
+    }
+  }
 
   async function allocateBarcodes(count) {
     if (!count) return []
@@ -171,6 +216,7 @@ export default function ProductsPage() {
         name: form.name.trim(),
         description: form.description.trim() || null,
         category: form.category,
+        subcategory: form.subcategory.trim() || null,
         base_price: Number(form.base_price),
         type: 'variable',
         images,
@@ -225,7 +271,7 @@ export default function ProductsPage() {
     }
 
     setOpen(false)
-    setForm({ name: '', description: '', category: CATEGORIES[0], base_price: '', cost_price: '', barcode: '', imageFile: null, imagePreview: '' })
+    setForm({ name: '', description: '', category: MAIN_CATEGORIES[0], subcategory: '', base_price: '', cost_price: '', barcode: '', imageFile: null, imagePreview: '' })
     setSizeType(SIZE_TYPES[0].value)
     setMatrix(emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
     setNewColor('')
@@ -272,7 +318,7 @@ export default function ProductsPage() {
                 </div>
                 <div className="p-2.5">
                   <p className="text-sm text-neutral-100 truncate">{p.name}</p>
-                  <p className="text-[11px] text-neutral-500">{p.category || '—'}</p>
+                  <p className="text-[11px] text-neutral-500">{p.category || '—'}{p.subcategory ? ` · ${p.subcategory}` : ''}</p>
                   <a href={`/dashboard/products/barcodes?product=${encodeURIComponent(p.id)}`} target="_blank" rel="noopener noreferrer"
                     className="mt-2 mb-2 block rounded-lg border border-gold/20 px-2 py-1.5 text-center text-xs text-gold">طباعة الباركود</a>
                   <div className="mt-1 flex items-center justify-between">
@@ -351,8 +397,18 @@ export default function ProductsPage() {
                 <span className="mb-1 block text-xs text-neutral-400">التصنيف</span>
                 <CustomSelect
                   value={form.category}
-                  onChange={e => setForm({ ...form, category: e })}
-                  options={CATEGORIES.map(c => ({ label: c, value: c }))}
+                  onChange={e => setForm({ ...form, category: e, subcategory: '' })}
+                  options={MAIN_CATEGORIES.map(c => ({ label: c, value: c }))}
+                  className={`${selectClass} mt-1`}
+                />
+              </div>
+              <div className="block">
+                <span className="mb-1 block text-xs text-neutral-400">التصنيف الفرعي</span>
+                <SearchableSelect
+                  value={form.subcategory}
+                  onChange={next => setForm(previous => ({ ...previous, subcategory: next }))}
+                  onCreate={createSubcategory}
+                  options={subcategoryOptions}
                   className={`${selectClass} mt-1`}
                 />
               </div>

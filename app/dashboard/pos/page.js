@@ -12,6 +12,7 @@ import { fetchAllRows } from '@/lib/cash'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
+import { MAIN_CATEGORIES } from '@/lib/categories'
 import CustomSelect from '@/components/ui/CustomSelect'
 
 const PAYMENTS = [
@@ -27,6 +28,7 @@ function firstImage(product) {
 
 export default function PosPage() {
   const [products, setProducts] = useState([])
+  const [activeCategory, setActiveCategory] = useState('all')
   const saleSaving = useRef(false)
   const [scanning, setScanning] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -57,7 +59,7 @@ export default function PosPage() {
       if (!navigator.onLine || context.offline) { setProducts(await cachedCatalog(context)); return }
       await syncPending().catch(err => { console.error('[pos] catalogue sync failed', err) })
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, base_price, images, image_url, product_variants!inner(id, color, size, min_price, barcode, inventory!inner(quantity, store_id))')
+        .select('id, name, base_price, category, subcategory, images, image_url, product_variants!inner(id, color, size, min_price, barcode, inventory!inner(quantity, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).eq('is_active', true)
         .order('created_at', { ascending: false }).order('id'))
       setProducts(await cacheCatalog(context, rows))
@@ -71,6 +73,13 @@ export default function PosPage() {
   }
 
   useEffect(() => { loadProducts() }, [])
+
+  // Category strip filter. Empty categories simply yield nothing; "all" is the
+  // default so the grid is unchanged for anyone who never touches the strip.
+  const visible = useMemo(
+    () => (activeCategory === 'all' ? products : products.filter(product => product.category === activeCategory)),
+    [products, activeCategory]
+  )
 
   const available = useMemo(() => {
     if (!selected) return []
@@ -215,7 +224,7 @@ export default function PosPage() {
       <div className="mb-3 flex items-center justify-between">
         <h1 className="text-base font-medium text-neutral-100">نقطة البيع</h1>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-neutral-500">{products.length} منتج</span>
+          <span className="text-xs text-neutral-500">{visible.length} منتج</span>
           <button type="button" disabled={saving || !ctx.storeId} onClick={() => setScanning(true)}
             className="rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 text-sm text-gold disabled:opacity-50">مسح الباركود</button>
         </div>
@@ -223,13 +232,32 @@ export default function PosPage() {
 
       {error && !checkout && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
       {scanning && <BarcodeScanner onScan={scanBarcode} onClose={() => setScanning(false)} />}
+      <div className="mb-3 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        {[{ label: 'الكل', value: 'all' }, ...MAIN_CATEGORIES.map(category => ({ label: category, value: category }))].map(chip => (
+          <button
+            key={chip.value}
+            type="button"
+            onClick={() => setActiveCategory(chip.value)}
+            aria-pressed={activeCategory === chip.value}
+            className={`shrink-0 rounded-full border px-3 py-1.5 text-xs transition-colors ${
+              activeCategory === chip.value
+                ? 'border-gold bg-gold/15 text-gold'
+                : 'border-white/10 bg-card text-neutral-400 hover:border-gold/40'
+            }`}
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
       {loading ? (
         <p className="text-sm text-neutral-500">جاري التحميل...</p>
       ) : products.length === 0 ? (
         <p className="text-sm text-neutral-500">لا توجد منتجات. أضف منتجات أولاً.</p>
+      ) : visible.length === 0 ? (
+        <p className="text-sm text-neutral-500">لا توجد منتجات في هذا التصنيف.</p>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 pb-20">
-          {products.map((p) => {
+          {visible.map((p) => {
             const img = firstImage(p)
             return (
               <button
