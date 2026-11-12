@@ -37,6 +37,8 @@ export const ROUTE_GROUPS = {
   '/dashboard/transfers': '/dashboard/stock',
   '/dashboard/suppliers': '/dashboard/stock',
   '/dashboard/purchases': '/dashboard/stock',
+  '/dashboard/offers': '/dashboard/stock',
+  '/dashboard/looks': '/dashboard/stock',
   '/dashboard/accounting': '/dashboard/management',
   '/dashboard/users': '/dashboard/management',
   '/dashboard/settings': '/dashboard/settings',

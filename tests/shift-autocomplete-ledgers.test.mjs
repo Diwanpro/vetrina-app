@@ -116,7 +116,7 @@ test('the ledger modal shows every required column and a payment button', () => 
   }
   assert.match(ledger, /تسجيل دفعة/)
   // Customer ledgers have no payment hook on this screen; suppliers do.
-  assert.match(ledger, /\{onPay && <button/)
+  assert.match(ledger, /\{kind === 'supplier' && onPay && <button/)
 })
 
 test('one ledger component serves every entry point', async () => {

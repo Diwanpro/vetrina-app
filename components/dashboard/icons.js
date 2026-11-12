@@ -145,3 +145,13 @@ export function IconOrders({ className = 'w-5 h-5' }) {
     </svg>
   )
 }
+
+// A hanger: the one shape that reads as "outfit" at 20px.
+export function IconLooks({ className = 'w-5 h-5' }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <path d="M12 8a2.2 2.2 0 1 1 2.2-2.2" strokeLinecap="round" />
+      <path d="M12 8v1.6L4.6 15a1.5 1.5 0 0 0 .9 2.8h13a1.5 1.5 0 0 0 .9-2.8L12 9.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
