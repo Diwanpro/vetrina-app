@@ -149,7 +149,8 @@ export default function PurchasesPage() {
               <div className="flex gap-2"><button type="button" onClick={() => openMatrix(group.product.id)} className={secondaryClass}>تعديل السلسلة</button><button type="button" aria-label={`حذف ${group.product.name}`} onClick={() => setItems(prev => prev.filter(item => !group.items.some(row => row.variant_id === item.variant_id)))} className="px-2 text-xs text-red-300">حذف</button></div>
             </div>
             <div className="overflow-x-auto"><table className="w-full text-right text-xs"><thead className="text-neutral-500"><tr><th className="p-2">اللون</th><th className="p-2">المقاس</th><th className="p-2">الكمية</th><th className="p-2">تكلفة الوحدة</th><th className="p-2">الإجمالي</th></tr></thead><tbody>
-              {group.items.map(item => { const variant = variantById.get(item.variant_id); return <tr key={item.variant_id} className="border-t border-white/5 text-neutral-300"><td className="p-2">{variant?.color || 'بدون لون'}</td><td className="p-2">{variant?.size || 'موحّد'}</td><td className="p-2">{item.quantity}</td><td className="p-2">{formatDzd(item.unit_cost)}</td><td className="p-2 text-gold">{formatDzd(purchaseTotal([item]))}</td></tr> })}\n            </tbody></table></div>
+              {group.items.map(item => { const variant = variantById.get(item.variant_id); return <tr key={item.variant_id} className="border-t border-white/5 text-neutral-300"><td className="p-2">{variant?.color || 'بدون لون'}</td><td className="p-2">{variant?.size || 'موحّد'}</td><td className="p-2">{item.quantity}</td><td className="p-2">{formatDzd(item.unit_cost)}</td><td className="p-2 text-gold">{formatDzd(purchaseTotal([item]))}</td></tr> })}
+            </tbody></table></div>
             <p className="mt-3 border-t border-white/5 pt-3 text-left text-sm text-gold">إجمالي السلسلة: {formatDzd(purchaseTotal(group.items))}</p>
           </article>)}</div>}
         </section>
@@ -179,7 +180,16 @@ export default function PurchasesPage() {
             <span className="text-neutral-300">القطع: {selectedVariants.reduce((sum, variant) => sum + Math.max(0, Number(quantities[variant.id]) || 0), 0)}</span>
             <span className="text-gold">الإجمالي: {formatDzd(selectedVariants.reduce((sum, variant) => sum + Math.max(0, Number(quantities[variant.id]) || 0), 0) * (Number(unitCost) || 0))}</span>
           </div>
-        </>}\n        <div className="flex gap-3 border-t border-white/10 pt-4"><button disabled={!productId} className={`${primaryClass} flex-1`}>تأكيد السلسلة</button><button type="button" onClick={() => setAdding(false)} className={secondaryClass}>إلغاء</button></div>\n      </form>\n    </Modal>}\n    <section className="mt-6 rounded-2xl border border-white/10 bg-card p-5">\n      <h2 className="mb-4 text-sm text-neutral-200">آخر 20 فاتورة شراء</h2>\n      {!history.length ? <p className="text-sm text-neutral-500">لا توجد فواتير بعد.</p> : <div className="overflow-x-auto"><table className="w-full text-right text-sm">\n        <thead className="text-neutral-500"><tr><th className="p-2">المورد</th><th className="p-2">وصف المنتج</th><th className="p-2">التاريخ</th><th className="p-2">الإجمالي</th></tr></thead>\n        <tbody>{history.map(row => <tr key={row.id} className="border-t border-white/5 text-neutral-300"><td className="p-2">{row.supplier_name}</td><td className="max-w-sm whitespace-pre-wrap p-2 text-xs text-neutral-400">{row.description || '—'}</td><td className="whitespace-nowrap p-2">{new Date(row.created_at).toLocaleString('ar-DZ')}</td><td className="whitespace-nowrap p-2 text-gold">{formatDzd(row.total_amount)}</td></tr>)}</tbody>
-      </table></div>}\n    </section>
+        </>}
+        <div className="flex gap-3 border-t border-white/10 pt-4"><button disabled={!productId} className={`${primaryClass} flex-1`}>تأكيد السلسلة</button><button type="button" onClick={() => setAdding(false)} className={secondaryClass}>إلغاء</button></div>
+      </form>
+    </Modal>}
+    <section className="mt-6 rounded-2xl border border-white/10 bg-card p-5">
+      <h2 className="mb-4 text-sm text-neutral-200">آخر 20 فاتورة شراء</h2>
+      {!history.length ? <p className="text-sm text-neutral-500">لا توجد فواتير بعد.</p> : <div className="overflow-x-auto"><table className="w-full text-right text-sm">
+        <thead className="text-neutral-500"><tr><th className="p-2">المورد</th><th className="p-2">وصف المنتج</th><th className="p-2">التاريخ</th><th className="p-2">الإجمالي</th></tr></thead>
+        <tbody>{history.map(row => <tr key={row.id} className="border-t border-white/5 text-neutral-300"><td className="p-2">{row.supplier_name}</td><td className="max-w-sm whitespace-pre-wrap p-2 text-xs text-neutral-400">{row.description || '—'}</td><td className="whitespace-nowrap p-2">{new Date(row.created_at).toLocaleString('ar-DZ')}</td><td className="whitespace-nowrap p-2 text-gold">{formatDzd(row.total_amount)}</td></tr>)}</tbody>
+      </table></div>}
+    </section>
   </>
 }

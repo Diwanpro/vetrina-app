@@ -376,7 +376,7 @@ export default function SettingsPage() {
                           تسجيل الخروج من هذا الجهاز
                         </button>
                       </article>
-                    ))}
+                    )})}
                   </div>
                 )}
               </section>
