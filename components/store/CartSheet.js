@@ -1,10 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Sheet from './Sheet'
 import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
 import { WILAYAS } from '@/lib/wilayas'
+import { normalizeDeliveryRates, deliveryFeeFor, wilayaCodeOf } from '@/lib/delivery'
 import {
   formatMoney, isValidPhone, cartTotal, orderMessage, whatsappLink,
 } from '@/lib/storefront'
@@ -20,14 +21,18 @@ export default function CartSheet({
   open, onClose, store, cart, priced, showPrices,
   onQty, onRemove, onConfirmed,
 }) {
-  // {"16": 400} from the store settings. A wilaya without a price is simply
-  // not served, so the dropdown only offers what the owner actually priced.
-  const rates = store?.delivery_rates || {}
+  // {"16": 400} from the store settings, normalised so that {"9": 400},
+  // {"016": "400"} or {"البليدة": 400} all resolve too. A wilaya without a
+  // price is simply not served.
+  const rateTable = useMemo(
+    () => normalizeDeliveryRates(store?.delivery_rates),
+    [store?.delivery_rates],
+  )
   const deliverable = useMemo(
     () => WILAYAS
-      .map(wilaya => ({ ...wilaya, fee: Number(rates[wilaya.code]) }))
-      .filter(wilaya => Number.isFinite(wilaya.fee) && wilaya.fee >= 0),
-    [rates],
+      .filter(wilaya => rateTable[wilaya.code] != null)
+      .map(wilaya => ({ ...wilaya, fee: rateTable[wilaya.code] })),
+    [rateTable],
   )
   const deliveryAvailable = deliverable.length > 0
 
@@ -38,6 +43,7 @@ export default function CartSheet({
   const [address, setAddress] = useState('')
   const [note, setNote] = useState('')
   const [fulfillment, setFulfillment] = useState(deliveryAvailable ? 'delivery' : 'pickup')
+  const [deliveryFee, setDeliveryFee] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [touched, setTouched] = useState(false)
@@ -45,14 +51,25 @@ export default function CartSheet({
   const total = useMemo(() => cartTotal(priced), [priced])
   const discount = useMemo(() => (priced || []).reduce((sum, item) => sum + Number(item.discount || 0), 0), [priced])
   const count = (cart || []).reduce((sum, item) => sum + item.qty, 0)
+  // Selecting a wilaya looks its price up in stores.delivery_rates straight
+  // away, so the fee and the total move together with the dropdown.
+  function chooseWilaya(value) {
+    setWilaya(value)
+    setDeliveryFee(fulfillment === 'delivery' ? (deliveryFeeFor(rateTable, value) ?? 0) : 0)
+  }
+
+  // The store (and therefore the rate table) can arrive a tick after the sheet
+  // mounts, so the fee is re-resolved whenever the table or the choice changes.
+  useEffect(() => {
+    const fee = fulfillment === 'delivery' && wilaya ? deliveryFeeFor(rateTable, wilaya) : null
+    setDeliveryFee(fee ?? 0)
+  }, [rateTable, wilaya, fulfillment])
+
   // The server recomputes this from stores.delivery_rates and rejects a
   // mismatch; the number here is only what the customer is shown.
-  const deliveryFee = useMemo(() => {
-    if (fulfillment !== 'delivery' || !wilaya) return 0
-    const match = deliverable.find(entry => entry.code === wilaya)
-    return match ? match.fee : 0
-  }, [fulfillment, wilaya, deliverable])
-  const grandTotal = total + deliveryFee
+  const appliedFee = fulfillment === 'delivery' ? deliveryFee : 0
+  const grandTotal = total + appliedFee
+  const wilayaName = WILAYAS.find(entry => entry.code === wilaya)?.name || ''
 
   const nameError = name.trim().length < 2 ? 'أدخل اسمك الكامل' : ''
   const phoneError = !phone ? 'رقم الهاتف مطلوب' : (!isValidPhone(phone) ? 'رقم غير صالح (مثال: 0555123456)' : '')
@@ -60,7 +77,7 @@ export default function CartSheet({
     ? ''
     : (!wilaya
         ? 'اختر الولاية'
-        : (!deliverable.some(entry => entry.code === wilaya) ? 'لا نوصّل إلى هذه الولاية' : ''))
+        : (deliveryFeeFor(rateTable, wilaya) == null ? 'لا نوصّل إلى هذه الولاية' : ''))
   const invalid = Boolean(nameError || phoneError || wilayaError)
 
   async function confirm() {
@@ -84,8 +101,8 @@ export default function CartSheet({
         p_items: cart.map(item => ({ variant_id: item.variantId, qty: item.qty })),
         p_source: 'web',
         // Both are re-checked against the rate table inside create_order.
-        p_wilaya: fulfillment === 'delivery' ? wilaya : null,
-        p_delivery_fee: deliveryFee,
+        p_wilaya: fulfillment === 'delivery' ? (wilayaCodeOf(wilaya) || wilaya) : null,
+        p_delivery_fee: appliedFee,
       })
       if (rpcError) throw rpcError
       if (!token) throw new Error('لم يعد الطلب رقماً صالحاً، حاول مرة أخرى')
@@ -105,7 +122,7 @@ export default function CartSheet({
       storeName: store.name,
       cart: priced,
       total,
-      deliveryFee,
+      deliveryFee: appliedFee,
       customer: { name, phone, fulfillment },
     })
     window.open(whatsappLink(store.phone, message), '_blank', 'noopener')
@@ -221,15 +238,15 @@ export default function CartSheet({
                 <div>
                   <CustomSelect
                     value={wilaya}
-                    onChange={setWilaya}
+                    onChange={chooseWilaya}
                     options={[
                       {
                         label: fulfillment === 'delivery' ? 'الولاية *' : 'الولاية (اختياري)',
                         value: '',
                       },
-                      ...(fulfillment === 'delivery' ? deliverable : WILAYAS).map(wilaya => ({
-                        label: `${wilaya.code} — ${wilaya.name}${wilaya.fee != null ? ` · ${formatMoney(wilaya.fee)}` : ''}`,
-                        value: wilaya.code,
+                      ...(fulfillment === 'delivery' ? deliverable : WILAYAS).map(entry => ({
+                        label: `${entry.code} — ${entry.name}${entry.fee != null ? ` · ${formatMoney(entry.fee)}` : ''}`,
+                        value: entry.code,
                       })),
                     ]}
                     className={fieldClass}
@@ -281,6 +298,12 @@ export default function CartSheet({
               </div>
             </div>
 
+            {!deliveryAvailable && (
+              <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-200">
+                التوصيل غير متاح حالياً لأن المحل لم يحدّد أسعاره بعد. يمكنك الاستلام من المحل أو التواصل معه.
+              </p>
+            )}
+
             <div className="flex items-center justify-between rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
               <div>
                 <p className="text-sm font-medium text-emerald-300">الدفع عند الاستلام</p>
@@ -295,30 +318,39 @@ export default function CartSheet({
       {cart.length > 0 && (
         <div className="shrink-0 space-y-3 border-t border-white/10 bg-[#101010]/90 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
           {error && <p role="alert" className="rounded-xl border border-red-500/30 bg-red-950/40 px-3 py-2 text-xs text-red-200">{error}</p>}
-          {showPrices && (
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between text-neutral-400">
-                <span>المجموع</span><span>{formatMoney(total + discount)}</span>
-              </div>
-              {discount > 0 && (
-                <div className="flex justify-between text-emerald-400">
-                  <span>خصم العروض</span><span>− {formatMoney(discount)}</span>
+          <div className="space-y-1 text-sm">
+            {showPrices && (
+              <>
+                <div className="flex justify-between text-neutral-400">
+                  <span>المجموع</span><span>{formatMoney(total + discount)}</span>
                 </div>
-              )}
-              {fulfillment === 'delivery' && (
-                deliveryFee > 0 ? (
-                  <div className="flex justify-between text-neutral-400">
-                    <span>رسوم التوصيل ({wilaya})</span><span>{formatMoney(deliveryFee)}</span>
+                {discount > 0 && (
+                  <div className="flex justify-between text-emerald-400">
+                    <span>خصم العروض</span><span>− {formatMoney(discount)}</span>
                   </div>
-                ) : (
-                  <p className="text-[11px] text-neutral-500">اختر الولاية لعرض رسوم التوصيل.</p>
-                )
-              )}
+                )}
+              </>
+            )}
+            {fulfillment === 'delivery' && (
+              deliveryAvailable ? (
+                <div className="flex justify-between text-neutral-400">
+                  <span>سعر التوصيل{wilayaName ? ` — ${wilayaName}` : ''}</span>
+                  <span className={deliveryFee > 0 ? 'font-medium text-neutral-100' : ''}>
+                    {deliveryFee > 0 ? formatMoney(deliveryFee) : 'اختر الولاية'}
+                  </span>
+                </div>
+              ) : (
+                <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
+                  لم يحدّد المحل أسعار التوصيل بعد. اختر «الاستلام من المحل» أو تواصل معه.
+                </p>
+              )
+            )}
+            {showPrices && (
               <div className="flex justify-between border-t border-white/10 pt-1 text-base font-bold text-gold">
                 <span>الإجمالي</span><span>{formatMoney(grandTotal)}</span>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <button
             type="button"
