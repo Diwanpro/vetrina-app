@@ -19,7 +19,7 @@ const fieldClass =
  */
 export default function CartSheet({
   open, onClose, store, cart, priced, showPrices,
-  onQty, onRemove, onConfirmed,
+  onQty, onRemove, onConfirmed, lookId = null,
 }) {
   // {"16": 400} from the store settings, normalised so that {"9": 400},
   // {"016": "400"} or {"البليدة": 400} all resolve too.
@@ -94,6 +94,14 @@ export default function CartSheet({
         },
         // The server prices the lines; only the variant and quantity are ours.
         p_items: cart.map(item => ({ variant_id: item.variantId, qty: item.qty })),
+        // Present only when the whole outfit is in the cart. create_order
+        // recomputes these unit prices from the look and ignores anything that
+        // does not match, so this is a convenience, not a claim of price.
+        p_look_id: lookId,
+        p_bundle_units: lookId
+          ? Object.fromEntries(priced.filter(item => item.fromLook)
+              .map(item => [item.productId, Number(item.unitPrice)]))
+          : null,
         p_source: 'web',
         // Both are re-checked against the rate table inside create_order.
         p_wilaya: fulfillment === 'delivery' ? (wilayaCodeOf(wilaya) || wilaya) : null,

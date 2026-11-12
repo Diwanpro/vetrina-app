@@ -1,10 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import LookSheet from './LookSheet'
+import useStoreLooks from './useStoreLooks'
 import { supabase } from '@/lib/supabase'
 import {
   normalizeProducts, categoriesOf, priceCart, cartCount, cartTotal, formatMoney,
-  offerBadge, isSoldOut, whatsappLink,
+  offerBadge, isSoldOut, whatsappLink, lookUnitPrices,
 } from '@/lib/storefront'
 import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
 import StoreHeader, { StoreHero } from './StoreHeader'
@@ -121,6 +123,12 @@ export default function Storefront({ slug }) {
   const [store, setStore] = useState(null)
   const [products, setProducts] = useState([])
   const [category, setCategory] = useState('all')
+  const [view, setView] = useState('catalog')   // 'catalog' | 'looks'
+  const [activeLook, setActiveLook] = useState(null)
+  // The look that priced the current cart, or null. Cleared as soon as the cart
+  // stops being exactly that outfit, so a half-removed look is not charged the
+  // outfit price.
+  const [cartLook, setCartLook] = useState(null)
   const [selected, setSelected] = useState(null)
   const [cart, setCart] = useState([])
   const [cartOpen, setCartOpen] = useState(false)
@@ -148,19 +156,29 @@ export default function Storefront({ slug }) {
 
   useEffect(() => { load() }, [load])
 
+  const { looks, loading: looksLoading } = useStoreLooks(slug)
+  // A look tab with nothing behind it is worse than no tab at all.
+  const showLooks = looks.length > 0
+
   const categories = useMemo(() => categoriesOf(products), [products])
   const visible = useMemo(
     () => (category === 'all' ? products : products.filter(product => product.category === category)),
     [products, category]
   )
   const offers = useMemo(() => products.flatMap(product => product.offers), [products])
-  const priced = useMemo(() => priceCart(cart, offers), [cart, offers])
+  // Pieces from a look are already priced by the outfit; running them through
+  // the offer engine again would apply a second discount on top.
+  const priced = useMemo(() => priceCart(cart.map(item =>
+    item.fromLook ? { ...item, manualPrice: true } : item), offers), [cart, offers])
   const count = cartCount(cart)
   const total = cartTotal(priced)
   const showPrices = store?.show_prices !== false
   const orderingEnabled = store?.accepts_orders !== false
 
-  function addToCart(product, variant, qty = 1) {
+  // `override` is the outfit's unit price for this piece. It is only a display
+  // figure here: create_order recomputes it from the look, so a tampered value
+  // in the browser cannot buy an outfit cheaply.
+  function addToCart(product, variant, qty = 1, override = null) {
     if (!variant || Number(variant.available) <= 0) return
     setCart(previous => {
       const existing = previous.find(item => item.variantId === variant.id)
@@ -175,10 +193,11 @@ export default function Storefront({ slug }) {
         productName: product.name,
         size: variant.size || '',
         color: variant.color || '',
-        unitPrice: Number(product.base_price || 0),
+        unitPrice: Number(override ?? product.base_price ?? 0),
         image: product.image_url || '',
         max: Number(variant.available || 0),
         qty: Math.min(qty, Number(variant.available || 0)),
+        fromLook: override != null,
       }]
     })
   }
@@ -191,7 +210,45 @@ export default function Storefront({ slug }) {
   }
 
   function removeLine(variantId) {
-    setCart(previous => previous.filter(item => item.variantId !== variantId))
+    setCart(previous => {
+      const next = previous.filter(item => item.variantId !== variantId)
+      if (cartLook && !next.some(item => item.fromLook)) setCartLook(null)
+      return next
+    })
+  }
+
+  // Buying the whole outfit: every piece carries the look's unit price and the
+  // look id travels with the order so create_order can verify it.
+  function addLook(look, lines) {
+    const units = lookUnitPrices(look)
+    setCart(previous => {
+      const next = [...previous]
+      for (const { product, variant } of lines) {
+        if (!variant || Number(variant.available) <= 0) continue
+        const unit = Number(units[product.product_id] || product.base_price || 0)
+        const existing = next.find(item => item.variantId === variant.id)
+        if (existing) {
+          existing.qty = Math.min(existing.qty + 1, existing.max)
+          existing.unitPrice = unit
+          existing.fromLook = true
+        } else {
+          next.push({
+            variantId: variant.id,
+            productId: product.product_id,
+            productName: product.name,
+            size: variant.size || '',
+            color: variant.color || '',
+            unitPrice: unit,
+            image: product.image_url || '',
+            max: Number(variant.available || 0),
+            qty: 1,
+            fromLook: true,
+          })
+        }
+      }
+      return next
+    })
+    setCartLook(look)
   }
 
   if (status === 'missing') return <MissingStore />
@@ -222,6 +279,61 @@ export default function Storefront({ slug }) {
       ) : (
         <main className="mx-auto max-w-lg">
           <StoreHero store={store} />
+
+          {showLooks && (
+            <nav aria-label="أقسام المتجر" className="mx-4 mt-4 grid grid-cols-2 gap-1 rounded-2xl border border-white/8 bg-white/[0.03] p-1">
+              <button type="button" onClick={() => setView('catalog')}
+                className={`min-h-11 rounded-xl text-sm transition ${
+                  view === 'catalog' ? 'bg-gold/15 font-medium text-gold shadow-[inset_0_0_0_1px_rgba(212,175,55,0.35)]' : 'text-neutral-400'
+                }`}>
+                المنتجات
+              </button>
+              <button type="button" onClick={() => setView('looks')}
+                className={`min-h-11 rounded-xl text-sm transition ${
+                  view === 'looks' ? 'bg-gold/15 font-medium text-gold shadow-[inset_0_0_0_1px_rgba(212,175,55,0.35)]' : 'text-neutral-400'
+                }`}>
+                إطلالات جديدة
+              </button>
+            </nav>
+          )}
+
+          {view === 'looks' ? (
+            looksLoading ? (
+              <div className="mt-4 space-y-4 px-4">
+                {Array.from({ length: 2 }).map((_, index) => <div key={index} className="sf-skeleton h-64 rounded-3xl" />)}
+              </div>
+            ) : (
+              <div className="mt-4 space-y-4 px-4 pb-4">
+                {looks.map(look => (
+                  <button key={look.id} type="button" onClick={() => setActiveLook(look)}
+                    className="sf-fade-up group block w-full overflow-hidden rounded-3xl border border-white/8 bg-[#161616] text-start">
+                    <div className="relative">
+                      {look.image_url
+                        ? <img src={look.image_url} alt="" className="aspect-[4/5] w-full object-cover transition duration-500 group-active:scale-[1.02]" />
+                        : <div className="flex aspect-[4/5] items-center justify-center bg-black/40 text-xs text-neutral-600">بدون صورة</div>}
+                      <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
+                      <div className="absolute inset-x-0 bottom-0 p-4">
+                        <p className="text-[10px] uppercase tracking-[0.22em] text-gold/80">إطلالة جديدة</p>
+                        <h3 className="mt-1 text-xl font-bold leading-snug text-white">{look.name}</h3>
+                        {showPrices && look.bundle_price != null && (
+                          <p className="mt-1 text-sm text-gold">{formatMoney(look.bundle_price)} · الإطلالة كاملة</p>
+                        )}
+                        <p className="mt-1 text-[11px] text-neutral-300">{(look.items || []).length} قطع · اضغط للتفاصيل</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+                {!looks.length && (
+                  <div className="mx-auto mt-16 max-w-xs text-center">
+                    <p className="text-4xl">✨</p>
+                    <p className="mt-3 text-neutral-300">لا توجد إطلالات حالياً</p>
+                    <p className="mt-1 text-sm text-neutral-500">عد قريباً، نجهّز إطلالات جديدة.</p>
+                  </div>
+                )}
+              </div>
+            )
+          ) : (
+          <>
 
           {categories.length > 0 && (
             <nav aria-label="الأقسام" className="sf-rail mt-4 flex gap-2 overflow-x-auto px-4 pb-1">
@@ -271,6 +383,9 @@ export default function Storefront({ slug }) {
             </div>
           )}
 
+          </>
+          )}
+
           <p className="px-4 pb-6 pt-2 text-center text-[11px] text-neutral-600">
             {store.name} · {store.accepts_orders === false ? 'الطلبات متوقفة مؤقتاً' : 'الدفع عند الاستلام'}
           </p>
@@ -294,6 +409,16 @@ export default function Storefront({ slug }) {
         </div>
       )}
 
+      <LookSheet
+        look={activeLook}
+        onAddLook={addLook}
+        open={Boolean(activeLook)}
+        onClose={() => setActiveLook(null)}
+        showPrices={showPrices}
+        orderingEnabled={orderingEnabled}
+        onAdd={addToCart}
+      />
+
       <ProductSheet
         product={selected}
         open={Boolean(selected)}
@@ -307,6 +432,7 @@ export default function Storefront({ slug }) {
       {store && (
         <CartSheet
           open={cartOpen}
+          lookId={cartLook?.id || null}
           onClose={() => setCartOpen(false)}
           store={store}
           cart={cart}

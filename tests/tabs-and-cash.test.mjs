@@ -64,7 +64,7 @@ test('the tab groups contain the screens the spec lists', async () => {
   const cases = [
     ['operations', ['سجل المبيعات', 'المستحقات', 'المصاريف']],
     ['customers-credit', ['الكريدي', 'الزبائن']],
-    ['stock', ['المنتجات', 'المخزون', 'نقل المخزون', 'الموردون', 'المشتريات', 'العروض']],
+    ['stock', ['المنتجات', 'المخزون', 'نقل المخزون', 'الموردون', 'المشتريات', 'العروض', 'الإطلالات']],
     ['management', ['المحاسبة', 'الموظفون']],
   ]
   for (const [path, labels] of cases) {

@@ -117,9 +117,11 @@ test('the split travels through the outbox to the server', async () => {
 
 test('the mixed payment modal offers credit, check and CCP, and requires a file', async () => {
   const modal = await read('../components/dashboard/MixedPaymentModal.js')
-  assert.match(modal, /<option value="credit">كريدي<\/option>/)
-  assert.match(modal, /<option value="check">شيك<\/option>/)
-  assert.match(modal, /<option value="ccp">بريدي<\/option>/)
+  // Native <option>s became CustomSelect options; the three methods and their
+  // labels are what the test is really about.
+  assert.match(modal, /\{ label: 'كريدي', value: 'credit' \}/)
+  assert.match(modal, /\{ label: 'شيك', value: 'check' \}/)
+  assert.match(modal, /\{ label: 'بريدي', value: 'ccp' \}/)
   assert.match(modal, /أرفق صورة الشيك \/ الوصل/)
   assert.match(modal, /اسم الزبون/)
   // The free-text name and phone were replaced by a customer autocomplete.

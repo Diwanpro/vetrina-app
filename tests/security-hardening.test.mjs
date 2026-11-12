@@ -13,10 +13,31 @@ const migration = await read('../supabase/migrations/202611120011_security_harde
 const sql = strip(migration)
 const files = await fs.readdir(new URL('../supabase/migrations/', import.meta.url))
 
-test('the hardening migration runs last, after the storefront ones', () => {
+test('the hardening migration runs after the storefront migrations it hardens', () => {
+  // The invariant is ordering, not "this is always the newest file": any later
+  // feature migration is expected to lock its own tables, which the next test
+  // checks. Pinning it to sorted.at(-1) broke the day a feature was added.
   assert.ok(files.includes('202611120011_security_hardening.sql'))
-  const sorted = [...files].sort()
-  assert.equal(sorted.at(-1), '202611120011_security_hardening.sql')
+  const hardening = files.filter(f => f.startsWith('2026111200') || f.startsWith('20261112')).sort()
+  const storefront = hardening.filter(f => /ecommerce_phase_a|product_video_link|stock_movements/.test(f))
+  assert.ok(storefront.every(f => f < '202611120011_security_hardening.sql'))
+})
+
+test('every migration after the hardening one locks the tables it creates', async () => {
+  // 011 sweeps the catalogue once; a table created later is not covered by it.
+  // This is the trap that makes "hardening runs last" tempting — the real fix
+  // is that later migrations are responsible for themselves.
+  const later = files.filter(f => f.endsWith('.sql') && f > '202611120011_security_hardening.sql')
+  for (const file of later) {
+    const text = await fs.readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8')
+    const created = [...text.matchAll(/CREATE TABLE IF NOT EXISTS public\.(\w+)/g)].map(m => m[1])
+    for (const table of created) {
+      assert.match(text, new RegExp(`ALTER TABLE public\\.${table}\\s+ENABLE ROW LEVEL SECURITY`),
+        `${file}: ${table} must enable RLS`)
+      assert.match(text, new RegExp(`REVOKE ALL ON TABLE public\\.${table}`),
+        `${file}: ${table} must revoke anon`)
+    }
+  }
 })
 
 test('the tenant helper is definer-only and cannot be called by anon', () => {

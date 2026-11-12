@@ -79,6 +79,7 @@ export default function SessionProvider({ children }) {
     '/dashboard', '/dashboard/settings', '/dashboard/transfers', '/dashboard/users', '/dashboard/accounting',
     '/dashboard/orders',
     '/dashboard/operations', '/dashboard/customers-credit', '/dashboard/stock', '/dashboard/management',
+    '/dashboard/looks',
   ].includes(path)
   return <SessionContext.Provider value={ctx}>
     {attendanceError && !ctx.locked && <p role="alert" className="border-b border-amber-700/30 bg-[#211b12] px-4 py-2 text-sm text-amber-200">{attendanceError}</p>}

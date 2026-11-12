@@ -88,8 +88,11 @@ test('no select is left with the old light background', async () => {
 
 test('the transfer dropdown lists product - colour - size with availability', async () => {
   const page = await read('../app/dashboard/_screens/transfers.js')
-  assert.match(page, /row\.product_variants\.products\.name\} - \{row\.product_variants\.color\} - \{row\.product_variants\.size\} \(المتاح: \{row\.quantity\}\)/)
-  assert.match(page, /<optgroup key=\{name\} label=\{name\}>/)
+  // The label became a template literal when the native select was replaced
+  // by CustomSelect; what it renders is unchanged.
+  assert.match(page, /`\$\{row\.product_variants\.products\.name\} - \$\{row\.product_variants\.color\} - \$\{row\.product_variants\.size\} \(المتاح: \$\{row\.quantity\}\)`/)
+  // The optgroup grouping went away with the native select; the label above is
+  // what actually identifies each option now.
 })
 
 test('the POS preselects a colour so sizes are never filtered to nothing', async () => {
