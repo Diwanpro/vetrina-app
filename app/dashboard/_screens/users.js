@@ -120,7 +120,8 @@ export default function UsersPage() {
                 </tbody>
               </table>
             </div>
-          </section>
+          )}
+        </section>
         <p className="text-xs text-neutral-500">العمولة نسبة من مبيعات الموظف المتزامنة. الحضور حسب توقيت الجزائر. صرف الرواتب والسلف متاح من شاشة المحاسبة.</p>
         {modal && (
           <Modal title="إضافة موظف" busy={busy} onClose={() => { setModal(false); setForm(previous => ({ ...previous, pin: '' })) }} wide>
