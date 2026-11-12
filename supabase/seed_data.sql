@@ -42,7 +42,7 @@ DECLARE
   v_supplier1 uuid; v_supplier2 uuid; v_supplier3 uuid;
   v_product uuid; v_variant uuid;
   v_customer record;
-  v_sale uuid; v_shift uuid; v_qty integer;
+  v_sale uuid; v_shift uuid; v_purchase uuid; v_qty integer;
   i integer; j integer;
   v_size text; v_color text; v_cost integer; v_price integer;
   v_name text; v_size_list text[];
@@ -201,16 +201,23 @@ BEGIN
   SELECT id INTO v_store3 FROM public.stores WHERE tenant_id = v_tenant AND name = tag || ' فرع 3 · قسنطينة';
 
   -- ============================================================= suppliers
-  -- Through the app's own RPC, so the same validation and columns apply.
-  IF NOT EXISTS (SELECT 1 FROM public.suppliers WHERE tenant_id = v_tenant AND name = tag || ' مورد الأقمشة') THEN
-    PERFORM public.engine_add_supplier(v_store1, v_tenant, tag || ' مورد الأقمشة', '0550100201', 'قمصان، فساتين، أقمشة');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.suppliers WHERE tenant_id = v_tenant AND name = tag || ' مورد الأحذية') THEN
-    PERFORM public.engine_add_supplier(v_store1, v_tenant, tag || ' مورد الأحذية', '0660100202', 'أحذية رياضية وكلاسيكية');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.suppliers WHERE tenant_id = v_tenant AND name = tag || ' مورد الإكسسوار') THEN
-    PERFORM public.engine_add_supplier(v_store1, v_tenant, tag || ' مورد الإكسسوار', '0770100203', 'أحزمة، محافظ، نظارات');
-  END IF;
+  -- Direct INSERT, not engine_add_supplier(). The RPC ends in engine_staff(),
+  -- which reads public.current_staff() — a lookup keyed on auth.uid(). This
+  -- script runs in the SQL Editor as `postgres` with no JWT, so current_staff()
+  -- returns nothing and the RPC raises before it writes:
+  --     ERROR: P0001: غير مصرح لك بإدارة الموردين والمشتريات في هذا المتجر
+  -- Seeding is an owner-level operation performed by whoever holds the database
+  -- password, so it writes the rows itself. The same applies to every other RPC
+  -- below: all of them are SECURITY DEFINER with a current_staff() guard.
+  INSERT INTO public.suppliers(store_id, tenant_id, name, phone, supplied_goods, total_debt)
+  SELECT v_store1, v_tenant, x.name, x.phone, x.goods, 0
+    FROM (VALUES
+      (tag || ' مورد الأقمشة',    '0550100201', 'قمصان، فساتين، أقمشة'),
+      (tag || ' مورد الأحذية',    '0660100202', 'أحذية رياضية وكلاسيكية'),
+      (tag || ' مورد الإكسسوار',  '0770100203', 'أحزمة، محافظ، نظارات')
+    ) AS x(name, phone, goods)
+   WHERE NOT EXISTS (
+     SELECT 1 FROM public.suppliers sp WHERE sp.tenant_id = v_tenant AND sp.name = x.name);
   SELECT id INTO v_supplier1 FROM public.suppliers WHERE tenant_id = v_tenant AND name = tag || ' مورد الأقمشة';
   SELECT id INTO v_supplier2 FROM public.suppliers WHERE tenant_id = v_tenant AND name = tag || ' مورد الأحذية';
   SELECT id INTO v_supplier3 FROM public.suppliers WHERE tenant_id = v_tenant AND name = tag || ' مورد الإكسسوار';
@@ -281,8 +288,13 @@ BEGIN
    WHERE NOT EXISTS (SELECT 1 FROM public.customers c WHERE c.tenant_id = v_tenant AND c.phone = x.phone);
 
   -- ================================================================ offers
-  -- Two products on "2 for 3000", the classic Algerian shop promotion. Written
-  -- through the app's own RPC so the same guards apply.
+  -- Two products on "2 for 3000", the classic Algerian shop promotion.
+  --
+  -- Direct INSERT for the same auth reason as the suppliers. Note `variant_id`
+  -- is NULL on purpose: since 202611120004 an offer belongs to a product, so a
+  -- bundle counts one medium and one large of the same shirt as two shirts.
+  -- discount_percentage is NULL for a bundle; that NULL is what engine_offers
+  -- reads to report the offer back as kind = 'bundle'.
   FOR i IN 1 .. 2 LOOP
     v_name := tag || ' ' || p_name[i];
     SELECT id INTO v_product FROM public.products WHERE tenant_id = v_tenant AND name = v_name;
@@ -290,8 +302,9 @@ BEGIN
       SELECT 1 FROM public.offers o
        WHERE o.tenant_id = v_tenant AND o.product_id = v_product AND o.variant_id IS NULL
     ) THEN
-      PERFORM public.engine_save_offer(v_tenant, v_product, NULL, 'bundle',
-                                        NULL, 2, 3000, tag || ' عرض 2 بـ 3000');
+      INSERT INTO public.offers(tenant_id, product_id, variant_id, discount_percentage,
+                                required_qty, offer_price, name, is_active)
+      VALUES (v_tenant, v_product, NULL, NULL, 2, 3000, tag || ' عرض 2 بـ 3000', true);
     END IF;
   END LOOP;
 
@@ -417,9 +430,11 @@ BEGIN
      SELECT 1 FROM public.expenses e WHERE e.request_id = (x.key)::uuid);
 
   -- ============================================================== purchases
-  -- One received purchase from the shoe supplier, through the app's RPC, so
-  -- stock and cost_price_avg move exactly as they would from the purchases
-  -- screen. request_id makes a re-run return the existing row.
+  -- One received purchase from the shoe supplier. Written with direct INSERTs
+  -- for the same reason as the suppliers: engine_receive_purchase() also calls
+  -- engine_staff(). The RPC's own logic is reproduced here — the purchase row,
+  -- its line, the stock increment and the weighted cost average — because
+  -- skipping any of them would leave stock and cost disagreeing.
   IF NOT EXISTS (SELECT 1 FROM public.purchases
                   WHERE request_id = '00000000-0000-4000-8000-000000000f01'::uuid) THEN
     SELECT v.id INTO v_variant
@@ -427,11 +442,42 @@ BEGIN
      WHERE p.tenant_id = v_tenant AND p.name = tag || ' ' || p_name[6]
      ORDER BY v.size LIMIT 1;
     IF v_variant IS NOT NULL THEN
-      PERFORM public.engine_receive_purchase(
-        v_store1, v_tenant, v_supplier2,
-        jsonb_build_array(jsonb_build_object('variant_id', v_variant, 'quantity', 10,
-                                             'unit_cost', p_cost[6])),
-        '00000000-0000-4000-8000-000000000f01'::uuid);
+      INSERT INTO public.purchases(store_id, tenant_id, supplier_id, supplier_name,
+                                   total_amount, status, created_by, request_id,
+                                   request_items)
+      VALUES (v_store1, v_tenant, v_supplier2, tag || ' مورد الأحذية',
+              10 * p_cost[6], 'received', v_owner,
+              '00000000-0000-4000-8000-000000000f01'::uuid,
+              jsonb_build_array(jsonb_build_object('variant_id', v_variant,
+                                                   'quantity', 10, 'unit_cost', p_cost[6])))
+      RETURNING id INTO v_purchase;
+
+      INSERT INTO public.purchase_items(purchase_id, variant_id, quantity, unit_cost,
+                                        tenant_id, store_id)
+      VALUES (v_purchase, v_variant, 10, p_cost[6], v_tenant, v_store1);
+
+      -- Same weighted average the RPC applies: existing stock at its old cost
+      -- plus the new units at the price just paid.
+      UPDATE public.product_variants v
+         SET cost_price_avg = (
+               coalesce((SELECT sum(i.quantity) FROM public.inventory i
+                          JOIN public.stores s ON s.id = i.store_id
+                         WHERE i.variant_id = v.id AND s.tenant_id = v_tenant), 0)
+                 * coalesce(v.cost_price_avg, 0) + 10 * p_cost[6]
+             ) / (
+               coalesce((SELECT sum(i.quantity) FROM public.inventory i
+                          JOIN public.stores s ON s.id = i.store_id
+                         WHERE i.variant_id = v.id AND s.tenant_id = v_tenant), 0) + 10
+             )
+       WHERE v.id = v_variant;
+
+      INSERT INTO public.inventory(store_id, variant_id, quantity)
+      VALUES (v_store1, v_variant, 10)
+      ON CONFLICT (store_id, variant_id)
+      DO UPDATE SET quantity = inventory.quantity + excluded.quantity, updated_at = now();
+
+      UPDATE public.suppliers SET total_debt = coalesce(total_debt, 0) + 10 * p_cost[6]
+       WHERE id = v_supplier2;
     END IF;
   END IF;
 
