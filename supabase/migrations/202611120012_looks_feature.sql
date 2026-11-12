@@ -632,6 +632,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 -- The variable is `saved`, not `look_id`: a PL/pgSQL variable that shares a
   -- name with a column makes `WHERE look_id = look_id` ambiguous at runtime.
 DECLARE u public.users; saved uuid; clean text; el jsonb;
+        bad_product uuid; bad_variant uuid;
 BEGIN
   SELECT * INTO u FROM public.current_staff();
   IF u.id IS NULL OR u.tenant_id IS NULL THEN RAISE EXCEPTION 'غير مصرح'; END IF;
@@ -788,7 +789,7 @@ BEGIN
                     SELECT 1 FROM public.product_variants v
                       JOIN public.inventory i ON i.variant_id = v.id AND i.store_id = s.id
                      WHERE v.product_id = p.id
-                       AND (i.quantity - coalesce(i.reserved_qty, 0)) > 0)
+                       AND (i.quantity - coalesce(i.reserved_qty, 0)) > 0))
              ) ORDER BY l.created_at DESC), '[]'::jsonb)
       FROM public.looks l
      WHERE l.tenant_id = s.tenant_id
