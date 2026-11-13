@@ -619,9 +619,19 @@ BEGIN
 
     -- The daily close that pairs with the shift. Same numbers by construction,
     -- so the two screens cannot tell different stories.
+    --
+    -- `difference` is deliberately absent here: on this table it is
+    -- GENERATED ALWAYS AS (actual_cash - expected_cash) STORED, and Postgres
+    -- rejects any value supplied for it with 428C9. Writing the expression out
+    -- would fail exactly as it did the first time — the column computes itself.
+    --
+    -- Note this is NOT true of shifts.difference two blocks up, which is a
+    -- plain writable column (it was converted from a generated expression, see
+    -- lib/cash.js) and which the POS inserts on every shift open. The two
+    -- tables look alike and are not.
     INSERT INTO public.day_closes(store_id, date, expected_cash, actual_cash,
-                                  difference, notes, closed_at)
-    VALUES (v_store1, v_yesterday, v_expected, v_actual, v_actual - v_expected,
+                                  notes, closed_at)
+    VALUES (v_store1, v_yesterday, v_expected, v_actual,
             tag || ' تقفيلة الأمس — نقص 500 دج غير مبرر',
             v_yesterday + interval '18 hours');
   END IF;

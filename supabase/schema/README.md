@@ -36,6 +36,23 @@ seed respects them literally — notably
 `payment_method IN ('cod')` and
 `fulfillment_type IN ('delivery','pickup')`.
 
+## Generated columns
+
+`day_closes.difference` is `GENERATED ALWAYS AS (actual_cash - expected_cash)
+STORED` in the live database. The paste format has no column for generation, so
+it is recorded in the `column_default` slot with its expression; the checker
+recognises any value beginning `GENERATED` there and fails the insert with
+`428C9`. Naming the column at all is the mistake — supplying a value, an
+expression or even an omission of the arithmetic does not help, because the
+database computes it.
+
+**`shifts.difference` is the opposite** and must not be removed. It was
+converted *from* a generated expression to a plain writable column (see
+`lib/cash.js`), and the POS inserts it on every shift open through
+`cashReconciliation()`. The two columns share a name and behave differently;
+`tests/seed-schema.test.mjs` pins both directions so an over-correction fails
+too.
+
 `shifts` was reconstructed from the migrations that alter it
 (`202611100001`, `202611100005`, `202611100022`, `202611100025`) plus the reads
 and writes in `components/dashboard/ShiftManager.js`. Its defaults are recorded
