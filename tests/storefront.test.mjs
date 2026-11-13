@@ -13,6 +13,7 @@ const {
   formatMoney, normalizePhone, isValidPhone, whatsappNumber, whatsappLink,
   normalizeProducts, categoriesOf, priceCart, cartCount, cartTotal,
   timelineFor, statusLabel, orderMessage, offerBadge, stockHint, isSoldOut,
+  productImage,
 } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 
 const product = (overrides = {}) => ({
@@ -185,4 +186,43 @@ test('stock is only spelled out when it is about to run out', () => {
   assert.equal(isSoldOut({ variants: [{ available: 0 }, { available: 2 }] }), false)
   assert.equal(isSoldOut({ variants: [{ available: 0 }] }), true)
   assert.equal(isSoldOut({}), true)
+})
+
+
+// --------------------------------------------------------------- productImage
+// One helper decides which photo represents a product, so the POS and the
+// public store cannot disagree again. It must prefer the array, skip unusable
+// entries, and fall back to the single-url column.
+test('productImage prefers the images array and falls back to image_url', () => {
+  assert.equal(productImage({ images: ['a.jpg'], image_url: 'b.jpg' }), 'a.jpg')
+  assert.equal(productImage({ images: [], image_url: 'b.jpg' }), 'b.jpg')
+  assert.equal(productImage({ image_url: 'b.jpg' }), 'b.jpg')
+})
+
+test('productImage skips null, blank and non-string array entries', () => {
+  assert.equal(productImage({ images: [null, 'c.jpg'] }), 'c.jpg')
+  assert.equal(productImage({ images: ['   '], image_url: 'd.jpg' }), 'd.jpg')
+  assert.equal(productImage({ images: [null] }), '')
+  // The exact shape of the old POS bug: images[0] was null and image_url had
+  // the real photo, but the first element was returned regardless.
+  assert.equal(productImage({ images: [null], image_url: 'real.jpg' }), 'real.jpg')
+})
+
+test('productImage returns an empty string instead of throwing on junk', () => {
+  assert.equal(productImage(null), '')
+  assert.equal(productImage(undefined), '')
+  assert.equal(productImage({}), '')
+  assert.equal(productImage({ images: 'not-an-array', image_url: '' }), '')
+  assert.equal(productImage({ image_url: '  e.jpg  ' }), 'e.jpg')
+})
+
+test('normalizeProducts resolves image_url from whichever column holds a photo', () => {
+  const [fromArray, fromUrl, fromNeither] = normalizeProducts([
+    { id: 'a', images: ['x.jpg'], image_url: '' },
+    { id: 'b', images: [], image_url: 'y.jpg' },
+    { id: 'c', images: [], image_url: '' },
+  ])
+  assert.equal(fromArray.image_url, 'x.jpg')
+  assert.equal(fromUrl.image_url, 'y.jpg')
+  assert.equal(fromNeither.image_url, '')
 })

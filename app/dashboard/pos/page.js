@@ -12,6 +12,7 @@ import MixedPaymentModal from '@/components/dashboard/MixedPaymentModal'
 import { fetchAllRows } from '@/lib/cash'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import { supabase } from '@/lib/supabase'
+import { productImage } from '@/lib/storefront'
 import { formatDzd, getAppContext } from '@/lib/app-context'
 import { MAIN_CATEGORIES } from '@/lib/categories'
 import CustomSelect from '@/components/ui/CustomSelect'
@@ -22,10 +23,12 @@ const PAYMENTS = [
   { value: 'ccp', label: 'CCP' },
 ]
 
-function firstImage(product) {
-  if (Array.isArray(product.images) && product.images.length) return product.images[0]
-  return product.image_url || ''
-}
+// A product's picture comes from one shared helper so the POS and the public
+// store can no longer disagree. The local copy this replaced returned
+// images[0] even when that entry was null or blank, and never fell back to
+// image_url in that case — a product with a broken first photo showed a broken
+// image here.
+const firstImage = productImage
 
 export default function PosPage() {
   const [products, setProducts] = useState([])

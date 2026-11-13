@@ -44,6 +44,16 @@ DECLARE
   v_customer record;
   v_sale uuid; v_shift uuid; v_purchase uuid; v_qty integer;
   v_supplier_store_id boolean;
+  -- Blocks added later in this file. Kept separate from the variables above so
+  -- an existing name can never be silently reused for a different purpose.
+  v_order uuid; v_credit record; v_customer_id uuid;
+  v_yesterday date; v_opening integer; v_expected integer; v_actual integer;
+  v_spent integer;
+  -- Order/alert blocks use their own columns rather than borrowing v_name,
+  -- v_size and v_color, which already mean "product name / variant size /
+  -- variant colour" in the product loop above.
+  v_order_number text; v_order_status text; v_phone text;
+  v_prod_name text; v_prod_size text; v_prod_color text;
   i integer; j integer;
   v_size text; v_color text; v_cost integer; v_price integer;
   v_name text; v_size_list text[];
@@ -526,6 +536,279 @@ BEGIN
        WHERE id = v_supplier2;
     END IF;
   END IF;
+
+
+  -- ==================================================== closed shift (demo)
+  -- One shift that already happened, yesterday, in the main branch. Until now
+  -- the seed created no shift at all, so the closed-shift screen and the daily
+  -- cash close had nothing to show.
+  --
+  -- The figures are derived from rows that exist rather than typed in, the same
+  -- way engine_close_shift derives them:
+  --   closing = opening float + cash taken - cash paid out
+  -- so `difference` is a real reconciliation rather than decoration. Neither
+  -- table has an opening-float column, so the float is recorded in `notes`,
+  -- which is where a shopkeeper writes it on paper too.
+  --
+  -- A cash sale is inserted first, inside the shift's window, so the demo shift
+  -- has something to reconcile. It is dated yesterday and marked
+  -- `seed:shift:1`: no *open* shift can include it, so a real drawer is
+  -- unaffected.
+  -- LIKE, not =: the note written below appends the opening float, so an
+  -- equality check would never match its own row and a re-run would insert a
+  -- second shift and then die on the day_closes unique key.
+  IF NOT EXISTS (SELECT 1 FROM public.shifts
+                  WHERE store_id = v_store1 AND notes LIKE tag || ' وردية الأمس%') THEN
+    v_yesterday := (date_trunc('day', now()) - interval '1 day')::date;
+    v_opening   := 20000;   -- the opening float
+
+    IF NOT EXISTS (SELECT 1 FROM public.sales WHERE local_id = 'seed:shift:1') THEN
+      SELECT p.id, pv.id INTO v_product, v_variant
+        FROM public.products p
+        JOIN public.product_variants pv ON pv.product_id = p.id
+       WHERE p.tenant_id = v_tenant AND p.name = tag || ' ' || p_name[3]
+       ORDER BY pv.size LIMIT 1;
+      IF v_variant IS NOT NULL THEN
+        v_price := (SELECT base_price FROM public.products WHERE id = v_product);
+        v_qty   := 2;
+        v_total := v_price * v_qty;
+        INSERT INTO public.sales(store_id, user_id, total_amount, cash_amount, payment_method,
+                                 status, local_id, synced_at, created_at)
+        VALUES (v_store1, v_owner, v_total, v_total, 'cash', 'completed', 'seed:shift:1',
+                v_yesterday + interval '11 hours', v_yesterday + interval '11 hours')
+        RETURNING id INTO v_sale;
+
+        INSERT INTO public.sale_items(sale_id, variant_id, quantity, original_price,
+                                      final_price, unit_price, subtotal, cost_at_sale)
+        SELECT v_sale, v_variant, v_qty, v_price, v_price, v_price, v_total,
+               coalesce(pv.cost_price_avg, 0)
+          FROM public.product_variants pv WHERE pv.id = v_variant;
+
+        UPDATE public.inventory
+           SET quantity = greatest(quantity - v_qty, 0), updated_at = now()
+         WHERE variant_id = v_variant AND store_id = v_store1;
+      END IF;
+    END IF;
+
+    -- Cash actually taken between those hours.
+    SELECT coalesce(sum(x.cash_amount), 0) INTO v_cash
+      FROM public.sales x
+     WHERE x.store_id = v_store1 AND x.status = 'completed'
+       AND x.created_at >= v_yesterday + interval '9 hours'
+       AND x.created_at <  v_yesterday + interval '18 hours';
+
+    -- Cash that left the drawer in the same window.
+    SELECT coalesce(sum(x.amount), 0) INTO v_spent
+      FROM public.expenses x
+     WHERE x.store_id = v_store1 AND x.deleted_at IS NULL
+       AND x.created_at >= v_yesterday + interval '9 hours'
+       AND x.created_at <  v_yesterday + interval '18 hours';
+
+    v_expected := v_opening + v_cash - v_spent;   -- what should be in the drawer
+    v_actual   := v_expected - 500;               -- what was counted: 500 short
+
+    INSERT INTO public.shifts(store_id, user_id, status, start_time, end_time,
+                              expected_cash, actual_cash, difference,
+                              total_cash_sales, notes, closed_at)
+    VALUES (v_store1, v_owner, 'closed',
+            v_yesterday + interval '9 hours', v_yesterday + interval '18 hours',
+            v_expected, v_actual, v_actual - v_expected,
+            v_cash, tag || ' وردية الأمس — الرصيد الافتتاحي ' || v_opening,
+            v_yesterday + interval '18 hours')
+    RETURNING id INTO v_shift;
+
+    -- The daily close that pairs with the shift. Same numbers by construction,
+    -- so the two screens cannot tell different stories.
+    INSERT INTO public.day_closes(store_id, date, expected_cash, actual_cash,
+                                  difference, notes, closed_at)
+    VALUES (v_store1, v_yesterday, v_expected, v_actual, v_actual - v_expected,
+            tag || ' تقفيلة الأمس — نقص 500 دج غير مبرر',
+            v_yesterday + interval '18 hours');
+  END IF;
+
+  -- ================================================== marketplace orders
+  -- Three orders in three different states, so the orders screen has one of
+  -- each: waiting, confirmed, delivered.
+  --
+  -- Two constraints are respected literally rather than worked around:
+  --   * payment_method has CHECK (payment_method IN ('cod')).
+  --   * fulfillment_type has CHECK (... IN ('delivery','pickup')).
+  -- `sale_id` stays NULL on the delivered order on purpose: attaching a sale
+  -- would move cash and stock that a real drawer reconciliation counts.
+  --
+  -- Each is picked from parallel flat arrays indexed by i. A nested literal
+  -- mixing text and integers makes Postgres infer the element type from the
+  -- first row and fail.
+  FOR i IN 1 .. 3 LOOP
+    v_order_number := (ARRAY['SEED-1001', 'SEED-1002', 'SEED-1003'])[i];
+    v_order_status := (ARRAY['new', 'confirmed', 'delivered'])[i];
+    v_phone        := (ARRAY['0550100001', '0660100002', '0770100003'])[i];
+
+    CONTINUE WHEN EXISTS (
+      SELECT 1 FROM public.orders o
+       WHERE o.tenant_id = v_tenant AND o.order_number = v_order_number);
+
+    SELECT c.id INTO v_customer_id
+      FROM public.customers c WHERE c.tenant_id = v_tenant AND c.phone = v_phone;
+    CONTINUE WHEN v_customer_id IS NULL;
+
+    -- A real product and variant, so each order links to the catalogue instead
+    -- of carrying a name invented for the demo.
+    SELECT p.id, pv.id, p.name, pv.size, pv.color, p.base_price
+      INTO v_product, v_variant, v_prod_name, v_prod_size, v_prod_color, v_price
+      FROM public.products p
+      JOIN public.product_variants pv ON pv.product_id = p.id
+     WHERE p.tenant_id = v_tenant AND p.name = tag || ' ' || p_name[4 + i]
+     ORDER BY pv.size LIMIT 1;
+    CONTINUE WHEN v_variant IS NULL;
+
+    INSERT INTO public.orders(tenant_id, store_id, customer_id, order_number, status,
+                              fulfillment_type, customer_name, customer_phone,
+                              wilaya_code, commune, subtotal, delivery_fee, total,
+                              payment_method, source, created_at, confirmed_at, delivered_at)
+    SELECT v_tenant, v_store1, v_customer_id, v_order_number, v_order_status,
+           CASE WHEN i = 3 THEN 'pickup' ELSE 'delivery' END,
+           c.name, c.phone,
+           (ARRAY['الجزائر', 'قسنطينة', 'وهران'])[i],
+           (ARRAY['الجزائر الوسطى', 'الخروب', 'بئر الجير'])[i],
+           v_price * i, 0, v_price * i, 'cod', 'web',
+           (date_trunc('day', now()) - (3 - i) * interval '1 day') + interval '10 hours',
+           CASE WHEN i >= 2 THEN (date_trunc('day', now()) - (3 - i) * interval '1 day') + interval '12 hours' END,
+           CASE WHEN i = 3 THEN (date_trunc('day', now()) - (3 - i) * interval '1 day') + interval '16 hours' END
+      FROM public.customers c WHERE c.id = v_customer_id
+    RETURNING id INTO v_order;
+
+    INSERT INTO public.order_items(order_id, product_id, variant_id, product_name,
+                                   size, color, qty, unit_price, line_total)
+    VALUES (v_order, v_product, v_variant, v_prod_name, v_prod_size, v_prod_color,
+            i, v_price, v_price * i);
+
+    -- The trail an order is expected to have: a 'new' order has one row, a
+    -- delivered one has the whole walk.
+    INSERT INTO public.order_status_history(order_id, from_status, to_status, changed_by, changed_at)
+    VALUES (v_order, NULL, 'new', v_owner,
+            (date_trunc('day', now()) - (3 - i) * interval '1 day') + interval '10 hours');
+    IF i >= 2 THEN
+      INSERT INTO public.order_status_history(order_id, from_status, to_status, changed_by, changed_at)
+      VALUES (v_order, 'new', 'confirmed', v_owner,
+              (date_trunc('day', now()) - (3 - i) * interval '1 day') + interval '12 hours');
+    END IF;
+    IF i = 3 THEN
+      INSERT INTO public.order_status_history(order_id, from_status, to_status, changed_by, changed_at)
+      VALUES (v_order, 'confirmed', 'delivered', v_owner,
+              (date_trunc('day', now()) - (3 - i) * interval '1 day') + interval '16 hours');
+    END IF;
+  END LOOP;
+
+  -- ============================================================== alerts
+  -- Four alerts, all describing something genuinely true in this data.
+  --
+  -- Note what this table does NOT have: no variant_id, product_id or
+  -- customer_id column — only store_id, type, message and is_read. A low-stock
+  -- alert can therefore only *describe* its variant in the text. The two stock
+  -- levels below are really lowered to 2 and 5, so the low-stock bell (which
+  -- reads inventory, not this table) agrees with what the alert text says.
+  --
+  -- `type` has no check constraint, so `low_stock` / `credit_overdue` are the
+  -- only spelling they will ever have, and the messages are prefixed with the
+  -- seed tag so a re-run recognises its own rows.
+  IF NOT EXISTS (SELECT 1 FROM public.alerts
+                  WHERE store_id = v_store1 AND message LIKE tag || '%') THEN
+    FOR i IN 1 .. 2 LOOP
+      SELECT pv.id, p.name, pv.size, pv.color
+        INTO v_variant, v_prod_name, v_prod_size, v_prod_color
+        FROM public.products p
+        JOIN public.product_variants pv ON pv.product_id = p.id
+       WHERE p.tenant_id = v_tenant AND p.name = tag || ' ' || p_name[7 + i]
+       ORDER BY pv.size LIMIT 1;
+      CONTINUE WHEN v_variant IS NULL;
+
+      v_qty := CASE i WHEN 1 THEN 2 ELSE 5 END;
+
+      INSERT INTO public.inventory(store_id, variant_id, quantity)
+      VALUES (v_store1, v_variant, v_qty)
+      ON CONFLICT (store_id, variant_id)
+      DO UPDATE SET quantity = excluded.quantity, updated_at = now();
+
+      INSERT INTO public.alerts(store_id, type, message, is_read, created_at)
+      VALUES (v_store1, 'low_stock',
+              tag || ' نقص مخزون: ' || v_prod_name || ' — ' || v_prod_size
+                    || ' / ' || v_prod_color || ' (المتبقي ' || v_qty || ')',
+              false, now() - (i * interval '6 hour'));
+    END LOOP;
+
+    -- Two credits that are past due. The due dates are set here rather than
+    -- left NULL, so "متأخر" is a fact and not an assertion: the credits screen
+    -- shows the date and a reader can check it.
+    i := 0;
+    FOR v_credit IN
+      SELECT cr.id, cr.remaining_amount, c.name
+        FROM public.credits cr
+        JOIN public.customers c ON c.id = cr.customer_id
+       WHERE cr.store_id = v_store1 AND cr.status = 'active'
+       ORDER BY cr.created_at
+       LIMIT 2
+    LOOP
+      i := i + 1;
+      UPDATE public.credits
+         SET due_date = (now() - (i * 5) * interval '1 day')::date
+       WHERE id = v_credit.id;
+
+      INSERT INTO public.alerts(store_id, type, message, is_read, created_at)
+      VALUES (v_store1, 'credit_overdue',
+              tag || ' دين متأخر: ' || v_credit.name || ' — المتبقي '
+                    || v_credit.remaining_amount || ' دج، الاستحقاق '
+                    || to_char((now() - (i * 5) * interval '1 day')::date, 'YYYY-MM-DD'),
+              false, now() - (i * interval '2 hour'));
+    END LOOP;
+  END IF;
+
+  -- ============================================================ audit log
+  -- Five entries of the kind an owner actually audits. The entity ids are
+  -- looked up rather than invented, so each entry points at a row that exists;
+  -- an audit trail whose subject is missing is worse than none.
+  --
+  -- audit_log has no tenant_id and no request id, so the re-run check keys on
+  -- action + device_info. `device_info` is free text and is exactly what that
+  -- field is for; the seed tag there marks these rows as ours.
+  INSERT INTO public.audit_log(user_id, action, entity_type, entity_id, details,
+                               device_info, store_id, created_at)
+  SELECT v_owner, x.action, x.entity_type,
+         (CASE x.entity_type
+            WHEN 'sale'      THEN (SELECT id FROM public.sales WHERE local_id = 'seed:sale:1')
+            WHEN 'expense'   THEN (SELECT id FROM public.expenses
+                                    WHERE request_id = '00000000-0000-4000-8000-000000000e02'::uuid)
+            WHEN 'credit'    THEN (SELECT id FROM public.credits
+                                    WHERE store_id = v_store1 AND status = 'active'
+                                    ORDER BY created_at DESC LIMIT 1)
+            WHEN 'product'   THEN (SELECT id FROM public.products
+                                    WHERE tenant_id = v_tenant AND name = tag || ' ' || p_name[1])
+            -- an inventory correction names the store, because a stock level
+            -- belongs to a store and not to a variant in the abstract
+            ELSE v_store1
+          END),
+         x.details::jsonb, tag || ' demo', v_store1, now() - x.hours * interval '1 hour'
+    FROM (VALUES
+      -- A cancelled invoice, with the reason the customer gave.
+      ('cancelled_invoice', 'sale',
+       '{"reason":"العميل غيّر رأيه","amount":4500}', 30),
+      -- A price change: before and after are both recorded, which is the only
+      -- thing that makes the entry worth anything later.
+      ('price_change', 'product',
+       '{"field":"base_price","from":3200,"to":3500}', 26),
+      -- Stock corrected by hand after a count.
+      ('stock_adjustment', 'inventory',
+       '{"reason":"جرد","from":9,"to":2}', 20),
+      -- An expense approved.
+      ('expense_approved', 'expense',
+       '{"amount":35000,"category":"إيجار"}', 14),
+      -- An old debt written off.
+      ('credit_written_off', 'credit',
+       '{"amount":1500,"note":"دين قديم غير قابل للتحصيل"}', 8)
+    ) AS x(action, entity_type, details, hours)
+   WHERE NOT EXISTS (
+     SELECT 1 FROM public.audit_log a
+      WHERE a.action = x.action AND a.device_info = tag || ' demo');
 
   RAISE NOTICE 'seed_data: انتهى. الفروع: % / % / %', v_store1, v_store2, v_store3;
 END $seed$;

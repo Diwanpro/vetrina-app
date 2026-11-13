@@ -6,7 +6,7 @@ import useStoreLooks from './useStoreLooks'
 import { supabase } from '@/lib/supabase'
 import {
   normalizeProducts, categoriesOf, priceCart, cartCount, cartTotal, formatMoney,
-  offerBadge, isSoldOut, whatsappLink, lookUnitPrices,
+  offerBadge, isSoldOut, whatsappLink, lookUnitPrices, productImage,
 } from '@/lib/storefront'
 import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
 import StoreHeader, { StoreHero } from './StoreHeader'
@@ -29,8 +29,11 @@ function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) 
       style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
     >
       <div className="relative aspect-[3/4] overflow-hidden bg-[#0d0d0d]">
-        {product.image_url
-          ? <img src={product.image_url} alt={product.name} loading="lazy" className="h-full w-full object-cover transition duration-500 group-active:scale-105" />
+        {/* productImage(), not image_url: a product whose photos live only in
+            the images[] array used to render the placeholder here while the
+            POS showed it fine. */}
+        {productImage(product)
+          ? <img src={productImage(product)} alt={product.name} loading="lazy" className="h-full w-full object-cover transition duration-500 group-active:scale-105" />
           : <div className="flex h-full items-center justify-center text-3xl text-white/10">▦</div>}
         <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/70 to-transparent" />
         {/* The whole picture opens the product, but the video link sits above it
@@ -194,7 +197,7 @@ export default function Storefront({ slug }) {
         size: variant.size || '',
         color: variant.color || '',
         unitPrice: Number(override ?? product.base_price ?? 0),
-        image: product.image_url || '',
+        image: productImage(product),
         max: Number(variant.available || 0),
         qty: Math.min(qty, Number(variant.available || 0)),
         fromLook: override != null,
@@ -239,7 +242,7 @@ export default function Storefront({ slug }) {
             size: variant.size || '',
             color: variant.color || '',
             unitPrice: unit,
-            image: product.image_url || '',
+            image: productImage(product),
             max: Number(variant.available || 0),
             qty: 1,
             fromLook: true,

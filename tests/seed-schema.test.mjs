@@ -133,3 +133,65 @@ test('sales are seeded with a status the CHECK constraint accepts', () => {
 test('the seed uses no RPCs', () => {
   assert.equal([...seed.matchAll(/PERFORM\s+public\.engine_\w+/g)].length, 0)
 })
+
+// ------------------------------------------------------- the four demo blocks
+test('orders use only values the CHECK constraints accept', () => {
+  // payment_method IN ('cod') and fulfillment_type IN ('delivery','pickup').
+  // A card or credit order would be rejected by the database, so the seed must
+  // not offer one.
+  const block = withoutComments.slice(withoutComments.indexOf('INSERT INTO public.orders'))
+  const body = block.slice(0, block.indexOf("'cod'") + 5)
+  assert.ok(/'cod'/.test(body), 'orders.payment_method must be cod')
+  assert.ok(!/'card'|'credit'|'cash'/.test(body), 'payment_method has a CHECK allowing cod only')
+  assert.ok(/'pickup'/.test(block), 'fulfillment_type should use pickup for one order')
+  // order_number is UNIQUE per tenant, so the three must differ.
+  const numbers = [...block.matchAll(/SEED-10\d\d/g)].map(m => m[0])
+  assert.equal(new Set(numbers).size, numbers.length, 'order numbers must be unique')
+})
+
+test('the three demo orders cover the three requested statuses', () => {
+  const block = withoutComments.slice(withoutComments.indexOf('ARRAY[\'SEED-1001\''))
+  const body = block.slice(0, block.indexOf('END LOOP'))
+  for (const status of ['new', 'confirmed', 'delivered']) {
+    assert.ok(new RegExp(`'${status}'`).test(body), `expected a ${status} order`)
+  }
+})
+
+test('the shift and its day_closes row are written from the same numbers', () => {
+  // Both inserts read v_expected / v_actual, so they cannot drift apart.
+  const start = withoutComments.indexOf('INSERT INTO public.shifts')
+  const block = withoutComments.slice(start, withoutComments.indexOf('END IF;', start))
+  assert.ok(/INSERT INTO public\.shifts/.test(block))
+  assert.ok(/INSERT INTO public\.day_closes/.test(block), 'a day_closes row must pair with the shift')
+  assert.ok(/v_actual - v_expected/.test(block), 'difference must be derived, not typed in')
+  // The re-run guard must use LIKE: the note it writes appends the float.
+  assert.ok(/notes LIKE tag \|\| ' وردية الأمس%'/.test(seed),
+    'the shift guard must prefix-match the note it writes')
+})
+
+test('alerts describe rows that really exist and carry no invented FK columns', () => {
+  // alerts has store_id, type, message, is_read and created_at only. Writing a
+  // variant_id would be a 42703.
+  for (const list of insertColumns('alerts')) {
+    for (const column of list) {
+      assert.ok(['store_id', 'type', 'message', 'is_read', 'created_at'].includes(column),
+        `alerts.${column} is not a column of that table`)
+    }
+  }
+  // The two types requested, and both stock levels really lowered.
+  assert.ok(/low_stock/.test(seed) && /credit_overdue/.test(seed))
+  assert.ok(/SET due_date =/.test(seed), 'overdue credits must get a real due_date')
+})
+
+test('audit_log entries point at rows the seed actually created', () => {
+  const block = withoutComments.slice(withoutComments.indexOf('INSERT INTO public.audit_log'))
+  const body = block.slice(0, block.indexOf('WHERE NOT EXISTS'))
+  for (const action of ['cancelled_invoice', 'price_change', 'stock_adjustment',
+                        'expense_approved', 'credit_written_off']) {
+    assert.ok(body.includes(`'${action}'`), `expected an ${action} entry`)
+  }
+  // Every entity id comes from a lookup or a known store, never a literal uuid
+  // that might not exist.
+  assert.ok(!/[0-9a-f]{8}-[0-9a-f]{4}/.test(body.replace(/00000000-0000-4000-8000-000000000e02/g, '')),
+    'audit entity ids should be looked up, not hardcoded')
+})

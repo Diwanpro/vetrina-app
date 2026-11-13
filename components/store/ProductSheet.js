@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Sheet from './Sheet'
-import { formatMoney, offerBadge, stockHint, whatsappLink } from '@/lib/storefront'
+import { formatMoney, offerBadge, stockHint, whatsappLink, productImage } from '@/lib/storefront'
 import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
 
 function offerText(offer) {
@@ -72,8 +72,8 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
         <>
           <div className="relative mt-2 shrink-0">
             <div className="relative mx-4 aspect-[4/3] overflow-hidden rounded-2xl bg-[#0d0d0d]">
-              {product.image_url
-                ? <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
+              {productImage(product)
+                ? <img src={productImage(product)} alt={product.name} className="h-full w-full object-cover" />
                 : <div className="flex h-full items-center justify-center text-4xl text-white/10">🖼️</div>}
               <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
             </div>
