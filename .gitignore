@@ -168,6 +168,11 @@
 *.tar.gz
 *.tgz
 *.tar.bz2
+
+# The Vetrina presentation bundle is a deliberate download from the site, not a
+# build artefact: merchants are sent .../attia-demo.zip directly. Re-included
+# explicitly because the blanket *.zip above would otherwise drop it.
+!public/attia-demo.zip
 *.tbz2
 *.tar.xz
 *.txz
