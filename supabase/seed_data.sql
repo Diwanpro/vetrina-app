@@ -43,6 +43,7 @@ DECLARE
   v_product uuid; v_variant uuid;
   v_customer record;
   v_sale uuid; v_shift uuid; v_purchase uuid; v_qty integer;
+  v_supplier_store_id boolean;
   i integer; j integer;
   v_size text; v_color text; v_cost integer; v_price integer;
   v_name text; v_size_list text[];
@@ -209,15 +210,44 @@ BEGIN
   -- Seeding is an owner-level operation performed by whoever holds the database
   -- password, so it writes the rows itself. The same applies to every other RPC
   -- below: all of them are SECURITY DEFINER with a current_staff() guard.
-  INSERT INTO public.suppliers(store_id, tenant_id, name, phone, supplied_goods, total_debt)
-  SELECT v_store1, v_tenant, x.name, x.phone, x.goods, 0
-    FROM (VALUES
-      (tag || ' مورد الأقمشة',    '0550100201', 'قمصان، فساتين، أقمشة'),
-      (tag || ' مورد الأحذية',    '0660100202', 'أحذية رياضية وكلاسيكية'),
-      (tag || ' مورد الإكسسوار',  '0770100203', 'أحزمة، محافظ، نظارات')
-    ) AS x(name, phone, goods)
-   WHERE NOT EXISTS (
-     SELECT 1 FROM public.suppliers sp WHERE sp.tenant_id = v_tenant AND sp.name = x.name);
+  -- suppliers.store_id is ambiguous across sources, so it is not guessed.
+  -- Migration 002 adds it and the read policy filters on it; one schema
+  -- summary says the live table has no such column. Inserting a column that
+  -- is absent fails outright, so existence is checked first: with the column,
+  -- the row is scoped to the branch (matching engine_add_supplier); without
+  -- it, the row is inserted tenant-wide, which the owner policy still permits.
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'suppliers' AND column_name = 'store_id'
+  ) INTO v_supplier_store_id;
+
+  IF v_supplier_store_id THEN
+    EXECUTE $sql$
+      INSERT INTO public.suppliers(store_id, tenant_id, name, phone, supplied_goods, total_debt)
+      SELECT $1, $2, x.name, x.phone, x.goods, 0
+        FROM (VALUES
+          ($3, '0550100201', 'قمصان، فساتين، أقمشة'),
+          ($4, '0660100202', 'أحذية رياضية وكلاسيكية'),
+          ($5, '0770100203', 'أحزمة، محافظ، نظارات')
+        ) AS x(name, phone, goods)
+       WHERE NOT EXISTS (
+         SELECT 1 FROM public.suppliers sp WHERE sp.tenant_id = $2 AND sp.name = x.name)
+    $sql$ USING v_store1, v_tenant,
+      tag || ' مورد الأقمشة', tag || ' مورد الأحذية', tag || ' مورد الإكسسوار';
+  ELSE
+    EXECUTE $sql$
+      INSERT INTO public.suppliers(tenant_id, name, phone, supplied_goods, total_debt)
+      SELECT $1, x.name, x.phone, x.goods, 0
+        FROM (VALUES
+          ($2, '0550100201', 'قمصان، فساتين، أقمشة'),
+          ($3, '0660100202', 'أحذية رياضية وكلاسيكية'),
+          ($4, '0770100203', 'أحزمة، محافظ، نظارات')
+        ) AS x(name, phone, goods)
+       WHERE NOT EXISTS (
+         SELECT 1 FROM public.suppliers sp WHERE sp.tenant_id = $1 AND sp.name = x.name)
+    $sql$ USING v_tenant,
+      tag || ' مورد الأقمشة', tag || ' مورد الأحذية', tag || ' مورد الإكسسوار';
+  END IF;
   SELECT id INTO v_supplier1 FROM public.suppliers WHERE tenant_id = v_tenant AND name = tag || ' مورد الأقمشة';
   SELECT id INTO v_supplier2 FROM public.suppliers WHERE tenant_id = v_tenant AND name = tag || ' مورد الأحذية';
   SELECT id INTO v_supplier3 FROM public.suppliers WHERE tenant_id = v_tenant AND name = tag || ' مورد الإكسسوار';
@@ -231,11 +261,14 @@ BEGIN
 
     SELECT id INTO v_product FROM public.products WHERE tenant_id = v_tenant AND name = v_name;
     IF v_product IS NULL THEN
+      -- `price` is NOT NULL and defaults to 0. It is not read by the app (which
+      -- uses base_price), but leaving it at 0 would put a wrong number in a
+      -- column the schema treats as the product's price, so it is set properly.
       INSERT INTO public.products(tenant_id, name, description, category, subcategory,
-                                  base_price, type, images, image_url, is_active)
+                                  base_price, price, type, images, image_url, is_active)
       VALUES (v_tenant, v_name,
               'قطعة موسمية متوفرة بعدة مقاسات.',
-              p_cat[i], p_subcat[i], v_price, 'variable',
+              p_cat[i], p_subcat[i], v_price, v_price, 'variable',
               ARRAY['https://picsum.photos/seed/vetrina-' || i || '/800/1000'],
               'https://picsum.photos/seed/vetrina-' || i || '/800/1000',
               true)
@@ -400,9 +433,14 @@ BEGIN
   -- ==================================================== pending collections
   -- Cheques that have not cleared. They are paper, not cash: `pending` status
   -- and no shift_id means the drawer never sees them.
+  -- receipt_url is NOT NULL on this table (a 23502 proved it), so a placeholder
+  -- is supplied rather than NULL. It points at nothing real on purpose: these
+  -- are demo cheques, and a fake path in the receipts bucket would look like a
+  -- document that exists.
   INSERT INTO public.pending_collections(store_id, customer_name, amount, payment_method,
                                          receipt_url, status, created_at)
-  SELECT v_store1, x.customer_name, x.amount, x.method, NULL, 'pending', now() - interval '3 day'
+  SELECT v_store1, x.customer_name, x.amount, x.method,
+         'https://example.com/seed-receipt.jpg', 'pending', now() - interval '3 day'
     FROM (VALUES
       (tag || ' أمين بن عيسى', 5500, 'check'),
       (tag || ' سارة حمداوي',  4200, 'ccp'),
@@ -420,7 +458,10 @@ BEGIN
   -- yields the same id on every run and the re-run check stays idempotent.
   INSERT INTO public.expenses(store_id, amount, description, category, receipt_url,
                               created_by, status, request_id, created_at)
-  SELECT v_store1, x.amount, x.description, x.category, NULL, v_owner, 'approved',
+  -- The expense RPC accepts a NULL receipt, but that nullability is not
+  -- verified for this table, so a placeholder avoids repeating the 23502 above.
+  SELECT v_store1, x.amount, x.description, x.category,
+         'https://example.com/seed-receipt.jpg', v_owner, 'approved',
          (x.key)::uuid, now() - x.days * interval '1 day'
     FROM (VALUES
       -- Categories must match CATEGORIES in app/dashboard/_screens/expenses.js,
