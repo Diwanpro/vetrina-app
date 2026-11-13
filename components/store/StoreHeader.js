@@ -25,7 +25,7 @@ export default function StoreHeader({ store, cartCount = 0, onCart }) {
       </div>
 
       <header className="sticky top-0 z-30 border-b border-white/5 bg-[#121212]/80 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-lg items-center gap-3 px-4 py-3">
+        <div className="mx-auto flex w-full max-w-7xl items-center gap-3 px-3 py-3 sm:px-6">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-gold/30 bg-gradient-to-br from-[#232014] to-[#141414] text-sm font-bold text-gold shadow-[0_0_24px_rgba(212,175,55,0.15)]">
             {store.logo_url
               // The owner uploads this; a broken link must not take the page down.
@@ -91,14 +91,14 @@ export default function StoreHeader({ store, cartCount = 0, onCart }) {
 
 export function StoreHero({ store }) {
   return (
-    <section className="sf-fade-up px-4 pb-2 pt-5">
+    <section className="sf-fade-up pb-2 pt-5">
       <div className="relative overflow-hidden rounded-3xl border border-gold/20 bg-gradient-to-br from-[#1d1a12] via-[#161616] to-[#121212] p-5">
         <div aria-hidden="true" className="absolute -end-10 -top-10 h-32 w-32 rounded-full bg-gold/10 blur-2xl" />
         <p className="text-[11px] uppercase tracking-[0.2em] text-gold/70">اختيار أنيق</p>
         <h2 className="mt-2 text-2xl font-bold leading-snug text-neutral-50">
           تسوّق من {store.name}
         </h2>
-        <p className="mt-2 max-w-[34ch] text-sm leading-relaxed text-neutral-400">
+        <p className="mt-2 max-w-[60ch] text-sm leading-relaxed text-neutral-400">
           {store.accepts_orders === false
             ? 'المتجر يعرض منتجاته حالياً، والطلبات ستُستأنف قريباً.'
             : 'اطلب من هاتفك، والدفع عند الاستلام. نجمع لك الطلب ونؤكده عبر الهاتف.'}

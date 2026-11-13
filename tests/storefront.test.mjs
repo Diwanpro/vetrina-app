@@ -300,3 +300,28 @@ test('the storefront renders tabs and reads images through productImage()', asyn
   assert.match(image, /onError=/)
   assert.match(image, /console\.warn\(/)
 })
+
+test('the public store uses the whole screen instead of a phone-width column', async () => {
+  const ui = await fs.readFile(new URL('../components/store/Storefront.js', import.meta.url), 'utf8')
+  const header = await fs.readFile(new URL('../components/store/StoreHeader.js', import.meta.url), 'utf8')
+
+  // The container was capped at max-w-lg on every breakpoint, which is what made
+  // a desktop look like a stretched phone. It must now grow and cap at 7xl.
+  assert.doesNotMatch(ui, /<main className="mx-auto max-w-(md|lg|xl)/, 'no hardcoded phone-width container left')
+  assert.match(ui, /<main className="mx-auto w-full max-w-7xl px-3 sm:px-6">/)
+  assert.match(ui, /<main className="mx-auto w-full max-w-7xl px-3 pt-6 sm:px-6">/)
+  assert.match(header, /mx-auto flex w-full max-w-7xl items-center gap-3 px-3 py-3 sm:px-6/)
+
+  // 2 columns on a phone, 3 on a tablet, 4 on a desktop.
+  assert.match(ui, /grid grid-cols-2 gap-3 py-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4/)
+  // The side padding moved to <main>, so sections must not pad again or the
+  // header, hero, rail and grid would each be inset by a different amount.
+  assert.doesNotMatch(ui, /<div className="grid grid-cols-2 gap-3 px-4 py-4">/)
+})
+
+test('the store tab rail spreads across a wide screen and stays a scroller on a phone', async () => {
+  const rail = await fs.readFile(new URL('../components/store/StoreTabRail.js', import.meta.url), 'utf8')
+  // Still one horizontal scroller on a phone (twelve categories must not push
+  // the grid below the fold) but centred chips once there is room for them.
+  assert.match(rail, /sf-rail flex gap-2 overflow-x-auto px-1 pb-1 lg:flex-wrap lg:justify-center/)
+})

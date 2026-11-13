@@ -9,7 +9,9 @@
  * only possible difference between them is the data behind it.
  *
  * Horizontally scrollable rather than wrapped: a shop with twelve categories
- * would otherwise push the grid below the fold on a phone.
+ * would otherwise push the grid below the fold on a phone. From `lg` up the
+ * chips are centred instead, because a rail stretched to a desktop's full
+ * width leaves the original row stranded against one edge.
  *
  * A tab with nothing behind it is not drawn. An empty عروض tab promises a
  * discount the shop is not running, and an empty إطلالات tab promises an
@@ -20,7 +22,7 @@
  */
 export default function StoreTabRail({ chips, active, onSelect, ariaLabel = 'أقسام المتجر' }) {
   return (
-    <nav aria-label={ariaLabel} className="sf-rail flex gap-2 overflow-x-auto px-1 pb-1">
+    <nav aria-label={ariaLabel} className="sf-rail flex gap-2 overflow-x-auto px-1 pb-1 lg:flex-wrap lg:justify-center">
       {chips.map(chip => {
         const isActive = active === chip.key
         return (

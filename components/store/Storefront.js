@@ -132,21 +132,26 @@ function MissingStore() {
  */
 function StoreTabs({ tab, onTab, categories, offerCount, lookCount, loadingLooks }) {
   const chips = buildStoreTabs({ categories, offerCount, lookCount, loadingLooks })
+  // The store's own container supplies the side padding, so the rail needs
+  // nothing extra here; on a wide screen it centres its chips itself.
   return <StoreTabRail chips={chips} active={tab} onSelect={onTab} ariaLabel="أقسام المتجر" />
 }
 
 /** Large, full-bleed outfit cards — the tab is a lookbook, not a grid. */
 function LooksGrid({ looks, loading, showPrices, onOpen }) {
   if (loading) {
+    // One full-bleed outfit per row on a phone (it is a lookbook, not a grid),
+    // two on a tablet and three on a desktop: the skeleton has to promise the
+    // same layout the real cards will fill.
     return (
-      <div className="mt-4 space-y-4 px-4 pb-4">
-        {Array.from({ length: 2 }).map((_, index) => <div key={index} className="sf-skeleton h-72 rounded-3xl" />)}
+      <div className="mt-4 grid grid-cols-1 gap-4 pb-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => <div key={index} className="sf-skeleton h-72 rounded-3xl" />)}
       </div>
     )
   }
   if (!looks.length) {
     return (
-      <div className="mx-auto mt-16 max-w-xs px-4 text-center">
+      <div className="mx-auto mt-16 max-w-sm text-center">
         <p className="text-4xl">✨</p>
         <p className="mt-3 text-neutral-300">لا توجد إطلالات حالياً</p>
         <p className="mt-1 text-sm text-neutral-500">عد قريباً، نجهّز إطلالات جديدة.</p>
@@ -154,7 +159,7 @@ function LooksGrid({ looks, loading, showPrices, onOpen }) {
     )
   }
   return (
-    <div className="mt-4 space-y-4 px-4 pb-4">
+    <div className="mt-4 grid grid-cols-1 gap-4 pb-4 sm:grid-cols-2 xl:grid-cols-3">
       {looks.map((look, index) => (
         <button
           key={look.id}
@@ -200,7 +205,7 @@ function LooksGrid({ looks, loading, showPrices, onOpen }) {
 function EmptyTab({ tab, hasOffers }) {
   if (tab === 'offers') {
     return (
-      <div className="mx-auto mt-16 max-w-xs px-4 text-center">
+      <div className="mx-auto mt-16 max-w-sm text-center">
         <p className="text-4xl">🏷️</p>
         <p className="mt-3 text-neutral-300">لا توجد عروض حالياً</p>
         <p className="mt-1 text-sm text-neutral-500">
@@ -210,7 +215,7 @@ function EmptyTab({ tab, hasOffers }) {
     )
   }
   return (
-    <div className="mx-auto mt-16 max-w-xs px-4 text-center">
+    <div className="mx-auto mt-16 max-w-sm text-center">
       <p className="text-4xl">🧺</p>
       <p className="mt-3 text-neutral-300">لا توجد منتجات في هذا القسم</p>
       <p className="mt-1 text-sm text-neutral-500">جرّب قسماً آخر، أو تصفّح «الكل».</p>
@@ -372,14 +377,14 @@ export default function Storefront({ slug }) {
       {store && <StoreHeader store={store} cartCount={count} onCart={() => setCartOpen(true)} />}
 
       {status === 'loading' || !store ? (
-        <main className="mx-auto max-w-lg px-4 pt-6">
+        <main className="mx-auto w-full max-w-7xl px-3 pt-6 sm:px-6">
           <div className="sf-skeleton h-32 rounded-3xl" />
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            {Array.from({ length: 6 }).map((_, index) => <div key={index} className="sf-skeleton aspect-[3/4] rounded-2xl" />)}
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, index) => <div key={index} className="sf-skeleton aspect-[3/4] rounded-2xl" />)}
           </div>
         </main>
       ) : (
-        <main className="mx-auto max-w-lg">
+        <main className="mx-auto w-full max-w-7xl px-3 sm:px-6">
           <StoreHero store={store} />
 
           {/* One rail for everything: the two merchandising tabs, then the
@@ -402,7 +407,9 @@ export default function Storefront({ slug }) {
           {!visible.length ? (
             <EmptyTab tab={tab} hasOffers={discounted.length > 0} />
           ) : (
-            <div className="grid grid-cols-2 gap-3 px-4 py-4">
+            /* 2 columns on a phone, 3 on a tablet, 4 on a desktop. The padding
+               now lives on <main>, so the grid only owns the gap. */
+            <div className="grid grid-cols-2 gap-3 py-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4">
               {visible.map((product, index) => (
                 <ProductCard
                   key={product.id}
@@ -420,19 +427,21 @@ export default function Storefront({ slug }) {
           </>
           )}
 
-          <p className="px-4 pb-6 pt-2 text-center text-[11px] text-neutral-600">
+          <p className="pb-6 pt-2 text-center text-[11px] text-neutral-600">
             {store.name} · {store.accepts_orders === false ? 'الطلبات متوقفة مؤقتاً' : 'الدفع عند الاستلام'}
           </p>
         </main>
       )}
 
-      {/* Floating cart: always reachable by thumb, never covers the last card. */}
+      {/* Floating cart: always reachable by thumb, never covers the last card.
+          On a wide screen it is capped at the content width and centred, so it
+          stops looking like a phone bar stretched across a monitor. */}
       {count > 0 && orderingEnabled && !cartOpen && !success && (
-        <div className="fixed inset-x-0 bottom-0 z-40 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="fixed inset-x-0 bottom-0 z-40 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
           <button
             type="button"
             onClick={() => setCartOpen(true)}
-            className="sf-fade-up mx-auto flex min-h-14 w-full max-w-lg items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-[#1a1a1a]/90 px-4 shadow-[0_16px_40px_rgba(0,0,0,0.55)] backdrop-blur-xl active:scale-[0.99]"
+            className="sf-fade-up mx-auto flex min-h-14 w-full max-w-lg items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-[#1a1a1a]/90 px-4 shadow-[0_16px_40px_rgba(0,0,0,0.55)] backdrop-blur-xl active:scale-[0.99] sm:max-w-2xl"
           >
             <span className="flex items-center gap-2 text-sm font-medium text-neutral-100">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold text-xs font-bold text-[#121212]">{count}</span>
