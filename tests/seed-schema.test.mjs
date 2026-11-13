@@ -307,3 +307,65 @@ test('no array element list ends with a trailing comma', () => {
     assert.doesNotMatch(body, /,\s*$/, 'ARRAY literal ends with a trailing comma')
   }
 })
+
+// ------------------------------------------------ seed_history.sql (optional)
+// The 7-day demo history is a separate, opt-in file. It writes into the same
+// tables as seed_data.sql, so the same two rules that have broken the seed
+// before apply to it: never name a GENERATED column, and never write into a
+// column the production dump says is absent.
+const history = await fs.readFile(new URL('../supabase/seed_history.sql', import.meta.url), 'utf8')
+  .catch(() => '')
+const historySql = history.split('\n').map(l => (l.trim().startsWith('--') ? '' : l)).join('\n')
+
+test('seed_history never writes a GENERATED column', () => {
+  assert.ok(history.length > 0, 'supabase/seed_history.sql should exist')
+  // day_closes.difference is GENERATED ALWAYS. Naming it at all — value or
+  // expression — is a 428C9. shifts.difference is the opposite and IS written,
+  // so this looks for the table, not the column name alone.
+  const dayCloseCols = [...historySql.matchAll(/INSERT INTO public\.day_closes\s*\(([^)]*)\)/gi)]
+    .map(m => m[1])
+  assert.ok(dayCloseCols.length > 0, 'expected a day_closes insert')
+  for (const list of dayCloseCols) {
+    assert.doesNotMatch(list, /\bdifference\b/i,
+      'day_closes.difference is generated; the database computes it')
+  }
+  // And the shift side is still written, or the reconciliation silently zeroes.
+  const shiftCols = [...historySql.matchAll(/INSERT INTO public\.shifts\s*\(([^)]*)\)/gi)].map(m => m[1])
+  assert.ok(shiftCols.length > 0, 'expected a shifts insert')
+  assert.ok(shiftCols.every(list => /\bdifference\b/i.test(list)),
+    'shifts.difference is a plain column and must be written')
+})
+
+test('seed_history only uses columns the recorded schema has', () => {
+  // supplier_payments is the one table the dump is known to miss (README.md),
+  // and its columns are exactly what engine_pay_supplier() writes.
+  const known = new Set(['supplier_payments'])
+  for (const m of historySql.matchAll(/INSERT INTO public\.(\w+)\s*\(([^)]*)\)/gi)) {
+    const [, table, cols] = m
+    if (known.has(table)) continue
+    const meta = schema.get(table)
+    assert.ok(meta, `${table} is not in the recorded schema`)
+    for (const col of cols.split(',').map(c => c.trim()).filter(Boolean)) {
+      assert.ok(meta.has(col), `${table}.${col} does not exist in the recorded schema`)
+      assert.ok(!meta.get(col).generated, `${table}.${col} is GENERATED ALWAYS`)
+    }
+  }
+})
+
+test('seed_history dates everything relative to now()', () => {
+  // A literal date would be stale by next month and silently stop landing in
+  // the dashboard's last-7-days window.
+  assert.doesNotMatch(historySql, /'(20\d\d-\d\d-\d\d)'/,
+    'no hardcoded ISO dates: use now() - interval')
+  assert.match(historySql, /now\(\)\s*-\s*\d+\s*\*\s*interval '1 day'|date_trunc\('day', now\(\)\)/)
+})
+
+test('seed_history writes no cash figure it did not derive', () => {
+  // A cash sale must carry cash_amount = its total, and a credit sale must
+  // carry 0 — otherwise the drawer reconciliation counts money nobody took.
+  assert.match(historySql, /CASE WHEN i % 3 = 0 THEN 0 ELSE v_total END/)
+  // The credit invoice today takes no cash.
+  assert.match(historySql, /CASE WHEN i = 3 THEN 0 ELSE v_total END/)
+  // And the shift's expected cash is computed, never typed in.
+  assert.match(historySql, /v_expected := 10000 \+ v_cash - v_spent/)
+})
