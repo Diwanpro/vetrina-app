@@ -245,3 +245,54 @@ test('no insert names a column recorded as GENERATED ALWAYS', () => {
     }
   }
 })
+
+// ------------------------------------------------------------ product photos
+test('the seed uses Unsplash CDN ids, not picsum or page slugs', () => {
+  // picsum.photos answers with a *different random photo per request*, so a
+  // product's picture could change between two page loads, and it is slow to
+  // reach from Algeria. Real Unsplash ids are stable and cacheable.
+  assert.doesNotMatch(withoutComments, /picsum\.photos/,
+    'no product image may point at picsum any more')
+
+  const urls = [...seed.matchAll(/'https:\/\/images\.unsplash\.com\/(photo-[^'?]+)\?/g)].map(m => m[1])
+  assert.equal(urls.length, 30, 'expected two photos for each of the 15 products')
+
+  for (const id of urls) {
+    // The CDN form is photo-<timestamp>-<hash>. A bare page slug such as
+    // photo-WWesmHEgXDs is what unsplash.com/photos/ uses and does not resolve
+    // on images.unsplash.com.
+    assert.match(id, /^photo-\d{9,13}-[0-9a-f]{6,12}$/, `${id} is not a CDN id`)
+  }
+  assert.equal(new Set(urls).size, urls.length, 'every photo must be distinct')
+})
+
+test('every product image URL carries the requested transform', () => {
+  const urls = [...seed.matchAll(/'https:\/\/images\.unsplash\.com\/photo-[^']+'/g)].map(m => m[0].slice(1, -1))
+  for (const url of urls) {
+    assert.match(url, /\?w=800&q=80$/, `${url} is missing ?w=800&q=80`)
+  }
+})
+
+test('image_url is the first entry of the images array, per product', () => {
+  // The seed inserts p_image[2i-1 : 2i] as images and p_image[2i-1] as
+  // image_url, so the two cannot disagree. Pin the slicing.
+  assert.match(seed, /p_image\[\(i - 1\) \* 2 \+ 1 : i \* 2\]/,
+    'images must be the two-element slice for product i')
+  assert.match(seed, /p_image\[\(i - 1\) \* 2 \+ 1\]/,
+    'image_url must be the first element of that slice')
+  // And the array must be flat: p_image[i] on a text[][] yields text, which
+  // Postgres rejects for a text[] column with 42804.
+  assert.match(seed, /p_image\s+constant text\[\]\s*:=/)
+  assert.doesNotMatch(seed, /p_image\s+constant text\[\]\[\]/)
+})
+
+test('no array element list ends with a trailing comma', () => {
+  // `ARRAY['a', 'b',]` is a syntax error at the closing bracket in Postgres,
+  // and it is easy to introduce by hand-editing the last element. The whole
+  // seed is one DO block, so this would fail only at run time.
+  const arrays = [...withoutComments.matchAll(/ARRAY\[([^\]]*)\]/gs)]
+  assert.ok(arrays.length > 0, 'expected ARRAY[...] literals in the seed')
+  for (const [, body] of arrays) {
+    assert.doesNotMatch(body, /,\s*$/, 'ARRAY literal ends with a trailing comma')
+  }
+})

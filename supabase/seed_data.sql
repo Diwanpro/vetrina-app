@@ -116,6 +116,52 @@ DECLARE
     'قبعات',
     'أوشحة'
   ];
+  -- Two real photos per product, flat: indices 2i-1 and 2i belong to p_name[i].
+  --
+  -- These are Unsplash CDN ids (the `photo-<timestamp>-<hash>` form), each
+  -- taken from a live images.unsplash.com URL on the search page for the
+  -- matching garment, so none is invented and none is a page slug. They
+  -- replace picsum.photos, which is a random-image redirector: it is slow to
+  -- reach from Algeria and, because it answers with a different photo per
+  -- request, a product's picture could change between two page loads.
+  --
+  -- A flat array, not text[][]: `p_image[i]` on a two-dimensional array
+  -- yields a one-dimensional array, which cannot go into a text[] column
+  -- (42804). Slicing a flat array gives exactly the text[] the column wants,
+  -- the same reason p_sizes above is stored as one delimited string.
+  p_image  constant text[]    := ARRAY[
+    'https://images.unsplash.com/photo-1565049186631-1321978d1eb5?w=800&q=80',   --  1 1/2 قميص كتان صيفي
+    'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=800&q=80',   --  1 2/2 قميص كتان صيفي
+    'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800&q=80',   --  2 1/2 تيشيرت قطن بيومي
+    'https://images.unsplash.com/photo-1778671394516-8270eac13c42?w=800&q=80',   --  2 2/2 تيشيرت قطن بيومي
+    'https://images.unsplash.com/photo-1542272604-787c3835535d?w=800&q=80',   --  3 1/2 جينز مستقيم كلاسيك
+    'https://images.unsplash.com/photo-1605518216938-7c31b7b14ad0?w=800&q=80',   --  3 2/2 جينز مستقيم كلاسيك
+    'https://images.unsplash.com/photo-1496747611176-843222e1e57c?w=800&q=80',   --  4 1/2 فستان مبطن للصيف
+    'https://images.unsplash.com/photo-1542295669297-4d352b042bca?w=800&q=80',   --  4 2/2 فستان مبطن للصيف
+    'https://images.unsplash.com/photo-1611312449408-fcece27cdbb7?w=800&q=80',   --  5 1/2 سترة خفيفة للمساء
+    'https://images.unsplash.com/photo-1675877879221-871aa9f7c314?w=800&q=80',   --  5 2/2 سترة خفيفة للمساء
+    'https://images.unsplash.com/photo-1560769629-975ec94e6a86?w=800&q=80',   --  6 1/2 حذاء رياضي أبيض
+    'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=800&q=80',   --  6 2/2 حذاء رياضي أبيض
+    'https://images.unsplash.com/photo-1668069226492-508742b03147?w=800&q=80',   --  7 1/2 حذاء جلد كلاسيك
+    'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80',   --  7 2/2 حذاء جلد كلاسيك
+    'https://images.unsplash.com/photo-1585120824848-8a5cd41493d2?w=800&q=80',   --  8 1/2 صندل جلد صيفي
+    'https://images.unsplash.com/photo-1628375385879-1af64230c2e1?w=800&q=80',   --  8 2/2 صندل جلد صيفي
+    'https://images.unsplash.com/photo-1650307535558-fa2b39ed16eb?w=800&q=80',   --  9 1/2 شبشب منزلي قطني
+    'https://images.unsplash.com/photo-1543420629-5350879dd4cd?w=800&q=80',   --  9 2/2 شبشب منزلي قطني
+    'https://images.unsplash.com/photo-1627123424574-724758594e93?w=800&q=80',   -- 10 1/2 حزام جلد طبيعي
+    'https://images.unsplash.com/photo-1711443982852-b3df5c563448?w=800&q=80',   -- 10 2/2 حزام جلد طبيعي
+    'https://images.unsplash.com/photo-1524805444758-089113d48a6d?w=800&q=80',   -- 11 1/2 محفظة جلد صغيرة
+    'https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=800&q=80',   -- 11 2/2 محفظة جلد صغيرة
+    'https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=800&q=80',   -- 12 1/2 نظارة شمسية مربعة
+    'https://images.unsplash.com/photo-1584036553516-bf83210aa16c?w=800&q=80',   -- 12 2/2 نظارة شمسية مربعة
+    'https://images.unsplash.com/photo-1594223274512-ad4803739b7c?w=800&q=80',   -- 13 1/2 حقيبة كتف متوسطة
+    'https://images.unsplash.com/photo-1605733513597-a8f8341084e6?w=800&q=80',   -- 13 2/2 حقيبة كتف متوسطة
+    'https://images.unsplash.com/photo-1588850561407-ed78c282e89b?w=800&q=80',   -- 14 1/2 طاقية صيفية قطنية
+    'https://images.unsplash.com/photo-1521369909029-2afed882baee?w=800&q=80',   -- 14 2/2 طاقية صيفية قطنية
+    'https://images.unsplash.com/photo-1517472292914-9570a594783b?w=800&q=80',   -- 15 1/2 وشاح حريري مطبوع
+    'https://images.unsplash.com/photo-1693649721927-1282fae625b7?w=800&q=80'   -- 15 2/2 وشاح حريري مطبوع (display of printed scarves)
+  ];
+
   p_price  constant integer[] := ARRAY[
     4200,
     1900,
@@ -279,8 +325,10 @@ BEGIN
       VALUES (v_tenant, v_name,
               'قطعة موسمية متوفرة بعدة مقاسات.',
               p_cat[i], p_subcat[i], v_price, v_price, 'variable',
-              ARRAY['https://picsum.photos/seed/vetrina-' || i || '/800/1000'],
-              'https://picsum.photos/seed/vetrina-' || i || '/800/1000',
+              -- the product's two photos, as a real text[] gallery
+              p_image[(i - 1) * 2 + 1 : i * 2],
+              -- image_url is the first entry; the slice above guarantees it exists
+              p_image[(i - 1) * 2 + 1],
               true)
       RETURNING id INTO v_product;
     END IF;
