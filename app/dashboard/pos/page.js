@@ -280,6 +280,15 @@ export default function PosPage() {
     return products.filter(product => (product.category || '').trim() === activeTab)
   }, [products, discounted, activeTab])
 
+  // A tab can disappear under the cashier: the last offer sells out, or the
+  // manager unpublishes the only look. Leaving activeTab pointing at a chip that
+  // no longer exists would strand the grid with nothing in it and no chip
+  // highlighted, so fall back to الكل.
+  useEffect(() => {
+    if (!tabs.length) return
+    if (!tabs.some(tab => tab.key === activeTab)) setActiveTab('all')
+  }, [tabs, activeTab])
+
   const available = useMemo(() => {
     if (!selected) return []
     return (selected.product_variants || [])
