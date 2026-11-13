@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { productImage } from '@/lib/storefront'
 
 /**
  * The shop's published looks.
@@ -21,7 +22,19 @@ export default function useStoreLooks(slug) {
     try {
       const { data, error } = await supabase.rpc('get_store_looks', { p_slug: slug })
       if (error) throw error
-      setLooks(Array.isArray(data) ? data.filter(look => look && (look.items || []).length > 0) : [])
+      // Normalise the pictures here as well as in SQL. The RPC now resolves
+      // image_url through first_image_url(), but this client must not depend on
+      // that migration having been applied: a look item whose product has only
+      // images[] would otherwise draw an empty square, which is exactly the bug
+      // that prompted this. productImage() is the same rule, so the two agree.
+      const list = (Array.isArray(data) ? data : [])
+        .filter(look => look && (look.items || []).length > 0)
+        .map(look => ({
+          ...look,
+          image_url: productImage(look),
+          items: (look.items || []).map(item => ({ ...item, image_url: productImage(item) })),
+        }))
+      setLooks(list)
     } catch (err) {
       // Expected on a database that has not had migration 012 applied yet.
       console.error('[storefront] looks unavailable', err)

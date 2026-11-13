@@ -13,7 +13,7 @@ const {
   formatMoney, normalizePhone, isValidPhone, whatsappNumber, whatsappLink,
   normalizeProducts, categoriesOf, priceCart, cartCount, cartTotal,
   timelineFor, statusLabel, orderMessage, offerBadge, stockHint, isSoldOut,
-  productImage,
+  productImage, hasActiveOffer, offersOf, productsForTab,
 } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 
 const product = (overrides = {}) => ({
@@ -225,4 +225,66 @@ test('normalizeProducts resolves image_url from whichever column holds a photo',
   assert.equal(fromArray.image_url, 'x.jpg')
   assert.equal(fromUrl.image_url, 'y.jpg')
   assert.equal(fromNeither.image_url, '')
+})
+
+// ------------------------------------------------ storefront tabs (الكل/عروض/إطلالات)
+
+test('offersOf keeps only products whose card would actually show a badge', () => {
+  // An offer row with neither a percentage nor a real bundle price renders no
+  // badge, so it must not put the product under عروض either — the tab and the
+  // grid have to tell the shopper the same story.
+  const badgeOnly = { ...product({ id: 'a' }), offers: [{ kind: 'percent', discount_percentage: 20 }] }
+  const bundle = { ...product({ id: 'b' }), offers: [{ kind: 'bundle', required_qty: 3, offer_price: 5000 }] }
+  const empty = { ...product({ id: 'c' }), offers: [{ kind: 'percent', discount_percentage: 0 }] }
+  const none = { ...product({ id: 'd' }), offers: [] }
+  const named = { ...product({ id: 'e' }), offers: [{ kind: 'bundle', name: 'عرض خاص' }] }
+
+  assert.equal(hasActiveOffer(badgeOnly), true)
+  assert.equal(hasActiveOffer(bundle), true)
+  assert.equal(hasActiveOffer(named), true)
+  assert.equal(hasActiveOffer(empty), false)
+  assert.equal(hasActiveOffer(none), false)
+  assert.deepEqual(offersOf([badgeOnly, bundle, empty, none, named]).map(p => p.id), ['a', 'b', 'e'])
+})
+
+test('offersOf drops a sold-out product, which the card marks نفدت الكمية', () => {
+  const live = { ...product({ id: 'live' }), offers: [{ kind: 'percent', discount_percentage: 10 }] }
+  const gone = {
+    ...product({ id: 'gone' }),
+    offers: [{ kind: 'percent', discount_percentage: 10 }],
+    variants: [{ id: 'v', available: 0 }],
+  }
+  assert.deepEqual(offersOf([live, gone]).map(p => p.id), ['live'])
+})
+
+test('productsForTab resolves كل / عروض / a category name', () => {
+  const shirt = { ...product({ id: 's' }), category: 'ملابس' }
+  const jean = { ...product({ id: 'j', name: 'جينز' }), category: 'ملابس', offers: [{ kind: 'percent', discount_percentage: 15 }] }
+  const watch = { ...product({ id: 'w', name: 'ساعة' }), category: 'إكسسوارات' }
+  const all = [shirt, jean, watch]
+
+  assert.deepEqual(productsForTab(all, 'all').map(p => p.id), ['s', 'j', 'w'])
+  assert.deepEqual(productsForTab(all, '').map(p => p.id), ['s', 'j', 'w'])
+  assert.deepEqual(productsForTab(all, 'offers').map(p => p.id), ['j'])
+  assert.deepEqual(productsForTab(all, 'ملابس').map(p => p.id), ['s', 'j'])
+  assert.deepEqual(productsForTab(all, 'لا يوجد').map(p => p.id), [])
+  // A tab key must never be confused with a category literally named عروض.
+  assert.deepEqual(productsForTab([{ ...product({ id: 'x' }), category: 'عروض' }], 'offers').map(p => p.id), [])
+})
+
+test('the storefront renders tabs and reads images through productImage()', async () => {
+  const ui = await fs.readFile(new URL('../components/store/Storefront.js', import.meta.url), 'utf8')
+  // The rail and all three fixed tabs exist.
+  for (const label of ['الكل', 'عروض', 'إطلالات']) {
+    assert.ok(ui.includes(`'${label}'`) || ui.includes(`label: '${label}'`), `missing tab ${label}`)
+  }
+  assert.match(ui, /className="sf-rail mt-4 flex gap-2 overflow-x-auto px-4 pb-1"/)
+  // Lists come from the tested helpers, not from inline filtering.
+  assert.match(ui, /productsForTab\(products, tab\)/)
+  assert.match(ui, /offersOf\(products\)/)
+  // A plain <img>, never next/image: the URLs are arbitrary Unsplash CDN links
+  // and next/image would require each host in remotePatterns.
+  assert.doesNotMatch(ui, /from 'next\/image'/)
+  assert.match(ui, /<img src=\{productImage\(/)
+  assert.match(ui, /productImage\(look\)/)
 })

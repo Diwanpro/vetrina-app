@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import {
   normalizeProducts, categoriesOf, priceCart, cartCount, cartTotal, formatMoney,
   offerBadge, isSoldOut, whatsappLink, lookUnitPrices, productImage,
+  productsForTab, offersOf,
 } from '@/lib/storefront'
 import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
 import StoreHeader, { StoreHero } from './StoreHeader'
@@ -121,12 +122,149 @@ function MissingStore() {
   )
 }
 
+/**
+ * The one navigation rail, in the order a shopper scans it: everything, what is
+ * discounted, the outfits the shop styled, then the categories.
+ *
+ * Horizontally scrollable rather than wrapped, because a shop with twelve
+ * categories would otherwise push the grid below the fold. Each tab is drawn
+ * only when it has content — an empty عروض tab is worse than no tab, since it
+ * promises a discount the shop is not running.
+ */
+function StoreTabs({ tab, onTab, categories, offerCount, lookCount, loadingLooks }) {
+  const chips = [
+    { key: 'all', label: 'الكل' },
+    ...(offerCount > 0 ? [{ key: 'offers', label: 'عروض', badge: offerCount, accent: true }] : []),
+    // While looks are still loading the tab is shown disabled, so the layout
+    // does not jump sideways once they arrive.
+    ...(loadingLooks || lookCount > 0
+      ? [{ key: 'looks', label: 'إطلالات', badge: loadingLooks ? null : lookCount }]
+      : []),
+    ...categories.map(value => ({ key: value, label: value })),
+  ]
+
+  return (
+    <nav aria-label="أقسام المتجر" className="sf-rail mt-4 flex gap-2 overflow-x-auto px-4 pb-1">
+      {chips.map(chip => {
+        const active = tab === chip.key
+        return (
+          <button
+            key={chip.key}
+            type="button"
+            aria-current={active ? 'page' : undefined}
+            onClick={() => onTab(chip.key)}
+            className={`flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-4 text-sm transition ${
+              active
+                ? 'border-gold bg-gold/15 font-medium text-gold'
+                : chip.accent
+                  ? 'border-gold/35 bg-gold/[0.07] text-gold/90'
+                  : 'border-white/10 bg-white/5 text-neutral-300'
+            }`}
+          >
+            {chip.label}
+            {chip.badge ? (
+              <span className={`rounded-full px-1.5 text-[10px] font-bold ${
+                active ? 'bg-gold text-[#121212]' : 'bg-white/10 text-neutral-300'
+              }`}>
+                {chip.badge}
+              </span>
+            ) : null}
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
+
+/** Large, full-bleed outfit cards — the tab is a lookbook, not a grid. */
+function LooksGrid({ looks, loading, showPrices, onOpen }) {
+  if (loading) {
+    return (
+      <div className="mt-4 space-y-4 px-4 pb-4">
+        {Array.from({ length: 2 }).map((_, index) => <div key={index} className="sf-skeleton h-72 rounded-3xl" />)}
+      </div>
+    )
+  }
+  if (!looks.length) {
+    return (
+      <div className="mx-auto mt-16 max-w-xs px-4 text-center">
+        <p className="text-4xl">✨</p>
+        <p className="mt-3 text-neutral-300">لا توجد إطلالات حالياً</p>
+        <p className="mt-1 text-sm text-neutral-500">عد قريباً، نجهّز إطلالات جديدة.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="mt-4 space-y-4 px-4 pb-4">
+      {looks.map((look, index) => (
+        <button
+          key={look.id}
+          type="button"
+          onClick={() => onOpen(look)}
+          className="sf-fade-up group block w-full overflow-hidden rounded-3xl border border-white/10 bg-[#161616] text-start shadow-[0_18px_44px_rgba(0,0,0,0.45)]"
+          style={{ animationDelay: `${Math.min(index, 6) * 60}ms` }}
+        >
+          <div className="relative">
+            {productImage(look)
+              ? <img src={productImage(look)} alt={look.name || ''} loading="lazy" className="aspect-[4/5] w-full object-cover transition duration-500 group-active:scale-[1.02]" />
+              : <div className="flex aspect-[4/5] items-center justify-center bg-black/40 text-xs text-neutral-600">بدون صورة</div>}
+            <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/35 to-transparent" />
+            <span className="absolute start-3 top-3 rounded-full border border-gold/45 bg-black/55 px-2.5 py-1 text-[10px] font-medium tracking-[0.18em] text-gold backdrop-blur">
+              إطلالة
+            </span>
+            <div className="absolute inset-x-0 bottom-0 p-4">
+              <h3 className="text-xl font-bold leading-snug text-white">{look.name}</h3>
+              {look.description && (
+                <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-neutral-300">{look.description}</p>
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                {showPrices && look.bundle_price != null && Number(look.bundle_price) > 0 && (
+                  <p className="text-sm font-bold text-gold">{formatMoney(look.bundle_price)}</p>
+                )}
+                <p className="text-[11px] text-neutral-300">{(look.items || []).length} قطع · اضغط للتفاصيل</p>
+              </div>
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * What a tab says when it has nothing. A category that is simply empty and a
+ * filter that matched nothing are different disappointments, and telling the
+ * shopper "no products at all" in an offers tab reads like the shop is closed.
+ */
+function EmptyTab({ tab, hasOffers }) {
+  if (tab === 'offers') {
+    return (
+      <div className="mx-auto mt-16 max-w-xs px-4 text-center">
+        <p className="text-4xl">🏷️</p>
+        <p className="mt-3 text-neutral-300">لا توجد عروض حالياً</p>
+        <p className="mt-1 text-sm text-neutral-500">
+          {hasOffers ? 'العروض المتاحة نفدت كميتها. تابعنا قريباً.' : 'تابعنا، نضيف عروضاً جديدة باستمرار.'}
+        </p>
+      </div>
+    )
+  }
+  return (
+    <div className="mx-auto mt-16 max-w-xs px-4 text-center">
+      <p className="text-4xl">🧺</p>
+      <p className="mt-3 text-neutral-300">لا توجد منتجات في هذا القسم</p>
+      <p className="mt-1 text-sm text-neutral-500">جرّب قسماً آخر، أو تصفّح «الكل».</p>
+    </div>
+  )
+}
+
 export default function Storefront({ slug }) {
   const [status, setStatus] = useState('loading')
   const [store, setStore] = useState(null)
   const [products, setProducts] = useState([])
-  const [category, setCategory] = useState('all')
-  const [view, setView] = useState('catalog')   // 'catalog' | 'looks'
+  // One selected tab: 'all', 'offers', 'looks', or a category name. A single
+  // value instead of two flags, because the three are mutually exclusive and
+  // two booleans let the screen land in states that cannot be drawn.
+  const [tab, setTab] = useState('all')
   const [activeLook, setActiveLook] = useState(null)
   // The look that priced the current cart, or null. Cleared as soon as the cart
   // stops being exactly that outfit, so a half-removed look is not charged the
@@ -164,10 +302,10 @@ export default function Storefront({ slug }) {
   const showLooks = looks.length > 0
 
   const categories = useMemo(() => categoriesOf(products), [products])
-  const visible = useMemo(
-    () => (category === 'all' ? products : products.filter(product => product.category === category)),
-    [products, category]
-  )
+  const discounted = useMemo(() => offersOf(products), [products])
+  // The grid for the selected tab. 'looks' is not a grid at all, so it is
+  // handled separately below; productsForTab() covers the rest.
+  const visible = useMemo(() => productsForTab(products, tab), [products, tab])
   const offers = useMemo(() => products.flatMap(product => product.offers), [products])
   // Pieces from a look are already priced by the outfit; running them through
   // the offer engine again would apply a second discount on top.
@@ -283,93 +421,25 @@ export default function Storefront({ slug }) {
         <main className="mx-auto max-w-lg">
           <StoreHero store={store} />
 
-          {showLooks && (
-            <nav aria-label="أقسام المتجر" className="mx-4 mt-4 grid grid-cols-2 gap-1 rounded-2xl border border-white/8 bg-white/[0.03] p-1">
-              <button type="button" onClick={() => setView('catalog')}
-                className={`min-h-11 rounded-xl text-sm transition ${
-                  view === 'catalog' ? 'bg-gold/15 font-medium text-gold shadow-[inset_0_0_0_1px_rgba(212,175,55,0.35)]' : 'text-neutral-400'
-                }`}>
-                المنتجات
-              </button>
-              <button type="button" onClick={() => setView('looks')}
-                className={`min-h-11 rounded-xl text-sm transition ${
-                  view === 'looks' ? 'bg-gold/15 font-medium text-gold shadow-[inset_0_0_0_1px_rgba(212,175,55,0.35)]' : 'text-neutral-400'
-                }`}>
-                إطلالات جديدة
-              </button>
-            </nav>
-          )}
+          {/* One rail for everything: the two merchandising tabs, then the
+              categories. Only tabs with something behind them are drawn, so a
+              shop with no offers does not offer an empty عروض tab. */}
+          <StoreTabs
+            tab={tab}
+            onTab={setTab}
+            categories={categories}
+            offerCount={discounted.length}
+            lookCount={looks.length}
+            loadingLooks={looksLoading}
+          />
 
-          {view === 'looks' ? (
-            looksLoading ? (
-              <div className="mt-4 space-y-4 px-4">
-                {Array.from({ length: 2 }).map((_, index) => <div key={index} className="sf-skeleton h-64 rounded-3xl" />)}
-              </div>
-            ) : (
-              <div className="mt-4 space-y-4 px-4 pb-4">
-                {looks.map(look => (
-                  <button key={look.id} type="button" onClick={() => setActiveLook(look)}
-                    className="sf-fade-up group block w-full overflow-hidden rounded-3xl border border-white/8 bg-[#161616] text-start">
-                    <div className="relative">
-                      {look.image_url
-                        ? <img src={look.image_url} alt="" className="aspect-[4/5] w-full object-cover transition duration-500 group-active:scale-[1.02]" />
-                        : <div className="flex aspect-[4/5] items-center justify-center bg-black/40 text-xs text-neutral-600">بدون صورة</div>}
-                      <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
-                      <div className="absolute inset-x-0 bottom-0 p-4">
-                        <p className="text-[10px] uppercase tracking-[0.22em] text-gold/80">إطلالة جديدة</p>
-                        <h3 className="mt-1 text-xl font-bold leading-snug text-white">{look.name}</h3>
-                        {showPrices && look.bundle_price != null && (
-                          <p className="mt-1 text-sm text-gold">{formatMoney(look.bundle_price)} · الإطلالة كاملة</p>
-                        )}
-                        <p className="mt-1 text-[11px] text-neutral-300">{(look.items || []).length} قطع · اضغط للتفاصيل</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-                {!looks.length && (
-                  <div className="mx-auto mt-16 max-w-xs text-center">
-                    <p className="text-4xl">✨</p>
-                    <p className="mt-3 text-neutral-300">لا توجد إطلالات حالياً</p>
-                    <p className="mt-1 text-sm text-neutral-500">عد قريباً، نجهّز إطلالات جديدة.</p>
-                  </div>
-                )}
-              </div>
-            )
+          {tab === 'looks' ? (
+            <LooksGrid looks={looks} loading={looksLoading} showPrices={showPrices} onOpen={setActiveLook} />
           ) : (
           <>
 
-          {categories.length > 0 && (
-            <nav aria-label="الأقسام" className="sf-rail mt-4 flex gap-2 overflow-x-auto px-4 pb-1">
-              <button
-                type="button"
-                onClick={() => setCategory('all')}
-                className={`min-h-10 shrink-0 rounded-full border px-4 text-sm transition ${
-                  category === 'all' ? 'border-gold bg-gold/15 font-medium text-gold' : 'border-white/10 bg-white/5 text-neutral-300'
-                }`}
-              >
-                الكل
-              </button>
-              {categories.map(value => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setCategory(value)}
-                  className={`min-h-10 shrink-0 rounded-full border px-4 text-sm transition ${
-                    category === value ? 'border-gold bg-gold/15 font-medium text-gold' : 'border-white/10 bg-white/5 text-neutral-300'
-                  }`}
-                >
-                  {value}
-                </button>
-              ))}
-            </nav>
-          )}
-
           {!visible.length ? (
-            <div className="mx-auto mt-16 max-w-xs text-center">
-              <p className="text-4xl">🧺</p>
-              <p className="mt-3 text-neutral-300">لا توجد منتجات متوفرة حالياً</p>
-              <p className="mt-1 text-sm text-neutral-500">عد قريباً، نضيف قطعاً جديدة باستمرار.</p>
-            </div>
+            <EmptyTab tab={tab} hasOffers={discounted.length > 0} />
           ) : (
             <div className="grid grid-cols-2 gap-3 px-4 py-4">
               {visible.map((product, index) => (

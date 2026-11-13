@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Sheet from './Sheet'
-import { formatMoney } from '@/lib/storefront'
+import { formatMoney, productImage } from '@/lib/storefront'
 import { safeVideoUrl, videoPlatform } from '@/lib/video'
 
 const chipClass = 'min-h-10 rounded-xl border px-3 text-xs transition'
@@ -71,13 +71,13 @@ export default function LookSheet({ look, open, onClose, onAdd, onAddLook, showP
 
   function buyOne(row) {
     if (!orderingEnabled || !row.variant) return
-    onAdd({ product_id: row.item.product_id, name: row.item.name, image_url: row.item.image_url, base_price: row.item.base_price }, row.variant, 1)
+    onAdd({ product_id: row.item.product_id, name: row.item.name, image_url: productImage(row.item), images: row.item.images, base_price: row.item.base_price }, row.variant, 1)
   }
 
   return <Sheet open={open} onClose={onClose} labelledBy="look-title" full>
     <div className="sf-rail flex-1 overflow-y-auto pb-6">
       <header className="relative">
-        {look?.image_url && <img src={look.image_url} alt="" className="h-64 w-full object-cover" />}
+        {productImage(look) && <img src={productImage(look)} alt={look?.name || ''} className="h-64 w-full object-cover" />}
         <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#151515] to-transparent" />
         <button type="button" onClick={onClose} aria-label="إغلاق"
           className="absolute end-3 top-3 flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/50 text-neutral-100 backdrop-blur">
@@ -109,7 +109,13 @@ export default function LookSheet({ look, open, onClose, onAdd, onAddLook, showP
             const soldOut = variants.length === 0
             return <li key={row.item.product_id} className="rounded-2xl border border-white/8 bg-white/[0.02] p-3">
               <div className="flex items-start gap-3">
-                {row.item.image_url && <img src={row.item.image_url} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" />}
+                {/* productImage(), not image_url: get_store_looks() returns both,
+                    and a product whose photos live only in images[] used to show
+                    an empty square here while the same product looked fine on the
+                    grid. */}
+                {productImage(row.item)
+                  ? <img src={productImage(row.item)} alt={row.item.name || ''} loading="lazy" className="h-16 w-16 shrink-0 rounded-xl object-cover" />
+                  : <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-black/40 text-lg text-white/10">▦</div>}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-neutral-100">{row.item.name}</p>
                   {showPrices && <p className="mt-0.5 text-sm font-bold text-gold">{formatMoney(row.item.base_price)}</p>}

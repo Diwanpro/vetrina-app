@@ -167,7 +167,10 @@ test('the storefront only shows the looks tab when there are looks', () => {
 
 test('a looks failure never takes the catalogue down', () => {
   // No looks, a missing migration, or an RPC error all mean "no tab".
-  assert.match(useLooks, /setLooks\(Array\.isArray\(data\)/)
+  // The list is still built defensively from whatever the RPC returns; it is
+  // simply normalised on the way in now so every item has a resolved picture.
+  assert.match(useLooks, /\(Array\.isArray\(data\) \? data : \[\]\)/)
+  assert.match(useLooks, /setLooks\(list\)/)
   assert.match(useLooks, /catch \(err\)/)
   assert.match(useLooks, /console\.error\('\[storefront\] looks unavailable', err\)/)
 })
@@ -214,4 +217,44 @@ test('the bundle total the client shows equals the bundle price', async () => {
     const sum = Object.values(prices).reduce((a, b) => a + b, 0)
     assert.equal(sum, total, `${units} units at ${total}`)
   }
+})
+
+// ---------------------------------------- look item pictures (202611120014)
+
+const imagesFix = await sqlOf('supabase/migrations/202611120014_look_item_images.sql')
+
+test('look items resolve their picture the same way products do', () => {
+  // get_store_looks() used to return only p.image_url, so a piece whose photos
+  // lived in images[] drew an empty square inside a look while looking correct
+  // on the product grid. The RPC now returns both halves, resolved.
+  assert.match(imagesFix, /CREATE OR REPLACE FUNCTION public\.first_image_url\(p_images text\[\], p_image_url text\)/)
+  assert.match(imagesFix, /'image_url', public\.first_image_url\(p\.images, p\.image_url\)/)
+  assert.match(imagesFix, /'images', coalesce\(p\.images, ARRAY\[\]::text\[\]\)/)
+  // The look's own cover goes through the same helper so a blank column becomes
+  // NULL instead of an empty src="" that re-requests the page.
+  assert.match(imagesFix, /'image_url', public\.first_image_url\(NULL, l\.image_url\)/)
+})
+
+test('first_image_url prefers the array and skips blank entries', () => {
+  // Mirrors productImage() in JS: first usable array entry, else the single
+  // column, else NULL. A blank entry is what an interrupted upload leaves.
+  assert.match(imagesFix, /unnest\(coalesce\(p_images, ARRAY\[\]::text\[\]\)\)/)
+  assert.match(imagesFix, /WHERE nullif\(btrim\(coalesce\(entry, ''\)\), ''\) IS NOT NULL/)
+  assert.match(imagesFix, /nullif\(btrim\(coalesce\(p_image_url, ''\)\), ''\)/)
+})
+
+test('the replacement keeps the store gate and the sellable-only filter', () => {
+  // A rewrite must not quietly drop the rules 202611120012 established.
+  assert.match(imagesFix, /WHERE slug = p_slug AND coalesce\(store_enabled, false\)/)
+  assert.match(imagesFix, /AND coalesce\(l\.is_active, true\)/)
+  assert.match(imagesFix, /AND \(i\.quantity - coalesce\(i\.reserved_qty, 0\)\) > 0/)
+  assert.match(imagesFix, /CASE WHEN coalesce\(s\.show_prices, true\) THEN l\.bundle_price ELSE NULL END/)
+})
+
+test('the storefront normalises look pictures client-side as well', () => {
+  // The client must not break on a database where 202611120014 has not run.
+  assert.match(lookSheet, /import \{ formatMoney, productImage \} from '@\/lib\/storefront'/)
+  assert.match(lookSheet, /productImage\(row\.item\)/)
+  assert.doesNotMatch(lookSheet, /row\.item\.image_url &&/)
+  assert.match(useLooks, /image_url: productImage\(item\)/)
 })
