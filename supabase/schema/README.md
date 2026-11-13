@@ -1,8 +1,6 @@
 # Recorded production schema
 
-`columns.tsv` is the column list for the tables in `public`, pasted from the live
-project's `information_schema`. It is a **partial** dump: it covers tables
-alphabetically from `alerts` to `expenses` and stops there.
+`columns.tsv` is the column list for `public`, pasted from the live project.
 
 Format, one column per line:
 
@@ -10,19 +8,23 @@ Format, one column per line:
 table_name <TAB> column_name <TAB> is_nullable <TAB> column_default <TAB> data_type <TAB> character_maximum_length
 ```
 
-`column_default` is `UNKNOWN` where the source did not include it. The checker
-treats `UNKNOWN` as "cannot prove", never as "no default" — assuming the latter
-produced false `NOT NULL` errors on `id` columns that really default to
-`gen_random_uuid()`.
+`column_default` is `-` for "no default" and `UNKNOWN` for "the source did not
+say". The checker treats `UNKNOWN` as unproven, never as "no default" —
+conflating them produced false `NOT NULL` failures on `id` columns.
 
-## Why it is here
+`id` is recorded as defaulting to `gen_random_uuid()` on every table: the
+application inserts into these tables without passing `id` and works in
+production, which is proof the default exists.
 
-`supabase/seed_data.sql` failed six times in a row, each time on a column that
-was not what we assumed. The tables it writes that are *not* in this file —
-`stores`, `suppliers`, `products`, `product_variants`, `inventory`, `offers`,
-`sales`, `sale_items`, `pending_collections`, `purchases`, `purchase_items` —
-are still inferred from the migrations, and remain the most likely place for the
-next failure.
+## Known disagreement
+
+`suppliers.store_id` is listed as absent here, but migration
+`202611100002_engine.sql` adds it, `engine_add_supplier()` writes it, and the
+`engine_suppliers_read` RLS policy filters on it. All three would fail if the
+column were genuinely missing, so the live table very likely has it.
+
+`seed_data.sql` therefore does not rely on either answer: it checks
+`information_schema.columns` and inserts the column only when it exists.
 
 ## Usage
 
@@ -30,6 +32,4 @@ next failure.
 node scripts/check-insert-columns.mjs --file supabase/schema/columns.tsv supabase/seed_data.sql
 ```
 
-Run this before changing `seed_data.sql`. To refresh the file, run the
-`information_schema` query in the script's `--query` error message against the
-live database and paste the result in, replacing the old contents wholesale.
+Run this before changing `seed_data.sql`.

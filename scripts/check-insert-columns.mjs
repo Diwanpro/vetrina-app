@@ -71,6 +71,16 @@ function stripComments(sql) {
 
 function extractInserts(rawSql) {
   const sql = stripComments(rawSql)
+  // Character ranges that sit inside an EXECUTE $tag$ … $tag$ block.
+  const dynamicRanges = []
+  for (const m of sql.matchAll(/EXECUTE\s+(\$\w*\$)/g)) {
+    const tag = m[1]
+    const start = m.index
+    const close = sql.indexOf(tag, m.index + m[0].length)
+    if (close > -1) dynamicRanges.push([start, close])
+  }
+  const isDynamic = idx => dynamicRanges.some(([a, b]) => idx >= a && idx <= b)
+
   const found = []
   const re = /INSERT\s+INTO\s+public\.(\w+)\s*\(([^)]*)\)/gi
   let m
@@ -78,7 +88,7 @@ function extractInserts(rawSql) {
     const table = m[1]
     const columns = m[2].split(',').map(c => c.trim()).filter(Boolean)
     const rest = sql.slice(re.lastIndex)
-    found.push({ table, columns, rest, index: m.index })
+    found.push({ table, columns, rest, index: m.index, dynamic: isDynamic(m.index) })
   }
   return found
 }
@@ -162,10 +172,21 @@ function check(schema, sql) {
   const inserts = extractInserts(sql)
   if (inserts.length === 0) problems.push('no INSERT INTO public.* found — parser out of date?')
 
-  for (const { table, columns, rest } of inserts) {
+  for (const { table, columns, rest, dynamic } of inserts) {
     const tableSchema = schema.get(table)
     if (!tableSchema) {
       problems.push(`${table}: not present in the schema dump`)
+      continue
+    }
+    // A branch chosen at runtime may name a column that is absent from this
+    // schema — that is the point of the guard — so report, do not fail.
+    if (dynamic) {
+      for (const column of columns) {
+        if (!tableSchema.has(column)) {
+          unverified.push(`${table}.${column} (inside EXECUTE): guards against absence at runtime`)
+        }
+      }
+      checked.push({ table, columns: columns.length, rows: 0 })
       continue
     }
 

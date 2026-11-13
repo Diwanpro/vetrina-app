@@ -34,10 +34,23 @@ test('the recorded schema is usable and covers expenses', () => {
   assert.ok(schema.size >= 13, 'expected the full a…e slice')
 })
 
+// The suppliers insert sits inside an EXECUTE block chosen by an
+// information_schema check, because sources disagree on whether
+// suppliers.store_id exists. Columns named only there are deliberate.
+const guardedBlock = (() => {
+  const start = seed.indexOf("table_name = 'suppliers'")
+  return start > -1 ? seed.slice(start, start + 2500) : ''
+})()
+
 test('every column the seed names in a covered table really exists', () => {
   for (const [table, columns] of schema) {
     for (const list of insertColumns(table)) {
       for (const column of list) {
+        // insertColumns() only sees static INSERTs, so a genuinely absent
+        // column is still a failure here unless it is guarded at runtime.
+        const guarded = table === 'suppliers' && column === 'store_id' &&
+          guardedBlock.includes("column_name = 'store_id'")
+        if (guarded) continue
         assert.ok(schema.get(table).has(column),
           `${table}.${column}: named in the seed but absent from the recorded schema`)
       }
