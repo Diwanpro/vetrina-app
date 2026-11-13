@@ -56,7 +56,7 @@ day_closes	store_id	NO	-	uuid
 day_closes	date	NO	-	date	
 day_closes	expected_cash	NO	-	integer	
 day_closes	actual_cash	NO	-	integer	
-day_closes	difference	YES	-	integer	
+day_closes	difference	YES	GENERATED ALWAYS AS (actual_cash - expected_cash) STORED	integer	
 day_closes	notes	YES	-	text	
 day_closes	approved_by	YES	-	uuid	
 day_closes	closed_at	YES	-	timestamptz	

@@ -18,6 +18,9 @@ for (const line of dump.split('\n')) {
     nullable: nullable === 'YES',
     defaultKnown: def !== 'UNKNOWN',
     hasDefault: def !== 'UNKNOWN' && def !== 'NULL' && def !== '',
+    // The fixture records a generated column in the default slot, because
+    // information_schema's paste format has no column for generation.
+    generated: /^GENERATED\s+(ALWAYS|BY DEFAULT)/i.test(def || ''),
     type,
   })
 }
@@ -194,4 +197,51 @@ test('audit_log entries point at rows the seed actually created', () => {
   // that might not exist.
   assert.ok(!/[0-9a-f]{8}-[0-9a-f]{4}/.test(body.replace(/00000000-0000-4000-8000-000000000e02/g, '')),
     'audit entity ids should be looked up, not hardcoded')
+})
+
+// ------------------------------------------------- generated-column guardrails
+test('day_closes.difference is never named: it is GENERATED ALWAYS', () => {
+  // 428C9 from the live database: "cannot insert a non-DEFAULT value into
+  // column difference". The column computes itself, so naming it at all is the
+  // bug, regardless of which expression is supplied.
+  const start = withoutComments.indexOf('INSERT INTO public.day_closes')
+  assert.ok(start > -1, 'expected the day_closes insert')
+  const block = withoutComments.slice(start)
+  const body = block.slice(0, block.indexOf(';'))
+  const columnList = body.slice(body.indexOf('(') + 1, body.indexOf(')'))
+  const columns = columnList.split(',').map(c => c.trim())
+  assert.ok(!columns.includes('difference'),
+    'day_closes.difference is GENERATED ALWAYS and must not appear in the column list')
+
+  // The value list must be exactly as long as the column list, so the fix
+  // cannot have removed the column name while leaving its expression behind.
+  const values = body.slice(body.indexOf('VALUES') + 'VALUES'.length, body.lastIndexOf(')'))
+  const exprs = values.split(',')
+  assert.equal(exprs.length, columns.length,
+    'VALUES must still line up with the column list after dropping difference')
+})
+
+test('shifts.difference IS still written: that column is writable', () => {
+  // The two tables look alike and are not. shifts.difference was converted from
+  // a generated expression to a plain column (lib/cash.js) and the POS inserts
+  // it on every shift open, so removing it here would be a different bug.
+  const start = withoutComments.indexOf('INSERT INTO public.shifts')
+  const body = withoutComments.slice(start, withoutComments.indexOf(';', start))
+  const columns = body.slice(body.indexOf('(') + 1, body.indexOf(')')).split(',').map(c => c.trim())
+  assert.ok(columns.includes('difference'),
+    'shifts.difference is writable and should keep being supplied')
+})
+
+test('no insert names a column recorded as GENERATED ALWAYS', () => {
+  // Generalised version of the two tests above, driven by the fixture: if a
+  // column is ever marked generated, this fails for any table.
+  for (const [table, columns] of schema) {
+    for (const list of insertColumns(table)) {
+      for (const column of list) {
+        const meta = schema.get(table).get(column)
+        assert.ok(!meta?.generated,
+          `${table}.${column}: GENERATED ALWAYS, cannot be inserted (428C9)`)
+      }
+    }
+  }
 })

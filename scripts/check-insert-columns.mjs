@@ -44,6 +44,11 @@ function loadSchemaFromText(text) {
       nullable: nullable.toUpperCase() === 'YES',
       defaultKnown: !unknown,
       default: unknown ? null : (def !== 'NULL' && def !== '' ? def : null),
+      // A GENERATED ALWAYS column rejects any supplied *value* with 428C9.
+      // (The bare keyword DEFAULT is accepted, but naming the column at all is
+      // the mistake this catches.) The dump has no column for generation, so it
+      // is recorded in the default slot and recognised here.
+      generated: !unknown && /^GENERATED\s+(ALWAYS|BY DEFAULT)/i.test(def),
       type: type || '',
       len: len && len !== 'NULL' ? Number(len) : null,
     })
@@ -194,6 +199,15 @@ function check(schema, sql) {
     for (const column of columns) {
       if (!tableSchema.has(column)) {
         problems.push(`${table}.${column}: column does not exist`)
+      }
+    }
+
+    // 1b. a GENERATED ALWAYS column must never be named. This is the check that
+    // would have caught day_closes.difference before it reached Supabase.
+    for (const column of columns) {
+      const meta = tableSchema.get(column)
+      if (meta?.generated) {
+        problems.push(`${table}.${column}: is GENERATED ALWAYS and cannot be inserted (428C9)`)
       }
     }
 
