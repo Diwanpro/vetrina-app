@@ -14,6 +14,8 @@ import StoreHeader, { StoreHero } from './StoreHeader'
 import ProductSheet from './ProductSheet'
 import CartSheet from './CartSheet'
 import OrderSuccess from './OrderSuccess'
+import StoreTabRail, { buildStoreTabs } from './StoreTabRail'
+import ProductImage from './ProductImage'
 
 function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) {
   const single = product.variants.length === 1 ? product.variants[0] : null
@@ -30,12 +32,11 @@ function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) 
       style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
     >
       <div className="relative aspect-[3/4] overflow-hidden bg-[#0d0d0d]">
-        {/* productImage(), not image_url: a product whose photos live only in
-            the images[] array used to render the placeholder here while the
-            POS showed it fine. */}
-        {productImage(product)
-          ? <img src={productImage(product)} alt={product.name} loading="lazy" className="h-full w-full object-cover transition duration-500 group-active:scale-105" />
-          : <div className="flex h-full items-center justify-center text-3xl text-white/10">▦</div>}
+        {/* The same element the POS uses: productImage() picks the source, and a
+            URL that 404s now draws a labelled placeholder instead of an empty
+            square, so a bad link is visible here rather than only in the logs. */}
+        <ProductImage product={product} alt={product.name} label="بدون صورة"
+          className="h-full w-full object-cover transition duration-500 group-active:scale-105" />
         <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/70 to-transparent" />
         {/* The whole picture opens the product, but the video link sits above it
             so tapping the badge plays the video instead of the modal. */}
@@ -123,57 +124,15 @@ function MissingStore() {
 }
 
 /**
- * The one navigation rail, in the order a shopper scans it: everything, what is
- * discounted, the outfits the shop styled, then the categories.
+ * The storefront's tab rail.
  *
- * Horizontally scrollable rather than wrapped, because a shop with twelve
- * categories would otherwise push the grid below the fold. Each tab is drawn
- * only when it has content — an empty عروض tab is worse than no tab, since it
- * promises a discount the shop is not running.
+ * The chips and the rail itself now come from components/store/StoreTabRail,
+ * which the POS also renders — so "the same tab bar" is one component, not two
+ * copies that have to be kept in step by hand.
  */
 function StoreTabs({ tab, onTab, categories, offerCount, lookCount, loadingLooks }) {
-  const chips = [
-    { key: 'all', label: 'الكل' },
-    ...(offerCount > 0 ? [{ key: 'offers', label: 'عروض', badge: offerCount, accent: true }] : []),
-    // While looks are still loading the tab is shown disabled, so the layout
-    // does not jump sideways once they arrive.
-    ...(loadingLooks || lookCount > 0
-      ? [{ key: 'looks', label: 'إطلالات', badge: loadingLooks ? null : lookCount }]
-      : []),
-    ...categories.map(value => ({ key: value, label: value })),
-  ]
-
-  return (
-    <nav aria-label="أقسام المتجر" className="sf-rail mt-4 flex gap-2 overflow-x-auto px-4 pb-1">
-      {chips.map(chip => {
-        const active = tab === chip.key
-        return (
-          <button
-            key={chip.key}
-            type="button"
-            aria-current={active ? 'page' : undefined}
-            onClick={() => onTab(chip.key)}
-            className={`flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-4 text-sm transition ${
-              active
-                ? 'border-gold bg-gold/15 font-medium text-gold'
-                : chip.accent
-                  ? 'border-gold/35 bg-gold/[0.07] text-gold/90'
-                  : 'border-white/10 bg-white/5 text-neutral-300'
-            }`}
-          >
-            {chip.label}
-            {chip.badge ? (
-              <span className={`rounded-full px-1.5 text-[10px] font-bold ${
-                active ? 'bg-gold text-[#121212]' : 'bg-white/10 text-neutral-300'
-              }`}>
-                {chip.badge}
-              </span>
-            ) : null}
-          </button>
-        )
-      })}
-    </nav>
-  )
+  const chips = buildStoreTabs({ categories, offerCount, lookCount, loadingLooks })
+  return <StoreTabRail chips={chips} active={tab} onSelect={onTab} ariaLabel="أقسام المتجر" />
 }
 
 /** Large, full-bleed outfit cards — the tab is a lookbook, not a grid. */
@@ -205,9 +164,11 @@ function LooksGrid({ looks, loading, showPrices, onOpen }) {
           style={{ animationDelay: `${Math.min(index, 6) * 60}ms` }}
         >
           <div className="relative">
-            {productImage(look)
-              ? <img src={productImage(look)} alt={look.name || ''} loading="lazy" className="aspect-[4/5] w-full object-cover transition duration-500 group-active:scale-[1.02]" />
-              : <div className="flex aspect-[4/5] items-center justify-center bg-black/40 text-xs text-neutral-600">بدون صورة</div>}
+            {/* No ternary needed any more: ProductImage draws the same labelled
+                placeholder whether the look has no cover or the cover 404s. */}
+            <ProductImage product={look} alt={look.name || ''}
+              placeholderClassName="aspect-[4/5]"
+              className="aspect-[4/5] w-full object-cover transition duration-500 group-active:scale-[1.02]" />
             <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/35 to-transparent" />
             <span className="absolute start-3 top-3 rounded-full border border-gold/45 bg-black/55 px-2.5 py-1 text-[10px] font-medium tracking-[0.18em] text-gold backdrop-blur">
               إطلالة

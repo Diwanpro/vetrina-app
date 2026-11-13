@@ -399,6 +399,77 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- ================================================================ looks
+  -- Three published outfits, so the storefront and POS إطلالات tabs have
+  -- something to show out of the box.
+  --
+  -- Each look links at least two of the seeded products through look_items.
+  -- That is not cosmetic: looks_check_bundle raises when a look carries a
+  -- bundle_price and has only one item, because create_order's bundle rule
+  -- needs required_qty >= 2 and could never charge it. Two items is the
+  -- minimum a priced outfit can legally have.
+  --
+  -- bundle_price is a real total of the outfit's products rounded to a round
+  -- figure. create_order recomputes the per-product split from
+  -- looks_bundle_units(p_look) and ignores anything the client sends, so the
+  -- number written here is what the customer is charged. It deliberately does
+  -- NOT also need an offers row: the look branch prices the outfit itself.
+  --
+  -- Direct INSERTs, not engine_save_look, for the same auth reason as the
+  -- suppliers and offers blocks: a seed run has no user session for
+  -- current_staff() to resolve.
+  DECLARE
+    v_look uuid;
+  BEGIN
+    FOR i IN 1 .. 3 LOOP
+      v_name := tag || ' ' || (ARRAY['إطلالة كاجوال', 'إطلالة رسمية', 'إطلالة صيفية'])[i];
+
+      SELECT id INTO v_look FROM public.looks WHERE tenant_id = v_tenant AND name = v_name;
+      CONTINUE WHEN v_look IS NOT NULL;
+
+      INSERT INTO public.looks(tenant_id, name, description, image_url, bundle_price, is_active)
+      VALUES (v_tenant, v_name,
+              (ARRAY[
+                'قميص كتان مع جينز مستقيم — مريحة لكل يوم.',
+                'سترة خفيفة مع بنطال قماشي — مناسبة للعمل والمناسبات.',
+                'تيشيرت قطني مع صندل جلد — خفيفة لحرارة الصيف.'
+              ])[i],
+              (ARRAY[
+                'https://images.unsplash.com/photo-1467043237213-65f2da53396f?w=800&q=80',
+                'https://images.unsplash.com/photo-1506152983158-b4a74a01c721?w=800&q=80',
+                'https://images.unsplash.com/photo-1539109136881-3be0616acf4b?w=800&q=80'
+              ])[i],
+              -- A real outfit discount, not a markup: every total sits below the
+              -- sum of its two pieces (9 800 / 10 100 / 9 500), so the bundle
+              -- button can never quote more than buying the pieces separately.
+              (ARRAY[9000, 9500, 7000])[i],
+              true)
+      RETURNING id INTO v_look;
+
+      -- Two products per look, taken from the seeded products by name. The
+      -- product ids are resolved here rather than hardcoded: the seed writes
+      -- v_product through RETURNING and never assumes a known uuid.
+      INSERT INTO public.look_items(look_id, product_id, variant_id)
+      SELECT v_look, p.id, NULL
+        FROM public.products p
+       WHERE p.tenant_id = v_tenant
+         AND p.name IN (
+           CASE i
+             WHEN 1 THEN tag || ' ' || p_name[1]    -- قميص كتان
+             WHEN 2 THEN tag || ' ' || p_name[2]    -- تيشيرت قطن
+             ELSE        tag || ' ' || p_name[3]    -- جينز مستقيم
+           END,
+           CASE i
+             WHEN 1 THEN tag || ' ' || p_name[3]    -- جينز
+             WHEN 2 THEN tag || ' ' || p_name[5]    -- سترة خفيفة
+             ELSE        tag || ' ' || p_name[8]    -- صندل جلد
+           END)
+         -- The unique index look_items_once allows a product only once.
+         AND NOT EXISTS (
+           SELECT 1 FROM public.look_items li WHERE li.look_id = v_look AND li.product_id = p.id);
+    END LOOP;
+  END;
+
   -- ================================================================ sales
   -- 10 historical invoices across the last 7 days, two per branch pattern.
   -- `synced_at` + a `seed:` local_id keep them out of the outbox entirely, and

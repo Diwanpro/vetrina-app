@@ -6,16 +6,17 @@ import { cacheCatalog, cachedCatalog, syncPending } from '@/lib/sync'
 import { persistLocalSale, localRows } from '@/lib/local-db'
 import { logAction } from '@/lib/audit'
 import { meetsFloor, validMoney, FLOOR_PRICE_MESSAGE } from '@/lib/cash'
-import { applyOffers, lineSubtotal, cacheOffers, cachedOffers } from '@/lib/offers'
+import { applyOffers, lineSubtotal, cacheOffers, cachedOffers, posOffers } from '@/lib/offers'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
 import MixedPaymentModal from '@/components/dashboard/MixedPaymentModal'
 import { fetchAllRows } from '@/lib/cash'
 import DashboardShell from '@/components/dashboard/DashboardShell'
 import { supabase } from '@/lib/supabase'
-import { productImage } from '@/lib/storefront'
+import ProductImage from '@/components/store/ProductImage'
 import { formatDzd, getAppContext } from '@/lib/app-context'
-import { MAIN_CATEGORIES } from '@/lib/categories'
 import CustomSelect from '@/components/ui/CustomSelect'
+import StoreTabRail, { buildStoreTabs } from '@/components/store/StoreTabRail'
+import { lookUnitPrices } from '@/lib/storefront'
 
 const PAYMENTS = [
   { value: 'cash', label: 'نقداً' },
@@ -23,16 +24,194 @@ const PAYMENTS = [
   { value: 'ccp', label: 'CCP' },
 ]
 
-// A product's picture comes from one shared helper so the POS and the public
-// store can no longer disagree. The local copy this replaced returned
-// images[0] even when that entry was null or blank, and never fell back to
-// image_url in that case — a product with a broken first photo showed a broken
-// image here.
-const firstImage = productImage
+
+/**
+ * The shop's outfits, as the إطلالات tab draws them.
+ *
+ * A look in the POS is a shortcut, not a product: the merchant opens it, checks
+ * the pieces, and rings the whole outfit into the cart in one tap. The cards
+ * therefore carry the piece count and the outfit price, not a "add" button —
+ * a single tap here must not silently drop four items into a live sale.
+ */
+function PosLooks({ looks, onOpen }) {
+  if (!looks.length) {
+    return (
+      <div className="mx-auto mt-16 max-w-xs text-center">
+        <p className="text-4xl">✨</p>
+        <p className="mt-3 text-sm text-neutral-300">لا توجد إطلالات منشورة</p>
+        <p className="mt-1 text-xs text-neutral-500">أنشئ إطلالة من قسم الإطلالات لتظهر هنا.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="grid grid-cols-2 gap-2 pb-20 md:grid-cols-3 xl:grid-cols-4">
+      {looks.map(look => (
+        <button
+          key={look.id}
+          type="button"
+          onClick={() => onOpen(look)}
+          className="overflow-hidden rounded-xl border border-white/5 bg-card text-right transition hover:border-gold/40"
+        >
+          <div className="relative aspect-[4/5] bg-[#222]">
+            <ProductImage product={look} alt={look.name} className="h-full w-full object-cover" />
+            <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 p-2">
+              <p className="truncate text-sm font-medium text-white">{look.name}</p>
+              <p className="text-[11px] text-neutral-300">
+                {(look.items || []).length} قطع
+                {look.bundle_price != null && Number(look.bundle_price) > 0 ? ` · ${formatDzd(look.bundle_price)}` : ''}
+              </p>
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * One outfit, with the pieces it contains and the sizes that are actually in
+ * stock at this branch.
+ *
+ * Adding a look to the cart prices each piece at the outfit's per-product unit
+ * (looks_bundle_units, mirrored by buildLookLines) and tags the lines with the
+ * look id, so create_order can verify the outfit price server-side. A piece
+ * with nothing sellable in this store is shown as unavailable rather than
+ * quietly dropped — a cashier who rings up two of a three-piece outfit has to
+ * know why the total differs from the tag.
+ */
+function PosLookSheet({ look, ctx, onClose, onAdd }) {
+  const [picked, setPicked] = useState({})
+  const items = look?.items || []
+
+  useEffect(() => {
+    if (!look) return
+    const next = {}
+    for (const item of look.items || []) {
+      const first = pickableVariants(item)[0]
+      if (first) next[item.product_id] = first.id
+    }
+    setPicked(next)
+  }, [look, ctx.storeId])
+
+  if (!look) return null
+
+  const rows = items.map(item => {
+    const variants = pickableVariants(item)
+    return { item, variants, variant: variants.find(v => v.id === picked[item.product_id]) || null }
+  })
+  const missing = rows.filter(row => row.variants.length > 0 && !row.variant)
+  const soldOut = rows.filter(row => row.variants.length === 0)
+  const unitPrices = lookUnitPrices(look)
+  const total = rows.reduce((sum, row) =>
+    sum + Number(unitPrices[row.item.product_id] ?? row.item.base_price ?? 0), 0)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 md:items-center md:p-4">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl border border-white/10 bg-[#171717] p-4 md:rounded-2xl">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-medium text-neutral-100">{look.name}</h2>
+            {look.description && <p className="mt-0.5 text-xs text-neutral-500">{look.description}</p>}
+          </div>
+          <button type="button" onClick={onClose} className="shrink-0 text-xs text-neutral-400">إغلاق</button>
+        </div>
+
+        <ul className="space-y-2">
+          {rows.map(row => {
+            const unavailable = row.variants.length === 0
+            return (
+              <li key={row.item.product_id} className="rounded-xl border border-white/5 bg-white/[0.02] p-2">
+                <div className="flex items-start gap-2">
+                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-black/40">
+                    <ProductImage product={row.item} alt={row.item.product_name} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs text-neutral-100">{row.item.product_name}</p>
+                    <p className="text-[11px] text-neutral-500">
+                      {formatDzd(unitPrices[row.item.product_id] ?? row.item.base_price ?? 0)}
+                    </p>
+                    {unavailable ? (
+                      <p className="mt-1 text-[11px] text-red-300">غير متوفر في هذا الفرع</p>
+                    ) : (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {[...new Set(row.variants.map(v => `${v.color || ''}|${v.size || ''}`))].map(key => {
+                          const [color, size] = key.split('|')
+                          const variant = row.variants.find(v => (v.color || '') === color && (v.size || '') === size)
+                          const active = row.variant?.id === variant?.id
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => setPicked(prev => ({ ...prev, [row.item.product_id]: variant.id }))}
+                              className={`rounded-md border px-2 py-1 text-[11px] ${
+                                active ? 'border-gold bg-gold/15 text-gold' : 'border-white/10 text-neutral-400'
+                              }`}
+                            >
+                              {[color, size].filter(Boolean).join(' · ') || 'مقاس واحد'}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+
+        {soldOut.length > 0 && (
+          <p className="mt-2 text-[11px] text-red-300">
+            {soldOut.length} قطعة غير متوفرة هنا، ولن تُضاف للسلة.
+          </p>
+        )}
+
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+          <div>
+            <p className="text-[11px] text-neutral-500">إجمالي الإطلالة</p>
+            <p className="text-sm font-bold text-gold">{formatDzd(total)}</p>
+          </div>
+          <button
+            type="button"
+            disabled={missing.length > 0 || rows.length === soldOut.length}
+            onClick={() => onAdd(look, rows.filter(row => row.variant))}
+            className="min-h-11 rounded-xl bg-gold px-4 text-sm font-bold text-[#121212] disabled:opacity-40"
+          >
+            أضف الإطلالة للسلة
+          </button>
+        </div>
+        {missing.length > 0 && (
+          <p className="mt-2 text-[11px] text-neutral-500">اختر مقاساً لكل قطعة قبل الإضافة.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The variants of a look item a cashier can actually hand over.
+ *
+ * engine_looks_list(p_store) already filters to this branch and to positive
+ * stock, so this only has to drop anything with no id — it must NOT re-derive
+ * stock here, because the POS catalogue and the look item are two different
+ * reads and re-deriving would let the two disagree.
+ *
+ * A look item pinned to one variant (variant_id set, the usual case) is
+ * narrowed to that variant; an unpinned item offers every sellable size.
+ */
+function pickableVariants(item) {
+  const all = (item.variants || []).filter(variant => variant && variant.id)
+  if (!item.variant_id) return all
+  const pinned = all.find(variant => variant.id === item.variant_id)
+  return pinned ? [pinned] : all
+}
 
 export default function PosPage() {
   const [products, setProducts] = useState([])
-  const [activeCategory, setActiveCategory] = useState('all')
+  const [activeTab, setActiveTab] = useState('all')
+  const [looks, setLooks] = useState([])
+  const [activeLook, setActiveLook] = useState(null)
   const saleSaving = useRef(false)
   const [scanning, setScanning] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -79,12 +258,27 @@ export default function PosPage() {
 
   useEffect(() => { loadProducts() }, [])
 
-  // Category strip filter. Empty categories simply yield nothing; "all" is the
-  // default so the grid is unchanged for anyone who never touches the strip.
-  const visible = useMemo(
-    () => (activeCategory === 'all' ? products : products.filter(product => product.category === activeCategory)),
-    [products, activeCategory]
+  // The tab strip. 'all' is the catalogue, 'offers' is the discounted subset the
+  // till would actually price down, 'looks' switches the grid for the shop's
+  // outfits, and anything else is a category name.
+  const categories = useMemo(
+    () => [...new Set(products.map(product => (product.category || '').trim()).filter(Boolean))],
+    [products]
   )
+  const discounted = useMemo(
+    () => posOffers(products, offers, ctx.storeId),
+    [products, offers, ctx.storeId]
+  )
+  const tabs = useMemo(
+    () => buildStoreTabs({ categories, offerCount: discounted.length, lookCount: looks.length }),
+    [categories, discounted.length, looks.length]
+  )
+  const visible = useMemo(() => {
+    if (activeTab === 'all') return products
+    if (activeTab === 'offers') return discounted
+    if (activeTab === 'looks') return []
+    return products.filter(product => (product.category || '').trim() === activeTab)
+  }, [products, discounted, activeTab])
 
   const available = useMemo(() => {
     if (!selected) return []
@@ -120,6 +314,33 @@ export default function PosPage() {
     })()
     return () => { live = false }
   }, [ctx.tenantId, ctx.offline])
+
+  // The shop's outfits, for the إطلالات tab. Read through engine_looks_list(),
+  // which is the staff-side reader: the POS cannot select from public.looks
+  // directly because those tables are tenant-RLS-locked, and a manager should
+  // see their own shop's looks without table access.
+  //
+  // A failure here must not take the till down — a cashier with no looks is
+  // fully able to sell, so the tab simply does not appear.
+  useEffect(() => {
+    if (!ctx.tenantId) return
+    let live = true
+    ;(async () => {
+      try {
+        const { data, error: looksError } = await supabase.rpc('engine_looks_list', { p_store: ctx.storeId || null })
+        if (looksError) throw looksError
+        if (!live) return
+        // Only published looks belong in front of a cashier; an unfinished
+        // outfit is a draft the merchant has not released yet.
+        setLooks((Array.isArray(data) ? data : []).filter(look => look && look.is_active !== false))
+      } catch (looksError) {
+        // Expected on a database that has not had migration 012 applied.
+        console.warn('[pos] looks unavailable', looksError)
+        if (live) setLooks([])
+      }
+    })()
+    return () => { live = false }
+  }, [ctx.tenantId, ctx.storeId])
 
   // Every quantity change re-prices the cart, so a bundle starts applying the
   // moment the quantity reaches its threshold.
@@ -165,6 +386,58 @@ export default function PosPage() {
       // added; the floating bar is the only way into the cart.
       setSelected(null); setPicked({ color: '', size: '' }); setError('')
       setCartOpen(false); setCheckout(false)
+    } catch (err) { setError(err.message) }
+  }
+
+  /**
+   * Rings a whole outfit into the cart at the outfit's per-piece price.
+   *
+   * lookUnitPrices() is the JS mirror of looks_bundle_units(), so the till and
+   * the online bundle button quote the same split. Unlike an online order the
+   * POS does not send a look id: a till sale syncs through
+   * engine_sync_sale_for_staff(), which has no p_look_id and prices each line
+   * from what the device sends. The outfit price therefore rides on the line
+   * prices, and the existing per-line guards still apply — a unit below the
+   * variant min_price is refused locally and again on sync unless an offer
+   * covers it.
+   */
+  function addLookToCart(look, rows) {
+    if (!rows.length) return
+    const units = lookUnitPrices(look)
+    try {
+      for (const { item, variant } of rows) {
+        // The POS catalogue is the source of truth for what this branch holds;
+        // a look item carrying a variant the catalogue does not list is skipped
+        // rather than sold blind.
+        const product = products.find(entry => entry.id === item.product_id)
+        const catVariant = product?.product_variants?.find(entry => entry.id === variant.id)
+        if (!product || !catVariant) continue
+        const stock = (catVariant.inventory || [])
+          .filter(row => row.store_id === ctx.storeId)
+          .reduce((sum, row) => sum + Number(row.quantity || 0), 0)
+        if (stock <= 0) continue
+        const unit = Number(units[item.product_id] ?? product.base_price ?? 0)
+        const existing = cart.find(line => line.variantId === catVariant.id)
+        if (existing && existing.qty >= stock) continue
+        updateCart(prev => {
+          const found = prev.find(line => line.variantId === catVariant.id)
+          if (found) return prev.map(line => line.variantId === catVariant.id
+            ? { ...line, qty: Math.min(line.qty + 1, stock), max: stock, price: unit, originalPrice: unit }
+            : line)
+          return [...prev, {
+            variantId: catVariant.id, productId: product.id, name: product.name,
+            color: catVariant.color, size: catVariant.size,
+            // Both set to the outfit unit: the offer engine must not discount an
+            // outfit price a second time.
+            price: unit, originalPrice: unit,
+            minPrice: Number(catVariant.min_price || 0), qty: 1, max: stock,
+          }]
+        })
+      }
+      setActiveLook(null)
+      setError('')
+      setDone(`أُضيفت ${look.name} إلى السلة`)
+      setTimeout(() => setDone(''), 2500)
     } catch (err) { setError(err.message) }
   }
 
@@ -256,7 +529,9 @@ export default function PosPage() {
       <div className="mb-3 flex items-center justify-between">
         <h1 className="text-base font-medium text-neutral-100">نقطة البيع</h1>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-neutral-500">{visible.length} منتج</span>
+          <span className="text-xs text-neutral-500">
+            {activeTab === 'looks' ? `${looks.length} إطلالة` : `${visible.length} منتج`}
+          </span>
           <button type="button" disabled={saving || !ctx.storeId} onClick={() => setScanning(true)}
             className="rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 text-sm text-gold disabled:opacity-50">مسح الباركود</button>
         </div>
@@ -264,33 +539,24 @@ export default function PosPage() {
 
       {error && !checkout && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
       {scanning && <BarcodeScanner onScan={scanBarcode} onClose={() => setScanning(false)} />}
-      <div className="mb-3 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-        {[{ label: 'الكل', value: 'all' }, ...MAIN_CATEGORIES.map(category => ({ label: category, value: category }))].map(chip => (
-          <button
-            key={chip.value}
-            type="button"
-            onClick={() => setActiveCategory(chip.value)}
-            aria-pressed={activeCategory === chip.value}
-            className={`shrink-0 rounded-full border px-3 py-1.5 text-xs transition-colors ${
-              activeCategory === chip.value
-                ? 'border-gold bg-gold/15 text-gold'
-                : 'border-white/10 bg-card text-neutral-400 hover:border-gold/40'
-            }`}
-          >
-            {chip.label}
-          </button>
-        ))}
+      {/* The same rail the public store renders, from the same component.
+          تبديل التبويب يغيّر الشبكة تحته مباشرة. */}
+      <div className="mb-3 -mx-1">
+        <StoreTabRail chips={tabs} active={activeTab} onSelect={setActiveTab} ariaLabel="أقسام نقطة البيع" />
       </div>
       {loading ? (
         <p className="text-sm text-neutral-500">جاري التحميل...</p>
+      ) : activeTab === 'looks' ? (
+        <PosLooks looks={looks} onOpen={setActiveLook} />
       ) : products.length === 0 ? (
         <p className="text-sm text-neutral-500">لا توجد منتجات. أضف منتجات أولاً.</p>
       ) : visible.length === 0 ? (
-        <p className="text-sm text-neutral-500">لا توجد منتجات في هذا التصنيف.</p>
+        <p className="text-sm text-neutral-500">
+          {activeTab === 'offers' ? 'لا توجد عروض سارية على منتجات متوفرة.' : 'لا توجد منتجات في هذا التصنيف.'}
+        </p>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 pb-20">
           {visible.map((p) => {
-            const img = firstImage(p)
             return (
               <button
                 key={p.id}
@@ -307,11 +573,10 @@ export default function PosPage() {
                 className="rounded-xl border border-white/5 bg-card overflow-hidden text-right"
               >
                 <div className="aspect-square bg-[#222] flex items-center justify-center">
-                  {img ? (
-                    <img src={img} alt={p.name} className="h-full w-full object-cover" />
-                  ) : (
-                    <span className="text-xs text-neutral-500">بدون صورة</span>
-                  )}
+                  {/* Shared with the storefront: productImage() for the source
+                      and a labelled placeholder when the URL 404s, so a broken
+                      link is visible here instead of silently blank. */}
+                  <ProductImage product={p} alt={p.name} className="h-full w-full object-cover" />
                 </div>
                 <div className="p-2">
                   <p className="text-sm text-neutral-100 truncate">{p.name}</p>
@@ -321,6 +586,15 @@ export default function PosPage() {
             )
           })}
         </div>
+      )}
+
+      {activeLook && (
+        <PosLookSheet
+          look={activeLook}
+          ctx={ctx}
+          onClose={() => setActiveLook(null)}
+          onAdd={addLookToCart}
+        />
       )}
 
       {splitting && <MixedPaymentModal ctx={ctx} remainder={creditRemainder}

@@ -254,10 +254,21 @@ test('the seed uses Unsplash CDN ids, not picsum or page slugs', () => {
   assert.doesNotMatch(withoutComments, /picsum\.photos/,
     'no product image may point at picsum any more')
 
-  const urls = [...seed.matchAll(/'https:\/\/images\.unsplash\.com\/(photo-[^'?]+)\?/g)].map(m => m[1])
+  // Scoped to the p_image array: looks carry covers of their own, and counting
+  // the whole file would let an outfit cover mask a missing product photo.
+  const imageBlock = seed.slice(seed.indexOf('p_image  constant text[]'))
+  const pImage = imageBlock.slice(0, imageBlock.indexOf('];'))
+  const urls = [...pImage.matchAll(/'https:\/\/images\.unsplash\.com\/(photo-[^'?]+)\?/g)].map(m => m[1])
   assert.equal(urls.length, 30, 'expected two photos for each of the 15 products')
 
-  for (const id of urls) {
+  // The seeded looks need a real cover too, or the إطلالات tab shows a wall of
+  // placeholders in the demo data.
+  const looksBlock = seed.slice(seed.indexOf('INSERT INTO public.looks(tenant_id'))
+  const covers = [...looksBlock.slice(0, looksBlock.indexOf('RETURNING id')).matchAll(
+    /https:\/\/images\.unsplash\.com\/(photo-[^'?]+)\?/g)].map(m => m[1])
+  assert.ok(covers.length >= 1, 'seeded looks must carry a real cover')
+
+  for (const id of [...urls, ...covers]) {
     // The CDN form is photo-<timestamp>-<hash>. A bare page slug such as
     // photo-WWesmHEgXDs is what unsplash.com/photos/ uses and does not resolve
     // on images.unsplash.com.

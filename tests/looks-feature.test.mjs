@@ -207,17 +207,79 @@ test('video links are validated before being shown or saved', () => {
   assert.match(looks, /safeVideoUrl\(form\.videoUrl\)/)
 })
 
-test('the bundle total the client shows equals the bundle price', async () => {
+// lib/storefront.js imports './offers' without an extension, which a bare
+// import() cannot resolve. Inlining offers.js the way delivery-rates.test.mjs
+// does keeps the real function under test instead of skipping it.
+const offersSrc = await fs.readFile(path.join(ROOT, 'lib/offers.js'), 'utf8')
+const storefrontSrc = (await fs.readFile(path.join(ROOT, 'lib/storefront.js'), 'utf8'))
+  .replace(/^import .*$/m, '')
+const { lookUnitPrices } = await import(
+  `data:text/javascript;base64,${Buffer.from(`${offersSrc}\n${storefrontSrc}`).toString('base64')}`)
+
+test('the bundle total the client shows equals the bundle price', () => {
   // Same split as the SQL: floor division, remainder on the last product.
-  const { lookUnitPrices } = await import(path.join(ROOT, 'lib/storefront.js')).catch(() => ({}))
-  if (!lookUnitPrices) return // Next-style extensionless imports are not resolvable here.
   for (const [units, total] of [[2, 10000], [3, 10000], [3, 1000], [5, 999]]) {
-    const look = { bundle_price: total, items: Array.from({ length: units }, (_, i) => ({ product_id: `p${i}`, name: `N${i}` })) }
+    const look = { bundle_price: total, items: Array.from({ length: units }, (_, i) => ({ product_id: `p${i}`, product_name: `N${i}` })) }
     const prices = lookUnitPrices(look)
     const sum = Object.values(prices).reduce((a, b) => a + b, 0)
     assert.equal(sum, total, `${units} units at ${total}`)
   }
 })
+
+test('the bundle split follows each piece price, not the head count', () => {
+  // An equal split gave an 8 200 jacket and a 1 900 tee 5 000 each at a 10 000
+  // bundle: a 3 100 markup on the tee, and the staff sync path rejects any line
+  // priced below the variant min_price, so the till could refuse the outfit.
+  const look = {
+    bundle_price: 10000,
+    items: [
+      { product_id: 'tee', product_name: 'تيشيرت', base_price: 1900 },
+      { product_id: 'jacket', product_name: 'سترة', base_price: 8200 },
+    ],
+  }
+  const prices = lookUnitPrices(look)
+  assert.equal(prices.tee + prices.jacket, 10000)
+  assert.ok(prices.tee < prices.jacket, 'the cheaper piece must carry the smaller share')
+  assert.ok(prices.tee < 1900, 'the tee keeps its own price, not half the bundle')
+})
+
+test('the split is exact for awkward totals and both item shapes', () => {
+  // Totals at or below the pieces' own sum (12 000): only then is a unit price
+  // bounded by the piece price. A bundle above that sum is a markup in the data,
+  // not a rounding problem, so it is checked for exactness only.
+  for (const total of [999, 7000, 9000, 9500, 10001, 11999]) {
+    const items = [
+      { product_id: 'a', product_name: 'قميص', base_price: 4200 },
+      { product_id: 'b', product_name: 'جينز', base_price: 5600 },
+      { product_id: 'c', product_name: 'حزام', base_price: 2200 },
+    ]
+    const prices = lookUnitPrices({ bundle_price: total, items })
+    assert.equal(Object.values(prices).reduce((x, y) => x + y, 0), total, `total ${total}`)
+    // Never below zero, and never more than the piece's own price.
+    for (const item of items) {
+      assert.ok(prices[item.product_id] >= 0)
+      assert.ok(prices[item.product_id] <= item.base_price, `${item.product_name} at ${total}`)
+    }
+    // The public reader names the field `name`; the staff reader `product_name`.
+    const publicShape = lookUnitPrices({
+      bundle_price: total,
+      items: items.map(i => ({ product_id: i.product_id, name: i.product_name, base_price: i.base_price })),
+    })
+    assert.deepEqual(publicShape, prices, `both shapes agree at ${total}`)
+  }
+})
+
+test('looks_bundle_units uses the same proportional rule as the client', async () => {
+  const imagesFix = await sqlOf('supabase/migrations/202611120014_look_item_images.sql')
+  const fn = imagesFix.slice(imagesFix.indexOf('CREATE OR REPLACE FUNCTION public.looks_bundle_units'))
+  const body = fn.slice(0, fn.indexOf('END $$;'))
+  // Proportional, not equal: shares are scaled by base_price over the gross.
+  assert.match(body, /\(total \* p\.base_price\) \/ gross/)
+  assert.match(body, /largest remainder|Leftover|leftover/i)
+  // And the equal split survives only as the no-prices fallback.
+  assert.match(body, /IF coalesce\(gross, 0\) <= 0 THEN/)
+})
+
 
 // ---------------------------------------- look item pictures (202611120014)
 

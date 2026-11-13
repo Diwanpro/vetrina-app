@@ -274,17 +274,29 @@ test('productsForTab resolves كل / عروض / a category name', () => {
 
 test('the storefront renders tabs and reads images through productImage()', async () => {
   const ui = await fs.readFile(new URL('../components/store/Storefront.js', import.meta.url), 'utf8')
-  // The rail and all three fixed tabs exist.
+  const rail = await fs.readFile(new URL('../components/store/StoreTabRail.js', import.meta.url), 'utf8')
+  // The three fixed tabs moved into the shared rail so the POS can draw the
+  // identical bar; both screens build them through buildStoreTabs().
   for (const label of ['الكل', 'عروض', 'إطلالات']) {
-    assert.ok(ui.includes(`'${label}'`) || ui.includes(`label: '${label}'`), `missing tab ${label}`)
+    assert.ok(rail.includes(`'${label}'`), `missing tab ${label} in the shared rail`)
   }
-  assert.match(ui, /className="sf-rail mt-4 flex gap-2 overflow-x-auto px-4 pb-1"/)
+  assert.match(rail, /sf-rail[^"]*flex[^"]*overflow-x-auto/)
+  assert.match(ui, /buildStoreTabs\(/)
   // Lists come from the tested helpers, not from inline filtering.
   assert.match(ui, /productsForTab\(products, tab\)/)
   assert.match(ui, /offersOf\(products\)/)
   // A plain <img>, never next/image: the URLs are arbitrary Unsplash CDN links
   // and next/image would require each host in remotePatterns.
   assert.doesNotMatch(ui, /from 'next\/image'/)
-  assert.match(ui, /<img src=\{productImage\(/)
-  assert.match(ui, /productImage\(look\)/)
+  assert.doesNotMatch(rail, /from 'next\/image'/)
+  // Pictures go through the one shared component, which owns the <img>, the
+  // productImage() source and the visible onError placeholder.
+  assert.match(ui, /import ProductImage from '\.\/ProductImage'/)
+  assert.match(ui, /<ProductImage product=\{product\}/)
+  assert.match(ui, /<ProductImage product=\{look\}/)
+  const image = await fs.readFile(new URL('../components/store/ProductImage.js', import.meta.url), 'utf8')
+  assert.match(image, /<img/)
+  assert.match(image, /src=\{src\}/)
+  assert.match(image, /onError=/)
+  assert.match(image, /console\.warn\(/)
 })
