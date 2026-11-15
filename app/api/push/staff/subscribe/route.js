@@ -28,7 +28,10 @@ export async function DELETE(request) {
   try {
     const body = await request.json()
     const ctx = await authorizeDispatch(request, body.storeId)
-    const { error } = await adminClient().from('staff_push_subscriptions').delete().eq('staff_id', ctx.staffId).eq('store_id', body.storeId).eq('endpoint', String(body.endpoint || ''))
+    let query = adminClient().from('staff_push_subscriptions').delete().eq('staff_id', ctx.staffId).eq('tenant_id', ctx.tenantId).eq('endpoint', String(body.endpoint || ''))
+    // Reset invalidates this device's browser endpoint for ALL branch opt-ins.
+    if (!body.reset) query = query.eq('store_id', body.storeId)
+    const { error } = await query
     if (error) throw error
     return Response.json({ ok: true })
   } catch (err) {

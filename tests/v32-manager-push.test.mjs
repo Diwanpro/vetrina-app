@@ -49,7 +49,8 @@ test('service worker action opens alerts; staff UI shares existing browser subsc
  const ui=await read('components/dashboard/ManagerPushOptIn.js')
  assert.match(sw,/url.startsWith\('\/dashboard\/alerts'\)/)
  assert.match(ui,/getSubscription\(\)/)
- assert.doesNotMatch(ui,/\.unsubscribe\(\)/)
+ assert.match(ui,/kind === 'reset' && subscription/)
+ assert.match(ui,/subscription.unsubscribe\(\)/)
  assert.doesNotMatch(ui,/<select\b/)
 })
 test('real Web Push sender encrypts payload and sets VAPID/high priority (local transport, not a phone)', async () => {

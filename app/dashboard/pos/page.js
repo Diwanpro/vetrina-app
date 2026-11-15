@@ -19,6 +19,7 @@ import StoreTabRail, { buildStoreTabs } from '@/components/store/StoreTabRail'
 import { lookUnitPrices } from '@/lib/storefront'
 import KeyboardWedgeListener from '@/components/dashboard/KeyboardWedgeListener'
 import ReceiptPrinter from '@/components/dashboard/ReceiptPrinter'
+import { StorefrontLink } from '@/components/dashboard/BranchStoreLinks'
 import { mergeMockProducts } from '@/lib/mock-catalog'
 
 const PAYMENTS = [
@@ -572,8 +573,9 @@ export default function PosPage() {
 
   return (
     <DashboardShell active="/dashboard/pos">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-base font-medium text-neutral-100">نقطة البيع</h1>
+        <StorefrontLink ctx={ctx} />
         <div className="flex items-center gap-3">
           <span className="text-xs text-neutral-500">
             {activeTab === 'looks' ? `${looks.length} إطلالة` : `${visible.length} منتج`}

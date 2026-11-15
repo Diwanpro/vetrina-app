@@ -7,6 +7,7 @@ import { pendingRows } from '@/lib/local-db'
 import { syncPending } from '@/lib/sync'
 import ExpenseButton from './ExpenseButton'
 import ShiftManager from './ShiftManager'
+import BranchStoreLinks from './BranchStoreLinks'
 import CustomSelect from '@/components/ui/CustomSelect'
 
 export default function TopBar() {
@@ -93,6 +94,7 @@ export default function TopBar() {
       </div>
     </div>
 
+    <BranchStoreLinks ctx={ctx} />
     {(error || pendingErrors) && <p role="alert" className="px-3 pb-2 text-xs text-red-300 md:px-4">
       {error || 'توجد فواتير تحتاج مراجعة؛ افتح الإعدادات للاطلاع على سبب تعذر المزامنة.'}
     </p>}
