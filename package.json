@@ -16,7 +16,8 @@
     "next": "^15.1.6",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "web-push": "^4.0.0"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.20",

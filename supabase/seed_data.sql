@@ -181,14 +181,16 @@ BEGIN
    ORDER BY s.created_at NULLS LAST, s.id LIMIT 1;
 
   IF NOT EXISTS (SELECT 1 FROM public.stores WHERE tenant_id = v_tenant AND name = tag || ' فرع 2 · باب الزوار') THEN
-    INSERT INTO public.stores(tenant_id, name, address, phone, slug, store_enabled, show_prices, store_type)
+    -- v3.1 demo: one tenant owns three DIFFERENT branch specialties. This
+    -- «متعدد» branch picks the feminine theme as its merchant default.
+    INSERT INTO public.stores(tenant_id, name, address, phone, slug, store_enabled, show_prices, store_type, theme_key)
     VALUES (v_tenant, tag || ' فرع 2 · باب الزوار', 'باب الزوار، الجزائر العاصمة',
-            '0550100102', 'seed-branch-2', true, true, 'mens');
+            '0550100102', 'seed-branch-2', true, true, 'mixed', 'feminine');
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.stores WHERE tenant_id = v_tenant AND name = tag || ' فرع 3 · قسنطينة') THEN
-    INSERT INTO public.stores(tenant_id, name, address, phone, slug, store_enabled, show_prices, store_type)
+    INSERT INTO public.stores(tenant_id, name, address, phone, slug, store_enabled, show_prices, store_type, theme_key)
     VALUES (v_tenant, tag || ' فرع 3 · قسنطينة', 'وسط مدينة قسنطينة',
-            '0550100103', 'seed-branch-3', true, true, 'womens');
+            '0550100103', 'seed-branch-3', true, true, 'womens', 'classic');
   END IF;
   SELECT id INTO v_store2 FROM public.stores WHERE tenant_id = v_tenant AND name = tag || ' فرع 2 · باب الزوار';
   SELECT id INTO v_store3 FROM public.stores WHERE tenant_id = v_tenant AND name = tag || ' فرع 3 · قسنطينة';

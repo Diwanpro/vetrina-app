@@ -211,6 +211,7 @@ stores	hide_products_without_image	YES	-	boolean
 stores	delivery_rates	YES	-	jsonb	
 stores	created_at	YES	now()	timestamptz	
 stores	store_type	NO	'mens'::text	text
+stores	theme_key	NO	'classic'::text	text
 suppliers	id	NO	gen_random_uuid()	uuid	
 suppliers	tenant_id	NO	-	uuid	
 suppliers	name	NO	-	text	

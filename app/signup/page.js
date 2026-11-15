@@ -11,9 +11,9 @@ import { STORE_TYPE_OPTIONS } from '@/lib/store-catalog'
 // Public page: no auth required to render. The auth account is created by
 // GoTrue, then engine_create_trial_tenant builds tenant/store/owner inside one
 // SECURITY DEFINER transaction (tenants has RLS with no policies, so a browser
-// insert is not possible by design). P5: «نوع المتجر» is mandatory and travels
-// with the RPC, so the dashboard and storefront load the right mock catalogue
-// from the very first session.
+// insert is not possible by design). v3.1: the mandatory «تخصص الفرع الأول»
+// travels with the RPC. It belongs to the first BRANCH, not to the account;
+// later branches can choose a different specialty from dashboard settings.
 export default function SignupPage() {
   const router = useRouter()
   const [form, setForm] = useState({
@@ -80,17 +80,17 @@ export default function SignupPage() {
               <input required maxLength={200} disabled={busy} value={form.storeName} onChange={set('storeName')} className={`${fieldClass} mt-1.5`} />
             </label>
             <div className="block text-sm text-neutral-300">
-              <span className="mb-1.5 block">نوع المتجر <span className="text-gold">*</span></span>
+              <span className="mb-1.5 block">تخصص الفرع الأول <span className="text-gold">*</span></span>
               <CustomSelect
                 value={form.storeType}
                 disabled={busy}
                 onChange={value => setForm(current => ({ ...current, storeType: value }))}
                 options={STORE_TYPE_OPTIONS}
-                placeholder="اختر نوع المتجر"
-                aria-label="نوع المتجر"
+                placeholder="اختر تخصص الفرع"
+                aria-label="تخصص الفرع الأول"
                 className={fieldClass}
               />
-              <span className="mt-1 block text-[11px] text-neutral-500">يحدد التصنيفات الذكية والبيانات التجريبية التي تظهر في لوحة التحكم والمتجر العام.</span>
+              <span className="mt-1 block text-[11px] text-neutral-500">خاص بهذا الفرع فقط: يحدد التصنيفات الذكية والبيانات التجريبية والقالب. يمكنك إضافة فروع بتخصصات مختلفة لاحقاً.</span>
             </div>
             <label className="block text-sm text-neutral-300">اسم المالك
               <input required maxLength={200} disabled={busy} value={form.ownerName} onChange={set('ownerName')} className={`${fieldClass} mt-1.5`} />

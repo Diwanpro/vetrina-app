@@ -17,6 +17,8 @@ import OrderSuccess from './OrderSuccess'
 import StoreTabRail, { buildStoreTabs } from './StoreTabRail'
 import ProductImage from './ProductImage'
 import { mergeMockProducts } from '@/lib/mock-catalog'
+import { resolveStoreTheme, themeClass } from '@/lib/store-theme'
+import StorePwa from './StorePwa'
 
 function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) {
   const single = product.variants.length === 1 ? product.variants[0] : null
@@ -31,10 +33,10 @@ function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) 
 
   return (
     <article
-      className="sf-fade-up group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]"
+      className="sf-fade-up sf-card group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]"
       style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
     >
-      <div className="relative aspect-[3/4] overflow-hidden bg-[#0d0d0d]">
+      <div className="sf-product-media relative aspect-[3/4] overflow-hidden bg-[#0d0d0d]">
         {/* The same element the POS uses: productImage() picks the source, and a
             URL that 404s now draws a labelled placeholder instead of an empty
             square, so a bad link is visible here rather than only in the logs. */}
@@ -291,6 +293,12 @@ export default function Storefront({ slug }) {
   const total = cartTotal(priced)
   const showPrices = store?.show_prices !== false
   const orderingEnabled = store?.accepts_orders !== false
+  // v3.1 Theme Engine: women's = feminine, men's = classic, mixed = the
+  // merchant's chosen default. Resolved from THIS branch's metadata.
+  const storeTheme = useMemo(
+    () => resolveStoreTheme(store?.store_type, store?.theme_key),
+    [store?.store_type, store?.theme_key],
+  )
 
   // `override` is the outfit's unit price for this piece. It is only a display
   // figure here: create_order recomputes it from the look, so a tampered value
@@ -383,7 +391,7 @@ export default function Storefront({ slug }) {
   }
 
   return (
-    <div className="relative min-h-screen pb-28">
+    <div className={`relative min-h-screen pb-28 ${themeClass(storeTheme)}`} data-store-theme={storeTheme}>
       {store && <StoreHeader store={store} cartCount={count} onCart={() => setCartOpen(true)} />}
 
       {status === 'loading' || !store ? (
@@ -454,7 +462,7 @@ export default function Storefront({ slug }) {
             className="sf-fade-up mx-auto flex min-h-14 w-full max-w-lg items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-[#1a1a1a]/90 px-4 shadow-[0_16px_40px_rgba(0,0,0,0.55)] backdrop-blur-xl active:scale-[0.99] sm:max-w-2xl"
           >
             <span className="flex items-center gap-2 text-sm font-medium text-neutral-100">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold text-xs font-bold text-[#121212]">{count}</span>
+              <span className="sf-badge flex h-8 w-8 items-center justify-center rounded-full bg-gold text-xs font-bold text-[#121212]">{count}</span>
               عرض السلة
             </span>
             <span className="text-sm font-bold text-gold">{showPrices ? formatMoney(total) : 'متابعة'}</span>
@@ -511,6 +519,10 @@ export default function Storefront({ slug }) {
           onContinue={() => setSuccess(null)}
         />
       )}
+
+      {/* v3.1: dynamic branch manifest, service worker, install prompt and
+          branch-scoped push opt-in. Rendered only when the store is loaded. */}
+      <StorePwa slug={slug} store={store} />
     </div>
   )
 }

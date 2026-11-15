@@ -27,7 +27,7 @@ export default function SessionProvider({ children }) {
     window.addEventListener('online', refresh); window.addEventListener('focus', refresh); window.addEventListener('vetrina:auth', refresh)
     const timer = setInterval(refresh, 60000)
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-      navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready).then(registration => {
+      navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).then(() => navigator.serviceWorker.ready).then(registration => {
         const urls = performance.getEntriesByType('resource').map(entry => entry.name).filter(url => url.includes('/_next/static/'))
         if (['/dashboard', '/dashboard/pos'].includes(location.pathname)) urls.push(location.href)
         registration.active?.postMessage({ type: 'CACHE_ASSETS', urls })

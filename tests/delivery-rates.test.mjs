@@ -246,7 +246,7 @@ test('the repair migration folds hand-written keys into canonical codes', () => 
 
 test('the settings screen edits all 58 wilayas through the RPC', () => {
   const flat = strip(settings)
-  assert.match(flat, /select\('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates, slug, store_type'\)/)
+  assert.match(flat, /select\('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates, slug, store_type, theme_key'\)/)
   assert.match(flat, /supabase\.rpc\('engine_update_delivery_rates', \{ p_store: ctx\.storeId, p_rates: payload,? \}\)/)
   assert.match(flat, /WILAYAS\.map\(wilaya => \(/)
   assert.equal(WILAYAS.length, 58)

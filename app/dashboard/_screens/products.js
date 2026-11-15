@@ -15,6 +15,7 @@ import { selectClass } from '@/components/dashboard/EngineUI'
 import CustomSelect from '@/components/ui/CustomSelect'
 import SearchableSelect from '@/components/ui/SearchableSelect'
 import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
+import { notifyBranchPush } from '@/lib/push/client'
 
 const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
 function firstImage(product) {
@@ -334,6 +335,10 @@ export default function ProductsPage() {
       return
     }
 
+    // v3.1: a NEW product automatically notifies only this branch's customers.
+    // Fire-and-forget: a push failure must never undo a saved product.
+    const createdName = form.name.trim()
+    void notifyBranchPush({ storeId: ctx.storeId, kind: 'product', name: createdName }).catch(() => {})
     setOpen(false)
     setForm({ name: '', description: '', category: MAIN_CATEGORIES[0], subcategory: '', base_price: '', cost_price: '', barcode: '', external_video_url: '', imageFile: null, imagePreview: '' })
     setSizeType(SIZE_TYPES[0].value)

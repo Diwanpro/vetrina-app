@@ -14,12 +14,13 @@ const {
   mockStorefrontProducts, mergeMockProducts,
 } = await import('../lib/mock-catalog.js')
 
-test('the two mandatory store types drive the product-type tree', () => {
-  assert.deepEqual(STORE_TYPE_OPTIONS.map(option => option.value), ['mens', 'womens'])
-  assert.deepEqual(STORE_TYPE_OPTIONS.map(option => option.label), ['ملابس رجالية', 'ملابس نسائية'])
+test('the three mandatory branch specialties drive the product-type tree', () => {
+  assert.deepEqual(STORE_TYPE_OPTIONS.map(option => option.value), ['mens', 'womens', 'mixed'])
+  assert.deepEqual(STORE_TYPE_OPTIONS.map(option => option.label), ['ملابس رجالية', 'ملابس نسائية', 'متعدد'])
   assert.deepEqual([...PRODUCT_TYPES], ['ملابس', 'أحذية', 'إكسسوارات'])
   assert.equal(normalizeStoreType('other'), 'mens')
   assert.equal(storeTypeLabel('womens'), 'ملابس نسائية')
+  assert.equal(storeTypeLabel('mixed'), 'متعدد')
 })
 
 test('categories cascade by store type and product type', () => {

@@ -7,6 +7,7 @@ import { fetchAllRows } from '@/lib/cash'
 import { getAppContext, formatDzd } from '@/lib/app-context'
 import { priceLine } from '@/lib/offers'
 import { supabase } from '@/lib/supabase'
+import { notifyBranchPush } from '@/lib/push/client'
 
 const KINDS = [
   { label: 'خصم بالنسبة المئوية', value: 'percent' },
@@ -86,6 +87,9 @@ export default function OffersPage() {
       })
       if (rpcError) throw rpcError
       setSuccess('تم حفظ العرض على كل مقاسات المنتج')
+      // v3.1: a promotional offer automatically notifies this branch only.
+      const offerName = name.trim() || 'عرض جديد'
+      void notifyBranchPush({ storeId: ctx?.storeId, kind: 'offer', name: offerName }).catch(() => {})
       setPercent(''); setOfferPrice(''); setName('')
       await load()
     } catch (err) { setError(err.message || 'تعذر حفظ العرض') } finally { setBusy(false) }
