@@ -1,6 +1,7 @@
--- Manual verification of the P1 shipping RLS on a LIVE Supabase project.
--- Run as an SQL editor/admin AFTER applying 202611120015. These statements are
--- documentation-style checks (the node test suite cannot reach Postgres here).
+-- Manual verification of the P1/P3 shipping RLS on a LIVE Supabase project.
+-- Run as an SQL editor/admin AFTER applying 202611120015 + 202611120016. These
+-- statements are documentation-style checks (the node test suite cannot reach
+-- Postgres here).
 --
 -- Goal: an authenticated staff member can read their tenant's shipments, but
 -- can never SELECT the merchant's encrypted API keys, and anon sees nothing.
@@ -47,3 +48,17 @@ SELECT column_name, data_type
 
 -- 8) Idempotency: two webhook events with the same (provider_code, event_key)
 --    must conflict on shipment_events_key.
+
+-- 9) P3 snapshot RPC exists, is a definer function, and is not callable by anon.
+SELECT p.proname, pg_get_function_result(p.oid) AS result, p.prosecdef, p.provolatile
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+ WHERE n.nspname = 'public' AND p.proname = 'engine_order_shipping_snapshot';
+-- Expect 1 row: result = jsonb, prosecdef = true, provolatile = s.
+SELECT has_function_privilege('anon', 'public.engine_order_shipping_snapshot(uuid)', 'EXECUTE') AS anon_can_execute;
+-- Expect false.
+
+-- 10) The P3 migration added no column/constraint/trigger/policy to orders.
+SELECT count(*) AS orders_columns
+  FROM information_schema.columns
+ WHERE table_schema = 'public' AND table_name = 'orders';
+-- Expect 27, exactly as before P1/P2/P3.

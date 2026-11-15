@@ -3,8 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, Modal, secondaryClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
+import ShippingButton from '@/components/dashboard/ShippingButton'
 import { formatDzd } from '@/lib/app-context'
 import { supabase } from '@/lib/supabase'
+import { getProvider } from '@/lib/shipping/registry'
 import { WILAYAS } from '@/lib/wilayas'
 import { whatsappLink } from '@/lib/storefront'
 import {
@@ -23,6 +26,25 @@ const STATUS_TONE = {
 }
 
 const wilayaName = code => WILAYAS.find(entry => entry.code === code)?.name || ''
+
+// Authenticated gateway call. The access token comes from the browser's own
+// Supabase session; the gateway re-checks staff role/branch on every request.
+async function shippingFetch(path, options = {}) {
+  const { data, error: sessionError } = await supabase.auth.getSession()
+  if (sessionError || !data?.session?.access_token) throw new Error('انتهت الجلسة، سجّل الدخول مجدداً.')
+  const response = await fetch(path, {
+    ...options,
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${data.session.access_token}`,
+      ...(options.headers || {}),
+    },
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body.error || `تعذر إكمال الطلب (${response.status})`)
+  return body
+}
 
 // One order line, as the merchant has to see it: what the item is, which
 // colour and size, how many, and its picture. The picture comes from the
@@ -65,7 +87,7 @@ function OrderItemRow({ item }) {
   )
 }
 
-function OrderCard({ order, storeName, warning, busy, onStatus, onOpen }) {
+function OrderCard({ order, storeName, warning, busy, onStatus, onOpen, shipment, onShip, shippingBusy, shippingDisabled }) {
   const phone = telLink(order.customer_phone)
   const whatsapp = whatsappLink(order.customer_phone, orderWhatsappMessage(order, storeName))
   const moves = nextStatuses(order.status)
@@ -139,6 +161,13 @@ function OrderCard({ order, storeName, warning, busy, onStatus, onOpen }) {
         >
           واتساب
         </a>
+        <ShippingButton
+          order={order}
+          shipment={shipment}
+          busy={shippingBusy}
+          disabled={shippingDisabled}
+          onShip={onShip}
+        />
         {moves.map(move => (
           <button
             key={move.key}
@@ -170,6 +199,15 @@ export default function OrdersScreen() {
   const [pending, setPending] = useState(null)   // { order, status } awaiting a reason
   const [detail, setDetail] = useState(null)     // order whose items are being shown
   const [reason, setReason] = useState('')
+  const [shippingConnections, setShippingConnections] = useState([])
+  const [shipments, setShipments] = useState([])
+  const [shippingTarget, setShippingTarget] = useState('')
+  const [shippingBusyId, setShippingBusyId] = useState('')
+  const [shippingError, setShippingError] = useState('')
+
+  const shippingAllowed = Boolean(
+    ctx && ['owner', 'manager'].includes(ctx.role) && !ctx.offline && (ctx.stores || []).length,
+  )
 
   const storeNames = useMemo(() => {
     const map = new Map((ctx?.stores || []).map(store => [store.id, store.name]))
@@ -200,6 +238,98 @@ export default function OrdersScreen() {
   }, [ctx?.tenantId, ctx?.storeId, ctx?.allBranches])
 
   useEffect(() => { load() }, [load])
+
+  // P3 shipping: load connections/shipments for every branch the owner can see.
+  // The UI discovers providers from the registry — adding a carrier later does
+  // not add a branch here. ZR adapters are still P4, so only providers whose
+  // registry capabilities include `create` are selectable.
+  const shippingStores = useMemo(() => ctx?.stores || [], [ctx?.stores])
+
+  const loadShipping = useCallback(async () => {
+    if (!shippingAllowed) return
+    const results = await Promise.allSettled(shippingStores.map(async store => {
+      const query = `storeId=${encodeURIComponent(store.id)}`
+      const [connectionsBody, shipmentsBody] = await Promise.all([
+        shippingFetch(`/api/shipping/connections?${query}`),
+        shippingFetch(`/api/shipping/shipments?${query}`),
+      ])
+      return {
+        connections: (connectionsBody.connections || []).map(row => ({ ...row, store_id: store.id })),
+        shipments: (shipmentsBody.shipments || []).map(row => ({ ...row, store_id: store.id })),
+      }
+    }))
+    const connections = []
+    const rows = []
+    let failed = 0
+    for (const result of results) {
+      if (result.status !== 'fulfilled') { failed += 1; continue }
+      connections.push(...result.value.connections)
+      rows.push(...result.value.shipments)
+    }
+    setShippingConnections(connections)
+    setShipments(rows)
+    setShippingError(failed ? 'تعذر تحميل روابط الشحن لبعض الفروع.' : '')
+    const options = [...new Map(connections
+      .filter(row => row.enabled && ['api', 'both'].includes(row.mode) && getProvider(row.provider_code)?.capabilities?.create)
+      .map(row => [`${row.provider_code}:${row.environment}`, {
+        value: `${row.provider_code}:${row.environment}`,
+        label: `${getProvider(row.provider_code)?.label || row.provider_code} · ${row.environment === 'sandbox' ? 'Sandbox' : 'الإنتاج'}`,
+      }])).values()]
+    setShippingTarget(current => options.some(option => option.value === current) ? current : (options[0]?.value || ''))
+  }, [shippingAllowed, shippingStores])
+
+  useEffect(() => {
+    if (shippingAllowed) loadShipping()
+  }, [shippingAllowed, loadShipping])
+
+  const shippingOptions = useMemo(() => [...new Map(shippingConnections
+    .filter(row => row.enabled && ['api', 'both'].includes(row.mode) && getProvider(row.provider_code)?.capabilities?.create)
+    .map(row => [`${row.provider_code}:${row.environment}`, {
+      value: `${row.provider_code}:${row.environment}`,
+      label: `${getProvider(row.provider_code)?.label || row.provider_code} · ${row.environment === 'sandbox' ? 'Sandbox' : 'الإنتاج'}`,
+    }])).values()], [shippingConnections])
+
+  const shipmentsByOrder = useMemo(() => {
+    const map = new Map()
+    for (const row of shipments) {
+      if (!['created', 'in_transit', 'delivered', 'returned', 'exported'].includes(row.status)) continue
+      map.set(row.order_id, row)
+    }
+    return map
+  }, [shipments])
+
+  async function shipOrder(order) {
+    const [providerCode, environment] = shippingTarget.split(':')
+    const storeId = order.store_id || ctx?.storeId
+    if (!providerCode || !environment || !storeId) {
+      setShippingError('اختر رابط شركة التوصيل من الإعدادات أولاً.')
+      return
+    }
+    const connection = shippingConnections.find(row =>
+      row.store_id === storeId && row.provider_code === providerCode &&
+      row.environment === environment && row.enabled && ['api', 'both'].includes(row.mode))
+    if (!connection) {
+      setShippingError('لا يوجد رابط شحن مفعّل لهذا الفرع.')
+      return
+    }
+    setShippingBusyId(order.id)
+    setShippingError('')
+    setSuccess('')
+    try {
+      const body = await shippingFetch('/api/shipping/shipments', {
+        method: 'POST',
+        body: JSON.stringify({
+          storeId, orderId: order.id, providerCode, environment,
+        }),
+      })
+      setSuccess(`تم شحن الطلب ${order.order_number} · رقم التتبع ${body.trackingNumber || ''}`)
+      await loadShipping()
+    } catch (err) {
+      setShippingError(err.message || 'تعذر شحن الطلب')
+    } finally {
+      setShippingBusyId('')
+    }
+  }
 
   const counts = useMemo(() => tabCounts(orders), [orders])
   const warned = useMemo(() => rejectedCustomers(orders), [orders])
@@ -248,6 +378,30 @@ export default function OrdersScreen() {
       </div>
 
       <Notice error={error} success={success} />
+      {shippingAllowed && (
+        <div className="mb-3 space-y-2">
+          {shippingOptions.length > 1 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-neutral-400">شحن عبر</span>
+              <div className="min-w-56 flex-1 sm:max-w-72">
+                <CustomSelect
+                  value={shippingTarget}
+                  onChange={setShippingTarget}
+                  options={shippingOptions}
+                  aria-label="اختيار شركة التوصيل"
+                  placeholder="اختر شركة التوصيل"
+                />
+              </div>
+            </div>
+          )}
+          {shippingError && <p role="alert" className="text-xs text-amber-300">{shippingError}</p>}
+          {!shippingOptions.length && (
+            <p className="text-[11px] text-neutral-500">
+              لتفعيل زر «شحن الطلب»، اضبط رابط شركة التوصيل من «الإعدادات ← شركات التوصيل».
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="sf-rail -mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1">
         {ORDER_TABS.map(entry => {
@@ -293,6 +447,10 @@ export default function OrdersScreen() {
               busy={busyId === order.id}
               onStatus={requestStatus}
               onOpen={setDetail}
+              shipment={shipmentsByOrder.get(order.id)}
+              onShip={shipOrder}
+              shippingBusy={shippingBusyId === order.id}
+              shippingDisabled={!shippingAllowed || !shippingTarget}
             />
           ))}
         </div>

@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useDrawerMenu, drawerClass } from './drawerMenu'
 
 /**
- * Accessible custom dropdown.
+ * Accessible custom dropdown with the "الدرج المنزلق" animation.
  *
  * The options list is rendered through a portal into document.body and
  * positioned with `position: fixed` from the trigger's bounding box. That is
@@ -16,6 +17,9 @@ import { createPortal } from 'react-dom'
  * <label>. A <button> is a labelable element, so wrapping this widget in a
  * <label> made the browser forward clicks to the first option button once the
  * menu was open.
+ *
+ * The menu stays mounted while closing (useDrawerMenu) so the drawer can slide
+ * back up smoothly instead of disappearing instantly.
  */
 export default function CustomSelect({
   value,
@@ -34,6 +38,7 @@ export default function CustomSelect({
   const [rect, setRect] = useState(null)
   const triggerRef = useRef(null)
   const menuRef = useRef(null)
+  const { mounted, phase } = useDrawerMenu(isOpen)
 
   const selected = options.find(option => option.value === value)
   const selectedLabel = selected ? selected.label : placeholder
@@ -49,8 +54,9 @@ export default function CustomSelect({
 
   // Keep a fixed-position menu glued to the trigger while the page scrolls or
   // resizes. `true` captures scroll events from inner scroll containers too.
+  // Runs while `mounted` (not just isOpen) so the closing drawer stays aligned.
   useEffect(() => {
-    if (!isOpen) return
+    if (!mounted) return
     const update = () => measure()
     update()
     window.addEventListener('resize', update)
@@ -59,7 +65,7 @@ export default function CustomSelect({
       window.removeEventListener('resize', update)
       window.removeEventListener('scroll', update, true)
     }
-  }, [isOpen])
+  }, [mounted])
 
   useEffect(() => {
     if (!isOpen) return
@@ -104,16 +110,16 @@ export default function CustomSelect({
         className={`flex w-full items-center justify-between gap-2 rounded-lg border border-[#D4AF37]/40 bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none focus:border-gold disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
       >
         <span className="truncate">{selectedLabel}</span>
-        <span aria-hidden="true" className={`shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}>▼</span>
+        <span aria-hidden="true" className={`shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>▼</span>
       </button>
 
-      {isOpen && !disabled && rect && typeof document !== 'undefined' && createPortal(
+      {mounted && !disabled && rect && typeof document !== 'undefined' && createPortal(
         <ul
           ref={menuRef}
           role="listbox"
           aria-label={ariaLabel || label || undefined}
           style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 80 }}
-          className="max-h-64 overflow-y-auto rounded-lg border border-gold/20 bg-[#1A1A1A] py-1 shadow-xl"
+          className={`${drawerClass(phase)} max-h-64 overflow-y-auto rounded-lg border border-gold/20 bg-[#1A1A1A] py-1 shadow-xl`}
         >
           {options.map(option => (
             <li key={option.value}>

@@ -8,6 +8,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
+import SearchableSelect from '@/components/ui/SearchableSelect'
 import { supabase } from '@/lib/supabase'
 import { listProviders, getProvider, validateCredentials } from '@/lib/shipping/registry'
 import { WILAYAS } from '@/lib/wilayas'
@@ -25,6 +27,10 @@ const DELIVERY_OPTIONS = [
   { value: 'home', label: 'توصيل إلى العنوان' },
   { value: 'stopdesk', label: 'استلام من نقطة Stop Desk' },
 ]
+const WILAYA_OPTIONS = WILAYAS.map(wilaya => ({
+  value: wilaya.code,
+  label: `${wilaya.code} — ${wilaya.name}`,
+}))
 
 function emptyForm(provider) {
   return {
@@ -294,30 +300,47 @@ export default function ShippingSettings() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-xs text-neutral-300">البيئة
-                <select value={form.environment} onChange={event => setField(provider.code, { environment: event.target.value })} className={`${fieldClass} mt-1`}>
-                  {ENV_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </label>
-              <label className="block text-xs text-neutral-300">الاستراتيجية
-                <select value={form.mode} onChange={event => setField(provider.code, { mode: event.target.value })} className={`${fieldClass} mt-1`}>
-                  {MODE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </label>
-              <label className="block text-xs text-neutral-300">
-                ولاية الانطلاق {provider.originWilayaRequired && needsKeys ? <span className="text-gold">*</span> : null}
-                <select value={form.originWilayaCode} onChange={event => setField(provider.code, { originWilayaCode: event.target.value })} className={`${fieldClass} mt-1`}>
-                  <option value="">— اختر الولاية —</option>
-                  {WILAYAS.map(wilaya => (
-                    <option key={wilaya.code} value={wilaya.code}>{wilaya.code} — {wilaya.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-xs text-neutral-300">نوع التسليم الافتراضي
-                <select value={form.deliveryType} onChange={event => setField(provider.code, { deliveryType: event.target.value })} className={`${fieldClass} mt-1`}>
-                  {DELIVERY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </label>
+              <div className="block text-xs text-neutral-300">
+                <CustomSelect
+                  label="البيئة"
+                  value={form.environment}
+                  onChange={value => setField(provider.code, { environment: value })}
+                  options={ENV_OPTIONS}
+                  className="mt-1"
+                />
+              </div>
+              <div className="block text-xs text-neutral-300">
+                <CustomSelect
+                  label="الاستراتيجية"
+                  value={form.mode}
+                  onChange={value => setField(provider.code, { mode: value })}
+                  options={MODE_OPTIONS}
+                  className="mt-1"
+                />
+              </div>
+              <div className="block text-xs text-neutral-300">
+                <span className="mb-1 block">
+                  ولاية الانطلاق {provider.originWilayaRequired && needsKeys ? <span className="text-gold">*</span> : null}
+                </span>
+                <SearchableSelect
+                  value={form.originWilayaCode}
+                  onChange={value => setField(provider.code, { originWilayaCode: value })}
+                  options={WILAYA_OPTIONS}
+                  allowCreate={false}
+                  placeholder="— اختر الولاية —"
+                  emptyText="لا توجد ولاية بهذا الاسم"
+                  aria-label="ولاية الانطلاق"
+                />
+              </div>
+              <div className="block text-xs text-neutral-300">
+                <CustomSelect
+                  label="نوع التسليم الافتراضي"
+                  value={form.deliveryType}
+                  onChange={value => setField(provider.code, { deliveryType: value })}
+                  options={DELIVERY_OPTIONS}
+                  className="mt-1"
+                />
+              </div>
             </div>
 
             {needsKeys && (
