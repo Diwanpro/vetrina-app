@@ -6,6 +6,7 @@ import ActivationForm from '@/components/dashboard/ActivationForm'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import CustomSelect from '@/components/ui/CustomSelect'
+import { STORE_TYPE_OPTIONS, isStoreType } from '@/lib/store-catalog'
 import { supabase } from '@/lib/supabase'
 import { canAddBranch } from '@/lib/commercial'
 import { scopeQuery, csvText } from '@/lib/access'
@@ -39,12 +40,14 @@ export default function SettingsPage() {
   
   // --- STORE SETTINGS TAB STATE ---
   const [storeSettings, setStoreSettings] = useState({
-    name: '', address: '', phone: '', google_maps_url: '',
+    name: '', address: '', phone: '', google_maps_url: '', store_type: 'mens',
     receipt_footer: '', tax_rc: '', logo_on_receipt: false, prices_on_receipt: false,
     return_policy_days: '7', low_stock_alert: 10,
     enable_barcode: true, logo_url: ''
   })
   const [logoFile, setLogoFile] = useState(null)
+  // P5: every new branch also declares its mandatory store type.
+  const [newStoreType, setNewStoreType] = useState('mens')
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [settingsError, setSettingsError] = useState('')
   const [settingsSuccess, setSettingsSuccess] = useState('')
@@ -72,7 +75,7 @@ export default function SettingsPage() {
   async function loadStoreSettings() {
     if (!ctx?.storeId) return
     try {
-      const { data, error } = await supabase.from('stores').select('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates, slug').eq('id', ctx.storeId).single()
+      const { data, error } = await supabase.from('stores').select('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates, slug, store_type').eq('id', ctx.storeId).single()
       if (error) throw error
       if (data) {
         setSlug(data.slug || '')
@@ -91,7 +94,8 @@ export default function SettingsPage() {
           return_policy_days: data.return_policy_days?.toString() || '7',
           low_stock_alert: data.low_stock_alert ?? 10,
           enable_barcode: data.enable_barcode ?? true,
-          logo_url: data.logo_url || ''
+          logo_url: data.logo_url || '',
+          store_type: data.store_type || 'mens'
         })
       }
     } catch (err) { setSettingsError(err.message) }
@@ -101,6 +105,9 @@ export default function SettingsPage() {
     if (!ctx?.storeId) return
     setSettingsBusy(true); setSettingsError(''); setSettingsSuccess('')
     try {
+      // P5: «نوع المتجر» is mandatory before any setting is saved.
+      if (!isStoreType(storeSettings.store_type)) throw new Error('نوع المتجر مطلوب')
+      const typeChanged = storeSettings.store_type !== ctx.storeType
       // Upload Logo if file exists
       let finalLogoUrl = storeSettings.logo_url
       if (logoFile) {
@@ -127,15 +134,21 @@ export default function SettingsPage() {
         p_return_policy_days: Number(storeSettings.return_policy_days),
         p_low_stock_alert: Number(storeSettings.low_stock_alert),
         p_enable_barcode: storeSettings.enable_barcode,
-        p_logo_url: finalLogoUrl
+        p_logo_url: finalLogoUrl,
+        p_store_type: storeSettings.store_type
       })
       
       if (rpcErr) {
         throw rpcErr
       }
 
-      setSettingsSuccess('تم حفظ إعدادات المحل')
+      setSettingsSuccess(typeChanged
+        ? 'تم حفظ نوع المتجر؛ سيتم تحديث التصنيفات والكتالوج التجريبي...'
+        : 'تم حفظ إعدادات المحل')
       loadStoreSettings()
+      // getAppContext caches the branch type in the session; a reload makes the
+      // dashboard and storefront pick up the new catalogue immediately.
+      if (typeChanged) window.setTimeout(() => window.location.reload(), 900)
     } catch (err) {
       setSettingsError(`خطأ: ${err.message}`)
     } finally {
@@ -332,6 +345,18 @@ export default function SettingsPage() {
               <label className="block text-sm text-neutral-300">اسم المحل
                 <input required value={storeSettings.name} onChange={e => setStoreSettings({ ...storeSettings, name: e.target.value })} className={`${fieldClass} mt-1`} />
               </label>
+              <div className="block text-sm text-neutral-300">
+                <span className="mb-1.5 block">نوع المتجر <span className="text-gold">*</span></span>
+                <CustomSelect
+                  value={storeSettings.store_type}
+                  disabled={settingsBusy}
+                  onChange={value => setStoreSettings({ ...storeSettings, store_type: value })}
+                  options={STORE_TYPE_OPTIONS}
+                  aria-label="نوع المتجر"
+                  className={`${fieldClass} mt-1`}
+                />
+                <span className="mt-1 block text-[11px] text-neutral-500">يحدد التصنيفات الذكية والبيانات التجريبية في لوحة التحكم والمتجر العام.</span>
+              </div>
               <label className="block text-sm text-neutral-300">العنوان
                 <input value={storeSettings.address} onChange={e => setStoreSettings({ ...storeSettings, address: e.target.value })} className={`${fieldClass} mt-1`} />
               </label>
@@ -557,7 +582,8 @@ export default function SettingsPage() {
                       alert('وصلت إلى حد الفروع. يرجى ترقية الاشتراك');
                       return;
                     }
-                    const { error } = await supabase.rpc('engine_add_store', { p_name: name, p_address: address });
+                    if (!isStoreType(newStoreType)) throw new Error('نوع المتجر مطلوب')
+                    const { error } = await supabase.rpc('engine_add_store', { p_name: name, p_address: address, p_store_type: newStoreType });
                     if (error) throw error;
                     location.reload();
                   });
@@ -570,6 +596,17 @@ export default function SettingsPage() {
                 <label className="text-sm text-neutral-300">العنوان
                   <input disabled={busy} value={address} onChange={e => setAddress(e.target.value)} className={`${fieldClass} mt-1`} />
                 </label>
+                <div className="block text-sm text-neutral-300 sm:col-span-2">
+                  <span className="mb-1.5 block">نوع المتجر <span className="text-gold">*</span></span>
+                  <CustomSelect
+                    value={newStoreType}
+                    disabled={busy}
+                    onChange={setNewStoreType}
+                    options={STORE_TYPE_OPTIONS}
+                    aria-label="نوع المتجر للفرع الجديد"
+                    className={`${fieldClass} mt-1`}
+                  />
+                </div>
                 <button disabled={busy} className={primaryClass}>إضافة فرع</button>
               </form>
               </section>

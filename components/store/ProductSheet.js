@@ -54,6 +54,7 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
   const max = Number(variant?.available || 0)
   const price = product?.base_price
   const lowStock = stockHint(max)
+  const demo = Boolean(product?.is_mock)
   const askLink = whatsappLink(store?.phone, `مرحباً ${store?.name || ''}، أريد معرفة سعر: ${product?.name || ''}`)
   const videoHref = safeVideoUrl(product?.external_video_url)
   const videoLabel = videoButtonLabel(videoHref, 'شاهد الفيديو')
@@ -120,6 +121,11 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
 
             {product.description && (
               <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-neutral-400">{product.description}</p>
+            )}
+            {demo && (
+              <p className="mt-3 rounded-lg border border-sky-400/25 bg-sky-400/5 p-2 text-xs leading-5 text-sky-200">
+                هذه قطعة من الكتالوج التجريبي المحلي؛ تظهر في المتجر للعرض ولا تُنشئ طلباً في قاعدة البيانات.
+              </p>
             )}
 
             {product.offers?.length > 0 && (
@@ -223,15 +229,17 @@ export default function ProductSheet({ product, open, onClose, onAdd, showPrices
           <div className="shrink-0 border-t border-white/10 bg-[#101010]/80 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
             <button
               type="button"
-              disabled={!variant || !orderingEnabled}
+              disabled={!variant || !orderingEnabled || demo}
               onClick={() => { onAdd(product, variant, qty); onClose() }}
               className="flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-l from-[#E8C55A] to-gold font-bold text-[#121212] shadow-[0_10px_30px_rgba(212,175,55,0.25)] transition active:scale-[0.98] disabled:opacity-40"
             >
-              {!orderingEnabled
-                ? 'الطلبات متوقفة مؤقتاً'
-                : variant
-                  ? <>أضف إلى السلة{showPrices ? ` · ${formatMoney((price || 0) * qty)}` : ''}</>
-                  : 'اختر مقاساً متوفراً'}
+              {demo
+                ? 'قطعة تجريبية · للعرض فقط'
+                : !orderingEnabled
+                  ? 'الطلبات متوقفة مؤقتاً'
+                  : variant
+                    ? <>أضف إلى السلة{showPrices ? ` · ${formatMoney((price || 0) * qty)}` : ''}</>
+                    : 'اختر مقاساً متوفراً'}
             </button>
           </div>
         </>

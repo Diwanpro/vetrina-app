@@ -38,6 +38,10 @@ test('P4 shipping menus use the shared «الدرج المنزلق» drawer', as
   }
   assert.match(exportButton, /تصدير الشحنات \(CSV\)/)
   assert.match(shippingButton, /شحن الطلب/)
+  // P5 fix: an empty connection list must not disable the drawer.
+  assert.doesNotMatch(exportButton, /!hasTemplates/)
+  assert.match(exportButton, /setupHint/)
+  assert.match(exportButton, /mounted && rect/)
   assert.match(drawerMenu, /240|180/)
   assert.match(css, /@keyframes vetrina-drawer-open/)
   assert.match(css, /@keyframes vetrina-drawer-close/)
@@ -59,6 +63,10 @@ test('OrderCard options and CSV templates are derived from enabled connections',
   assert.match(orders, /\['bulk', 'both'\]\.includes\(row\.mode\)/)
   assert.match(orders, /capabilities\?\.bulkTemplate/)
   assert.match(orders, /ShippingExportButton/)
+  assert.match(orders, /fallbackExportTemplates/)
+  assert.match(orders, /enabledTemplateValues/)
+  assert.match(orders, /exportMenuTemplates/)
+  assert.doesNotMatch(orders, /disabled=\{!exportTemplates\.length\}/)
   assert.match(orders, /\/api\/shipping\/exports/)
   assert.match(orders, /new Blob\(\[body\.csv\]/)
   assert.match(orders, /shippingOptions=\{shippingOptionsFor\(order\.store_id/)

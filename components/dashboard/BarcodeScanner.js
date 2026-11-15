@@ -68,6 +68,9 @@ export default function BarcodeScanner({ onScan, onClose, confirmLabel = 'إضا
   return <Modal title="مسح الباركود" busy={busy} onClose={onClose}>
     <div id={id} className="mb-3 min-h-40 overflow-hidden rounded-xl bg-black" />
     <p role="status" className="mb-3 text-xs text-neutral-400">{busy ? 'جاري البحث عن المقاس...' : status}</p>
+    <p className="mb-3 text-[11px] leading-5 text-neutral-500">
+      أجهزة HID / Keyboard Wedge لا تحتاج الكاميرا: وجّه القارئ إلى حقل البحث أو حقل الباركود في نموذج إضافة منتج، وسيُدخل الرمز تلقائياً.
+    </p>
     <Notice error={error} />
     <form onSubmit={e => { e.preventDefault(); detect(manual) }} className="space-y-3">
       <label className="block text-sm">الباركود يدوياً<input autoFocus dir="ltr" disabled={busy} required value={manual} onChange={e => setManual(e.target.value)} className={`${fieldClass} mt-1`} /></label>

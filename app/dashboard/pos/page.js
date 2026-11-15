@@ -17,6 +17,9 @@ import { formatDzd, getAppContext } from '@/lib/app-context'
 import CustomSelect from '@/components/ui/CustomSelect'
 import StoreTabRail, { buildStoreTabs } from '@/components/store/StoreTabRail'
 import { lookUnitPrices } from '@/lib/storefront'
+import KeyboardWedgeListener from '@/components/dashboard/KeyboardWedgeListener'
+import ReceiptPrinter from '@/components/dashboard/ReceiptPrinter'
+import { mergeMockProducts } from '@/lib/mock-catalog'
 
 const PAYMENTS = [
   { value: 'cash', label: 'نقداً' },
@@ -215,7 +218,11 @@ export default function PosPage() {
   const saleSaving = useRef(false)
   const [scanning, setScanning] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [ctx, setCtx] = useState({ tenantId: null, storeId: null, user: null })
+  const [ctx, setCtx] = useState({ tenantId: null, storeId: null, user: null, storeType: 'mens' })
+  const [search, setSearch] = useState('')
+  const [storeInfo, setStoreInfo] = useState({})
+  const [lastReceipt, setLastReceipt] = useState(null)
+  const [receiptOpen, setReceiptOpen] = useState(false)
   const [selected, setSelected] = useState(null)
   const [picked, setPicked] = useState({ color: '', size: '' })
   const [cart, setCart] = useState([])
@@ -240,13 +247,20 @@ export default function PosPage() {
       const context = await getAppContext()
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
-      if (!navigator.onLine || context.offline) { setProducts(await cachedCatalog(context)); return }
+      const { data: storeRow } = await supabase.from('stores')
+        .select('name, phone, address, receipt_footer, tax_rc, logo_url, store_type')
+        .eq('id', context.storeId).maybeSingle()
+      setStoreInfo(storeRow || {})
+      if (!navigator.onLine || context.offline) {
+        setProducts(mergeMockProducts(await cachedCatalog(context), context.storeType, context.storeId, 'dashboard'))
+        return
+      }
       await syncPending().catch(err => { console.error('[pos] catalogue sync failed', err) })
       const rows = await fetchAllRows(supabase.from('products')
         .select('id, name, base_price, category, subcategory, images, image_url, product_variants!inner(id, color, size, min_price, barcode, inventory!inner(quantity, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).eq('is_active', true)
         .order('created_at', { ascending: false }).order('id'))
-      setProducts(await cacheCatalog(context, rows))
+      setProducts(mergeMockProducts(await cacheCatalog(context, rows), context.storeType, context.storeId, 'dashboard'))
     } catch (err) {
       if (isNetworkError(err)) {
         try { const context = await getAppContext(); setProducts(await cachedCatalog(context)); setError('تعذر الوصول للخادم؛ تستخدم الكتالوج المحلي المحفوظ.') }
@@ -274,11 +288,17 @@ export default function PosPage() {
     [categories, discounted.length, looks.length]
   )
   const visible = useMemo(() => {
-    if (activeTab === 'all') return products
-    if (activeTab === 'offers') return discounted
+    const term = search.trim().toLowerCase()
+    const matches = product => !term || [
+      product.name, product.category, product.subcategory,
+      ...(product.product_variants || []).flatMap(variant => [variant.barcode, variant.sku]),
+    ].some(value => String(value || '').toLowerCase().includes(term))
+    const catalog = term ? products.filter(matches) : products
+    if (activeTab === 'all') return catalog
+    if (activeTab === 'offers') return discounted.filter(matches)
     if (activeTab === 'looks') return []
-    return products.filter(product => (product.category || '').trim() === activeTab)
-  }, [products, discounted, activeTab])
+    return catalog.filter(product => (product.category || '').trim() === activeTab)
+  }, [products, discounted, activeTab, search])
 
   // A tab can disappear under the cashier: the last offer sells out, or the
   // manager unpublishes the only look. Leaving activeTab pointing at a chip that
@@ -514,6 +534,23 @@ export default function PosPage() {
       const current = await getAppContext()
       if (current.locked || current.storeId !== ctx.storeId || current.user.id !== ctx.user.id) throw new Error('تغير الحساب أو الفرع. أعد تحميل نقطة البيع.')
       const row = await persistLocalSale(current, cart, payment, split)
+      // Keep a printable snapshot: the cart is cleared a line below, and a
+      // failed sync must still leave the cashier able to reprint the receipt.
+      const receiptItems = cart.map(item => ({
+        name: item.name, qty: item.qty, color: item.color, size: item.size,
+        unitPrice: item.price, lineTotal: lineSubtotal(item),
+      }))
+      setLastReceipt({
+        number: row.local_id,
+        date: row.created_at,
+        items: receiptItems,
+        total: row.total_amount,
+        paid: Number(split?.cash ?? paidCash) || 0,
+        credit: creditRemainder,
+        payment,
+        store: storeInfo,
+      })
+      setReceiptOpen(true)
       // The local transaction is durable before clearing the cart, even online.
       setCart([]); setCheckout(false); setCartOpen(false); setCashPaid(''); setSplitting(false)
       setDone('تم حفظ الفاتورة محلياً؛ بانتظار المزامنة')
@@ -543,8 +580,27 @@ export default function PosPage() {
           </span>
           <button type="button" disabled={saving || !ctx.storeId} onClick={() => setScanning(true)}
             className="rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 text-sm text-gold disabled:opacity-50">مسح الباركود</button>
+          {lastReceipt && (
+            <button type="button" onClick={() => setReceiptOpen(true)}
+              className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">طباعة آخر إيصال</button>
+          )}
         </div>
       </div>
+
+      <KeyboardWedgeListener onScan={code => {
+        setSearch(code)
+        scanBarcode(code).catch(err => setError(err.message || 'الباركود غير موجود في الكتالوج'))
+      }} />
+      <label className="mb-3 block text-xs text-neutral-400">
+        بحث أو مسح باركود HID / Keyboard Wedge (يُدخل الرمز تلقائياً ويضيف المقاس للسلة)
+        <input
+          data-barcode-input="pos-search"
+          value={search}
+          onChange={event => setSearch(event.target.value)}
+          placeholder="امسح الباركود أو ابحث عن منتج..."
+          className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm text-white outline-none focus:border-gold"
+        />
+      </label>
 
       {error && !checkout && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
       {scanning && <BarcodeScanner onScan={scanBarcode} onClose={() => setScanning(false)} />}
@@ -867,6 +923,10 @@ export default function PosPage() {
         <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-emerald-900/90 px-4 py-2 text-sm text-emerald-100">
           {done}
         </div>
+      )}
+
+      {receiptOpen && lastReceipt && (
+        <ReceiptPrinter receipt={lastReceipt} onClose={() => setReceiptOpen(false)} />
       )}
     </DashboardShell>
   )

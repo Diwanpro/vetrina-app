@@ -60,158 +60,94 @@ DECLARE
   v_day integer;
   v_cash integer; v_total integer;
 
-  -- name, category, subcategory, price, cost, sizes
-  -- One row per product, as parallel flat arrays. A nested `text[][]` literal
-  -- makes Postgres infer the element type from the first row's mix of text and
-  -- integers and fail with "invalid input syntax for type integer". Every
-  -- price and cost below is an unquoted integer.
+  -- P5 clean demo catalogue: 15 MEN'S products only. The old list mixed
+  -- فساتين / حقائب / أوشحة with the men's catalogue and pointed at external
+  -- Unsplash URLs that the sandboxed preview cannot load. Every picture below
+  -- is a local asset under public/mock/mens (JPG photos + SVG placeholders).
+  -- Women's realistic mock data lives in lib/mock-catalog.js and is appended
+  -- automatically for stores with store_type = 'womens'.
+  -- name, category, subcategory, description, price, cost, sizes, two photos
   p_name   constant text[]    := ARRAY[
-    'قميص كتان صيفي',
+    'قميص كتان صيفي رجالي',
     'تيشيرت قطن بيومي',
     'جينز مستقيم كلاسيك',
-    'فستان مبطن للصيف',
     'سترة خفيفة للمساء',
+    'بولو قطن رجالي',
     'حذاء رياضي أبيض',
     'حذاء جلد كلاسيك',
-    'صندل جلد صيفي',
+    'صندل جلد صيفي رجالي',
     'شبشب منزلي قطني',
     'حزام جلد طبيعي',
     'محفظة جلد صغيرة',
     'نظارة شمسية مربعة',
-    'حقيبة كتف متوسطة',
     'طاقية صيفية قطنية',
-    'وشاح حريري مطبوع'
+    'ساعة يد كلاسيكية',
+    'بليزر رسمي رجالي'
   ];
   p_cat    constant text[]    := ARRAY[
-    'ملابس',
-    'ملابس',
-    'ملابس',
-    'ملابس',
-    'ملابس',
-    'أحذية',
-    'أحذية',
-    'أحذية',
-    'أحذية',
-    'إكسسوار',
-    'إكسسوار',
-    'إكسسوار',
-    'إكسسوار',
-    'إكسسوار',
-    'إكسسوار'
+    'ملابس', 'ملابس', 'ملابس', 'ملابس', 'ملابس',
+    'أحذية', 'أحذية', 'أحذية', 'أحذية',
+    'إكسسوارات', 'إكسسوارات', 'إكسسوارات', 'إكسسوارات', 'إكسسوارات',
+    'ملابس'
   ];
   p_subcat constant text[]    := ARRAY[
-    'قمصان',
-    'تيشيرت',
-    'بناطيل',
-    'فساتين',
-    'جاكيتات',
-    'رياضية',
-    'كلاسيك',
-    'صنادل',
-    'منزلي',
-    'أحزمة',
-    'محافظ',
-    'نظارات',
-    'حقائب',
-    'قبعات',
-    'أوشحة'
+    'قمصان رجالية', 'تيشيرتات رجالية', 'بناطيل رجالية', 'جاكيتات رجالية', 'بولو رجالي',
+    'سنيكرز رجالي', 'أحذية كلاسيك', 'صنادل رجالية', 'أحذية منزلية',
+    'أحزمة', 'محافظ', 'نظارات', 'قبعات', 'ساعات', 'أطقم رسمية'
   ];
-  -- Two real photos per product, flat: indices 2i-1 and 2i belong to p_name[i].
-  --
-  -- These are Unsplash CDN ids (the `photo-<timestamp>-<hash>` form), each
-  -- taken from a live images.unsplash.com URL on the search page for the
-  -- matching garment, so none is invented and none is a page slug. They
-  -- replace picsum.photos, which is a random-image redirector: it is slow to
-  -- reach from Algeria and, because it answers with a different photo per
-  -- request, a product's picture could change between two page loads.
-  --
-  -- A flat array, not text[][]: `p_image[i]` on a two-dimensional array
-  -- yields a one-dimensional array, which cannot go into a text[] column
-  -- (42804). Slicing a flat array gives exactly the text[] the column wants,
-  -- the same reason p_sizes above is stored as one delimited string.
+  p_desc   constant text[]    := ARRAY[
+    'قميص كتان خفيف بقصة مريحة، مناسب لأيام قسنطينة الحارة والمناسبات اليومية.',
+    'تيشيرت قطن برقبة دائرية وألوان ثابتة، مناسب للعمل والخروجات اليومية.',
+    'جينز بقصة مستقيمة وقماش متين، متوفّر بالمقاسات الأكثر طلباً في السوق الجزائري.',
+    'سترة رجالية خفيفة ببطانة ناعمة، اختيار مناسب للسهرات والمناسبات العائلية.',
+    'بولو قطني بياقة مضلّعة، يجمع بين المظهر المرتب والراحة طوال اليوم.',
+    'سنيكرز رجالي بنعل مريح ووجه سهل التنظيف، مناسب للمشي اليومي والجامعة.',
+    'حذاء جلد طبيعي بقصة كلاسيكية للعمل والأعراس، مع نعل مريح يدوم طويلاً.',
+    'صندل جلد مفتوح بأشرطة متينة، مصنوع للصيف الجزائري والاستخدام اليومي.',
+    'شبشب منزلي خفيف ببطانة قطنية ونعل غير قابل للانزلاق.',
+    'حزام رجالي من الجلد الطبيعي مع مشبك معدني بسيط يناسب البنطال الرسمي والجينز.',
+    'محفظة جلد مدمجة بجيوب للبطاقات والأوراق النقدية، هدية عملية ومناسبة.',
+    'نظارة شمسية بإطار مربع خفيف وعدسات حماية، مناسبة للقيادة والصيف.',
+    'طاقية قطنية خفيفة بلون صيفي، مريحة للارتداء طوال اليوم.',
+    'ساعة يد بسوار جلدي وميناء واضح، تصميم يومي أنيق دون مبالغة.',
+    'بليزر بقصة ضيقة مناسبة للأعراس والعمل، مع بطانة داخلية مريحة.'
+  ];
+  -- Two local pictures per product, flat: indices 2i-1 and 2i belong to
+  -- p_name[i]. A flat array, not text[][]: slicing gives exactly the text[]
+  -- column wants. The JPGs are generated product photographs; the SVGs are
+  -- lightweight local placeholders (image-generation quota was reached).
   p_image  constant text[]    := ARRAY[
-    'https://images.unsplash.com/photo-1565049186631-1321978d1eb5?w=800&q=80',   --  1 1/2 قميص كتان صيفي
-    'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=800&q=80',   --  1 2/2 قميص كتان صيفي
-    'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800&q=80',   --  2 1/2 تيشيرت قطن بيومي
-    'https://images.unsplash.com/photo-1778671394516-8270eac13c42?w=800&q=80',   --  2 2/2 تيشيرت قطن بيومي
-    'https://images.unsplash.com/photo-1542272604-787c3835535d?w=800&q=80',   --  3 1/2 جينز مستقيم كلاسيك
-    'https://images.unsplash.com/photo-1605518216938-7c31b7b14ad0?w=800&q=80',   --  3 2/2 جينز مستقيم كلاسيك
-    'https://images.unsplash.com/photo-1496747611176-843222e1e57c?w=800&q=80',   --  4 1/2 فستان مبطن للصيف
-    'https://images.unsplash.com/photo-1542295669297-4d352b042bca?w=800&q=80',   --  4 2/2 فستان مبطن للصيف
-    'https://images.unsplash.com/photo-1611312449408-fcece27cdbb7?w=800&q=80',   --  5 1/2 سترة خفيفة للمساء
-    'https://images.unsplash.com/photo-1675877879221-871aa9f7c314?w=800&q=80',   --  5 2/2 سترة خفيفة للمساء
-    'https://images.unsplash.com/photo-1560769629-975ec94e6a86?w=800&q=80',   --  6 1/2 حذاء رياضي أبيض
-    'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=800&q=80',   --  6 2/2 حذاء رياضي أبيض
-    'https://images.unsplash.com/photo-1668069226492-508742b03147?w=800&q=80',   --  7 1/2 حذاء جلد كلاسيك
-    'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&q=80',   --  7 2/2 حذاء جلد كلاسيك
-    'https://images.unsplash.com/photo-1585120824848-8a5cd41493d2?w=800&q=80',   --  8 1/2 صندل جلد صيفي
-    'https://images.unsplash.com/photo-1628375385879-1af64230c2e1?w=800&q=80',   --  8 2/2 صندل جلد صيفي
-    'https://images.unsplash.com/photo-1650307535558-fa2b39ed16eb?w=800&q=80',   --  9 1/2 شبشب منزلي قطني
-    'https://images.unsplash.com/photo-1543420629-5350879dd4cd?w=800&q=80',   --  9 2/2 شبشب منزلي قطني
-    'https://images.unsplash.com/photo-1627123424574-724758594e93?w=800&q=80',   -- 10 1/2 حزام جلد طبيعي
-    'https://images.unsplash.com/photo-1711443982852-b3df5c563448?w=800&q=80',   -- 10 2/2 حزام جلد طبيعي
-    'https://images.unsplash.com/photo-1524805444758-089113d48a6d?w=800&q=80',   -- 11 1/2 محفظة جلد صغيرة
-    'https://images.unsplash.com/photo-1542496658-e33a6d0d50f6?w=800&q=80',   -- 11 2/2 محفظة جلد صغيرة
-    'https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=800&q=80',   -- 12 1/2 نظارة شمسية مربعة
-    'https://images.unsplash.com/photo-1584036553516-bf83210aa16c?w=800&q=80',   -- 12 2/2 نظارة شمسية مربعة
-    'https://images.unsplash.com/photo-1594223274512-ad4803739b7c?w=800&q=80',   -- 13 1/2 حقيبة كتف متوسطة
-    'https://images.unsplash.com/photo-1605733513597-a8f8341084e6?w=800&q=80',   -- 13 2/2 حقيبة كتف متوسطة
-    'https://images.unsplash.com/photo-1588850561407-ed78c282e89b?w=800&q=80',   -- 14 1/2 طاقية صيفية قطنية
-    'https://images.unsplash.com/photo-1521369909029-2afed882baee?w=800&q=80',   -- 14 2/2 طاقية صيفية قطنية
-    'https://images.unsplash.com/photo-1517472292914-9570a594783b?w=800&q=80',   -- 15 1/2 وشاح حريري مطبوع
-    'https://images.unsplash.com/photo-1693649721927-1282fae625b7?w=800&q=80'   -- 15 2/2 وشاح حريري مطبوع (display of printed scarves)
+    '/mock/mens/shirt.jpg',         '/mock/mens/tshirt.jpg',
+    '/mock/mens/tshirt.jpg',        '/mock/mens/shirt.jpg',
+    '/mock/mens/jeans.jpg',         '/mock/mens/shirt.jpg',
+    '/mock/mens/jacket.svg',        '/mock/mens/blazer.svg',
+    '/mock/mens/polo.svg',          '/mock/mens/shirt.jpg',
+    '/mock/mens/sneakers.svg',      '/mock/mens/classic-shoes.svg',
+    '/mock/mens/classic-shoes.svg', '/mock/mens/sneakers.svg',
+    '/mock/mens/sandals-men.svg',   '/mock/mens/slippers.svg',
+    '/mock/mens/slippers.svg',      '/mock/mens/sandals-men.svg',
+    '/mock/mens/belt.svg',          '/mock/mens/wallet.svg',
+    '/mock/mens/wallet.svg',        '/mock/mens/belt.svg',
+    '/mock/mens/sunglasses.svg',    '/mock/mens/cap.svg',
+    '/mock/mens/cap.svg',           '/mock/mens/sunglasses.svg',
+    '/mock/mens/watch.svg',         '/mock/mens/belt.svg',
+    '/mock/mens/blazer.svg',        '/mock/mens/jacket.svg'
   ];
 
   p_price  constant integer[] := ARRAY[
-    4200,
-    1900,
-    5600,
-    6500,
-    8200,
-    7400,
-    9800,
-    3900,
-    1500,
-    2200,
-    3100,
-    3600,
-    5900,
-    1200,
-    2700
+    4200, 1900, 5600, 8200, 2900,
+    7400, 9800, 3900, 1500,
+    2200, 3100, 3600, 1200, 4800, 9500
   ];
   p_cost   constant integer[] := ARRAY[
-    2400,
-    1000,
-    3200,
-    3800,
-    5000,
-    4300,
-    6100,
-    2100,
-    700,
-    1100,
-    1700,
-    1800,
-    3400,
-    550,
-    1300
+    2400, 1000, 3200, 5000, 1600,
+    4300, 6100, 2100, 700,
+    1100, 1700, 1800, 550, 2700, 5800
   ];
   p_sizes  constant text[]    := ARRAY[
-    'S,M,L,XL',
-    'S,M,L,XL',
-    '38,40,42,44',
-    'S,M,L',
-    'M,L,XL',
-    '40,41,42,43,44',
-    '40,41,42,43',
-    '39,40,41,42',
-    '40,41,42,43',
-    '85,90,95',
-    'مقاس واحد',
-    'مقاس واحد',
-    'مقاس واحد',
-    'مقاس واحد',
-    'مقاس واحد'
+    'S,M,L,XL', 'S,M,L,XL', '38,40,42,44', 'M,L,XL', 'S,M,L,XL',
+    '40,41,42,43,44', '40,41,42,43', '39,40,41,42', '40,41,42,43',
+    '85,90,95', 'مقاس واحد', 'مقاس واحد', 'مقاس واحد', 'مقاس واحد', '48,50,52,54'
   ];
   colors constant text[] := ARRAY['أسود', 'أبيض', 'كحلي', 'بيج', 'أحمر'];
 
@@ -245,14 +181,14 @@ BEGIN
    ORDER BY s.created_at NULLS LAST, s.id LIMIT 1;
 
   IF NOT EXISTS (SELECT 1 FROM public.stores WHERE tenant_id = v_tenant AND name = tag || ' فرع 2 · باب الزوار') THEN
-    INSERT INTO public.stores(tenant_id, name, address, phone, slug, store_enabled, show_prices)
+    INSERT INTO public.stores(tenant_id, name, address, phone, slug, store_enabled, show_prices, store_type)
     VALUES (v_tenant, tag || ' فرع 2 · باب الزوار', 'باب الزوار، الجزائر العاصمة',
-            '0550100102', 'seed-branch-2', true, true);
+            '0550100102', 'seed-branch-2', true, true, 'mens');
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.stores WHERE tenant_id = v_tenant AND name = tag || ' فرع 3 · قسنطينة') THEN
-    INSERT INTO public.stores(tenant_id, name, address, phone, slug, store_enabled, show_prices)
+    INSERT INTO public.stores(tenant_id, name, address, phone, slug, store_enabled, show_prices, store_type)
     VALUES (v_tenant, tag || ' فرع 3 · قسنطينة', 'وسط مدينة قسنطينة',
-            '0550100103', 'seed-branch-3', true, true);
+            '0550100103', 'seed-branch-3', true, true, 'womens');
   END IF;
   SELECT id INTO v_store2 FROM public.stores WHERE tenant_id = v_tenant AND name = tag || ' فرع 2 · باب الزوار';
   SELECT id INTO v_store3 FROM public.stores WHERE tenant_id = v_tenant AND name = tag || ' فرع 3 · قسنطينة';
@@ -282,7 +218,7 @@ BEGIN
       INSERT INTO public.suppliers(store_id, tenant_id, name, phone, supplied_goods, total_debt)
       SELECT $1, $2, x.name, x.phone, x.goods, 0
         FROM (VALUES
-          ($3, '0550100201', 'قمصان، فساتين، أقمشة'),
+          ($3, '0550100201', 'قمصان رجالية، أقمشة'),
           ($4, '0660100202', 'أحذية رياضية وكلاسيكية'),
           ($5, '0770100203', 'أحزمة، محافظ، نظارات')
         ) AS x(name, phone, goods)
@@ -295,7 +231,7 @@ BEGIN
       INSERT INTO public.suppliers(tenant_id, name, phone, supplied_goods, total_debt)
       SELECT $1, x.name, x.phone, x.goods, 0
         FROM (VALUES
-          ($2, '0550100201', 'قمصان، فساتين، أقمشة'),
+          ($2, '0550100201', 'قمصان رجالية، أقمشة'),
           ($3, '0660100202', 'أحذية رياضية وكلاسيكية'),
           ($4, '0770100203', 'أحزمة، محافظ، نظارات')
         ) AS x(name, phone, goods)
@@ -323,7 +259,7 @@ BEGIN
       INSERT INTO public.products(tenant_id, name, description, category, subcategory,
                                   base_price, price, type, images, image_url, is_active)
       VALUES (v_tenant, v_name,
-              'قطعة موسمية متوفرة بعدة مقاسات.',
+              p_desc[i],
               p_cat[i], p_subcat[i], v_price, v_price, 'variable',
               -- the product's two photos, as a real text[] gallery
               p_image[(i - 1) * 2 + 1 : i * 2],

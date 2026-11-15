@@ -5,7 +5,9 @@ import VoiceInput from '@/components/VoiceInput'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
 import { fetchAllRows } from '@/lib/cash'
 import { SIZE_TYPES, sizesForType, emptySizeRow, emptySizeMatrix, filledSizeCells } from '@/lib/product-sizes'
-import { MAIN_CATEGORIES, subcategoriesFor } from '@/lib/categories'
+import { MAIN_CATEGORIES, subcategoriesFor, storeTypeLabel } from '@/lib/categories'
+import { mergeMockProducts } from '@/lib/mock-catalog'
+import KeyboardWedgeListener from '@/components/dashboard/KeyboardWedgeListener'
 import { loadCustomSubcategories, saveCustomSubcategory } from '@/lib/subcategories'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
@@ -22,6 +24,7 @@ function firstImage(product) {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState([])
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
@@ -29,7 +32,7 @@ export default function ProductsPage() {
   const barcodeTask = useRef(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [ctx, setCtx] = useState({ tenantId: null, storeId: null })
+  const [ctx, setCtx] = useState({ tenantId: null, storeId: null, storeType: 'mens' })
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -95,7 +98,7 @@ export default function ProductsPage() {
       const rows = await fetchAllRows(supabase.from('products')
         .select('id, name, description, category, subcategory, base_price, images, image_url, external_video_url, product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).order('created_at', { ascending: false }).order('id'))
-      setProducts(rows)
+      setProducts(mergeMockProducts(rows, context.storeType, context.storeId, 'dashboard'))
     } catch (err) { setError(err.message) }
     finally { setLoading(false) }
   }
@@ -118,13 +121,24 @@ export default function ProductsPage() {
   // plus anything already used by existing products (covers rows created
   // before this feature existed).
   const subcategoryOptions = useMemo(() => {
-    const seeded = subcategoriesFor(form.category)
+    const seeded = subcategoriesFor(form.category, ctx.storeType)
     const custom = customSubs[form.category] || []
     const used = products
       .filter(product => product.category === form.category && product.subcategory)
       .map(product => product.subcategory)
     return [...new Set([...seeded, ...custom, ...used])].map(label => ({ label, value: label }))
-  }, [form.category, customSubs, products])
+  }, [form.category, ctx.storeType, customSubs, products])
+
+  // The HID/Keyboard-Wedge scanner writes into this same field, so a scanned
+  // barcode filters by name, category or any variant barcode.
+  const visibleProducts = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return products
+    return products.filter(product => [
+      product.name, product.description, product.category, product.subcategory,
+      ...(product.product_variants || []).flatMap(variant => [variant.barcode, variant.sku]),
+    ].some(value => String(value || '').toLowerCase().includes(term)))
+  }, [products, search])
 
   async function createSubcategory(name) {
     try {
@@ -209,6 +223,10 @@ export default function ProductsPage() {
     }
     if (!form.name.trim() || !form.base_price) {
       setError('يرجى إدخال اسم المنتج وسعر البيع')
+      return
+    }
+    if (!form.subcategory.trim()) {
+      setError('اختر التصنيف المناسب لنوع المتجر ونوع المنتج')
       return
     }
     const videoUrl = form.external_video_url.trim() ? safeVideoUrl(form.external_video_url) : ''
@@ -337,17 +355,32 @@ export default function ProductsPage() {
         </button>
       </div>
 
+      <KeyboardWedgeListener onScan={(code, input) => {
+        if (input?.id === 'product-barcode') setForm(prev => ({ ...prev, barcode: code }))
+        else setSearch(code)
+      }} />
+      <label className="mb-3 block text-xs text-neutral-400">
+        بحث بالاسم أو التصنيف أو الباركود (يعمل مع قارئ HID / Keyboard Wedge)
+        <input
+          data-barcode-input="products-search"
+          value={search}
+          onChange={event => setSearch(event.target.value)}
+          placeholder="امسح الباركود أو اكتب اسم المنتج..."
+          className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm text-white outline-none focus:border-gold"
+        />
+      </label>
+
       {!open && error && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
       {loading ? (
         <p className="text-sm text-neutral-500">جاري التحميل...</p>
-      ) : products.length === 0 ? (
+      ) : visibleProducts.length === 0 ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-card p-8 text-center">
           <p className="text-sm text-neutral-300">لا توجد منتجات بعد</p>
           <p className="mt-1 text-xs text-neutral-500">أضف أول منتج لبدء نقطة البيع</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
-          {products.map((p) => {
+          {visibleProducts.map((p) => {
             const stock = (p.product_variants || []).reduce(
               (sum, v) => sum + (v.inventory || []).filter(i => i.store_id === ctx.storeId).reduce((s, i) => s + Number(i.quantity || 0), 0),
               0
@@ -482,7 +515,7 @@ export default function ProductsPage() {
               <div>
                 <label htmlFor="product-barcode" className="mb-2 block text-xs text-neutral-400">الباركود · يُولّد تلقائياً</label>
                 <div className="flex gap-2">
-                  <input id="product-barcode" dir="ltr" maxLength={48} value={form.barcode} disabled={saving || generating}
+                  <input id="product-barcode" data-barcode-input="product-barcode" dir="ltr" maxLength={48} value={form.barcode} disabled={saving || generating}
                     placeholder={generating ? 'جاري التوليد…' : 'الباركود'}
                     onChange={e => setForm(prev => ({ ...prev, barcode: e.target.value }))}
                     className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm outline-none focus:border-gold disabled:opacity-50" />
@@ -508,23 +541,30 @@ export default function ProductsPage() {
                 <span id="size-type-help" className="mt-1 block text-[11px] text-neutral-500">تغيير نوع المقاس يمسح كميات الجدول. أدخل الكميات بعد اختيار النوع.</span>
               </div>
               <div className="block">
-                <span className="mb-1 block text-xs text-neutral-400">التصنيف</span>
+                <span className="mb-1 block text-xs text-neutral-400">نوع المنتج</span>
                 <CustomSelect
                   value={form.category}
                   onChange={e => setForm({ ...form, category: e, subcategory: '' })}
                   options={MAIN_CATEGORIES.map(c => ({ label: c, value: c }))}
                   className={`${selectClass} mt-1`}
                 />
+                <span className="mt-1 block text-[11px] text-neutral-500">
+                  نوع المتجر الحالي: {storeTypeLabel(ctx.storeType)} · تتغير التصنيفات تلقائياً مع نوع المنتج.
+                </span>
               </div>
               <div className="block">
-                <span className="mb-1 block text-xs text-neutral-400">التصنيف الفرعي</span>
-                <SearchableSelect
+                <span className="mb-1 block text-xs text-neutral-400">التصنيف (حسب نوع المتجر)</span>
+                <CustomSelect
                   value={form.subcategory}
                   onChange={next => setForm(previous => ({ ...previous, subcategory: next }))}
-                  onCreate={createSubcategory}
                   options={subcategoryOptions}
+                  placeholder="اختر التصنيف"
+                  aria-label="التصنيف حسب نوع المتجر"
                   className={`${selectClass} mt-1`}
                 />
+                <span className="mt-1 block text-[11px] text-neutral-500">
+                  مثال: متجر نسائي + أحذية ← كعب عالي، صنادل، أحذية رياضية نسائية.
+                </span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">

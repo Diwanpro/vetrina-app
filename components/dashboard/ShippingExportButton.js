@@ -1,20 +1,22 @@
 'use client'
 
-// P4 bulk CSV export trigger. Clicking it opens the same dark "الدرج المنزلق"
-// drawer used by every other dashboard dropdown; the template list is derived
-// from enabled bulk/both connections, never from hard-coded courier branches.
+// P5: «تصدير الشحنات (CSV)» must always respond. The button stays enabled and
+// opens the same dark «الدرج المنزلق» drawer even on a fresh store with zero
+// connections; the parent passes registry-derived fallback templates and a
+// setup hint. Only an in-flight export disables the trigger.
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useDrawerMenu, drawerClass } from '@/components/ui/drawerMenu'
 
-export default function ShippingExportButton({ templates = [], busy, disabled, onExport }) {
+export default function ShippingExportButton({
+  templates = [], busy, disabled = false, onExport, setupHint = '',
+}) {
   const [isOpen, setIsOpen] = useState(false)
   const [rect, setRect] = useState(null)
   const triggerRef = useRef(null)
   const menuRef = useRef(null)
   const { mounted, phase } = useDrawerMenu(isOpen)
-  const hasTemplates = Array.isArray(templates) && templates.length > 0
 
   const measure = () => {
     const node = triggerRef.current
@@ -55,7 +57,7 @@ export default function ShippingExportButton({ templates = [], busy, disabled, o
     }
   }, [isOpen])
 
-  const isDisabled = busy || disabled || !hasTemplates
+  const isDisabled = busy || disabled
 
   function toggle() {
     if (isDisabled) return
@@ -71,7 +73,7 @@ export default function ShippingExportButton({ templates = [], busy, disabled, o
         ref={triggerRef}
         type="button"
         disabled={isDisabled}
-        title={!hasTemplates ? 'فعّل وضع «تصدير بالجملة» أو «كلاهما» من إعدادات شركات التوصيل' : undefined}
+        title={setupHint || undefined}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-label="قوالب تصدير الشحنات"
@@ -82,7 +84,7 @@ export default function ShippingExportButton({ templates = [], busy, disabled, o
         <span aria-hidden="true" className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>▼</span>
       </button>
 
-      {mounted && hasTemplates && rect && typeof document !== 'undefined' && createPortal(
+      {mounted && rect && typeof document !== 'undefined' && createPortal(
         <ul
           ref={menuRef}
           role="listbox"
@@ -110,6 +112,11 @@ export default function ShippingExportButton({ templates = [], busy, disabled, o
               </button>
             </li>
           ))}
+          {setupHint && (
+            <li role="presentation" className="border-t border-white/5 px-3 py-2 text-[11px] leading-5 text-amber-200/80">
+              {setupHint}
+            </li>
+          )}
         </ul>,
         document.body
       )}

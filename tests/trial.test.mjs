@@ -87,10 +87,13 @@ test('the derived email is what signUp sends and what the RPC verifies', () => {
 })
 
 test('signup rejects empty, oversized and too-short input', () => {
-  const valid = { storeName: ' محلي ', ownerName: ' علي ', phone: '0555 12 34 56', password: 'secret123' }
+  const valid = { storeName: ' محلي ', ownerName: ' علي ', phone: '0555 12 34 56', password: 'secret123', storeType: 'womens' }
   assert.deepEqual(validateSignup(valid), {
-    storeName: 'محلي', ownerName: 'علي', phone: '0555123456', email: '0555123456@vetrina.app', password: 'secret123',
+    storeName: 'محلي', ownerName: 'علي', storeType: 'womens', phone: '0555123456',
+    email: '0555123456@vetrina.app', password: 'secret123',
   })
+  assert.throws(() => validateSignup({ ...valid, storeType: '' }), /نوع المتجر مطلوب/)
+  assert.throws(() => validateSignup({ ...valid, storeType: 'other' }), /نوع المتجر مطلوب/)
   assert.throws(() => validateSignup({ ...valid, storeName: '  ' }), /اسم المحل مطلوب/)
   assert.throws(() => validateSignup({ ...valid, ownerName: '' }), /اسم المالك مطلوب/)
   assert.throws(() => validateSignup({ ...valid, storeName: 'x'.repeat(201) }), /طويل/)

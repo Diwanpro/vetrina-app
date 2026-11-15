@@ -1,13 +1,17 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, Modal, secondaryClass } from '@/components/dashboard/EngineUI'
 import ShippingButton from '@/components/dashboard/ShippingButton'
 import ShippingExportButton from '@/components/dashboard/ShippingExportButton'
+import NewOrderNotice from '@/components/dashboard/NewOrderNotice'
 import { formatDzd } from '@/lib/app-context'
 import { supabase } from '@/lib/supabase'
 import { getProvider } from '@/lib/shipping/registry'
+import {
+  fallbackExportTemplates, enabledTemplateValues, environmentLabel, DEFAULT_EXPORT_ENVIRONMENT,
+} from '@/lib/shipping/export-options'
 import { WILAYAS } from '@/lib/wilayas'
 import { whatsappLink } from '@/lib/storefront'
 import {
@@ -26,7 +30,6 @@ const STATUS_TONE = {
 }
 
 const wilayaName = code => WILAYAS.find(entry => entry.code === code)?.name || ''
-const environmentLabel = environment => environment === 'sandbox' ? 'Sandbox' : 'الإنتاج'
 
 // Authenticated gateway call. The access token comes from the browser's own
 // Supabase session; the gateway re-checks staff role/branch on every request.
@@ -207,6 +210,8 @@ export default function OrdersScreen() {
   const [shippingError, setShippingError] = useState('')
   const [exportBusy, setExportBusy] = useState(null)
   const [exportNotice, setExportNotice] = useState(null)
+  const [newOrderNotice, setNewOrderNotice] = useState(null)
+  const seenOrderIds = useRef(null)
 
   const shippingAllowed = Boolean(
     ctx && ['owner', 'manager'].includes(ctx.role) && !ctx.offline && (ctx.stores || []).length,
@@ -225,14 +230,22 @@ export default function OrdersScreen() {
       // pinned to the branch they are signed in to (RLS agrees).
       let query = supabase
         .from('orders')
-        .select('id, order_number, status, fulfillment_type, customer_name, customer_phone, wilaya_code, total, delivery_fee, delivery_fee_on_arrival, created_at, note, rejected_reason, store_id, ' + `order_items(${ORDER_ITEM_FIELDS})`)
+        .select('id, order_number, status, fulfillment_type, customer_name, customer_phone, wilaya_code, commune, address, total, delivery_fee, delivery_fee_on_arrival, created_at, note, rejected_reason, store_id, ' + `order_items(${ORDER_ITEM_FIELDS})`)
         .order('created_at', { ascending: false })
         .limit(300)
       query = ctx.allBranches ? query.eq('tenant_id', ctx.tenantId) : query.eq('store_id', ctx.storeId)
       const { data, error: queryError } = await query
       if (queryError) throw queryError
-      setOrders(data || [])
+      const rows = data || []
+      setOrders(rows)
       setError('')
+      // P5: a later poll (or manual refresh) detects newly inserted orders and
+      // raises an in-app notification carrying their product thumbnails.
+      if (seenOrderIds.current) {
+        const arrivals = rows.filter(order => order.status === 'new' && !seenOrderIds.current.has(order.id))
+        if (arrivals.length) setNewOrderNotice({ order: arrivals[0], count: arrivals.length })
+      }
+      seenOrderIds.current = new Set(rows.map(order => order.id))
     } catch (err) {
       setError(err.message || 'تعذر تحميل الطلبات')
     } finally {
@@ -241,6 +254,14 @@ export default function OrdersScreen() {
   }, [ctx?.tenantId, ctx?.storeId, ctx?.allBranches])
 
   useEffect(() => { load() }, [load])
+
+  // Lightweight polling keeps the new-order notice working without requiring a
+  // Realtime publication on public.orders (which stays read-only here).
+  useEffect(() => {
+    if (!ctx || ctx.offline) return
+    const timer = setInterval(() => { load() }, 30000)
+    return () => clearInterval(timer)
+  }, [ctx?.offline, load])
 
   // P3/P4 shipping: load connections/shipments for every branch the owner can
   // see. Both "شحن الطلب" and "تصدير الشحنات (CSV)" derive their options from
@@ -308,6 +329,20 @@ export default function OrdersScreen() {
       }]
     })).values()], [shippingConnections, storeNames])
 
+  // P5: no enabled bulk connection must NOT disable the button. The registry
+  // supplies the three courier templates so the drawer always opens; the actual
+  // download still requires an enabled connection.
+  const enabledExportValues = useMemo(() => enabledTemplateValues(exportTemplates), [exportTemplates])
+  const exportMenuTemplates = useMemo(() => {
+    if (exportTemplates.length) return exportTemplates
+    const storeId = ctx?.storeId || ctx?.stores?.[0]?.id
+    return fallbackExportTemplates({
+      storeId,
+      storeName: storeNames(storeId) || 'الفرع الحالي',
+      environment: process.env.NEXT_PUBLIC_SHIPPING_ENVIRONMENT || DEFAULT_EXPORT_ENVIRONMENT,
+    })
+  }, [exportTemplates, ctx?.storeId, ctx?.stores, storeNames])
+
   const shipmentsByOrder = useMemo(() => {
     const map = new Map()
     for (const row of shipments) {
@@ -355,6 +390,13 @@ export default function OrdersScreen() {
     const [providerCode, environment, storeId] = String(selection || '').split(':')
     if (!providerCode || !environment || !storeId) {
       setExportNotice({ tone: 'error', text: 'اختر قالب شركة التوصيل من قائمة التصدير أولاً.' })
+      return
+    }
+    if (!enabledExportValues.has(selection)) {
+      setExportNotice({
+        tone: 'error',
+        text: 'القوالب ظاهرة للعرض، لكن تنزيل CSV يتطلب تفعيل رابط «تصدير بالجملة» أو «كلاهما» من «الإعدادات ← شركات التوصيل».',
+      })
       return
     }
     setExportBusy(selection)
@@ -432,6 +474,12 @@ export default function OrdersScreen() {
       </div>
 
       <Notice error={error} success={success} />
+      <NewOrderNotice
+        order={newOrderNotice?.order}
+        count={newOrderNotice?.count || 1}
+        onOpen={order => { setDetail(order); setNewOrderNotice(null) }}
+        onDismiss={() => setNewOrderNotice(null)}
+      />
       {shippingAllowed && (
         <div className="mb-3 space-y-2 rounded-xl border border-white/10 bg-card p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -439,10 +487,12 @@ export default function OrdersScreen() {
               شحن مباشر عبر الروابط المفعّلة لكل فرع · التصدير يستبعد الطلبات المشحونة والمُصدّرة سابقاً.
             </p>
             <ShippingExportButton
-              templates={exportTemplates}
+              templates={exportMenuTemplates}
               busy={Boolean(exportBusy)}
-              disabled={!exportTemplates.length}
               onExport={exportShipments}
+              setupHint={!exportTemplates.length
+                ? 'القوالب تفتح دائماً؛ فعّل رابط «تصدير بالجملة» أو «كلاهما» لتنزيل ملف CSV فعلي.'
+                : ''}
             />
           </div>
           {shippingError && <p role="alert" className="text-xs text-amber-300">{shippingError}</p>}
@@ -461,7 +511,7 @@ export default function OrdersScreen() {
           )}
           {!exportTemplates.length && (
             <p className="text-[11px] text-neutral-500">
-              لتفعيل «تصدير الشحنات (CSV)»، اختر «وضع التصدير بالجملة CSV» أو «كلاهما» في إعدادات شركة التوصيل.
+              قائمة «تصدير الشحنات (CSV)» تستجيب الآن وتعرض قوالب يليدين و ZR؛ لتنزيل ملف فعلي، اختر «وضع التصدير بالجملة CSV» أو «كلاهما» في إعدادات شركة التوصيل.
             </p>
           )}
         </div>
@@ -522,11 +572,27 @@ export default function OrdersScreen() {
       )}
 
       {detail && (
-        <Modal title={`القطع في الطلب ${detail.order_number}`} onClose={() => setDetail(null)}>
-          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-400">
-            <span>{detail.customer_name}</span>
-            <span dir="ltr">{detail.customer_phone}</span>
-            <span className="text-gold">{formatDzd(detail.total)}</span>
+        <Modal
+          title={detail.status === 'new'
+            ? `تفاصيل الطلب الجديد ${detail.order_number}`
+            : `القطع في الطلب ${detail.order_number}`}
+          onClose={() => setDetail(null)}
+        >
+          <div className="mb-3 rounded-xl border border-gold/20 bg-black/20 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 text-xs leading-6 text-neutral-300">
+                <p className="font-medium text-neutral-100">{detail.customer_name}</p>
+                <p dir="ltr">{detail.customer_phone}</p>
+                <p>{wilayaName(detail.wilaya_code)}{detail.address ? ` · ${detail.address}` : ''}</p>
+                <p>{shortDateTime(detail.created_at)} · <span className="text-gold">{formatDzd(detail.total)}</span></p>
+                {detail.note && <p className="text-neutral-400">ملاحظة: {detail.note}</p>}
+              </div>
+              <div dir="ltr" className="flex shrink-0 -space-x-2 space-x-reverse">
+                {(detail.order_items || []).slice(0, 3).map(item => (
+                  <ItemThumb key={item.id} item={item} size="lg" />
+                ))}
+              </div>
+            </div>
           </div>
 
           {detail.order_items?.length ? (

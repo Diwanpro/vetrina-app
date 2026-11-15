@@ -195,10 +195,10 @@ test('the settings tab prints a QR for the public store link', async () => {
 
 // --- product pictures on order lines -----------------------------------
 
-test('orderItemImage prefers images[] and falls back to image_url', () => {
-  // Same precedence as productImage() in lib/storefront.js, which the POS and
-  // the public store already use; a line must not show a different photo in the
-  // dashboard than the customer saw.
+test('orderItemImage prefers the P5 line snapshot, then images[], then image_url', () => {
+  // The order_items.image_url snapshot survives a deleted product; the embedded
+  // product remains a fallback for rows created before migration 018.
+  assert.equal(orderItemImage({ image_url: 'snapshot.jpg', products: { images: ['a.jpg'] } }), 'snapshot.jpg')
   assert.equal(orderItemImage({ products: { images: ['a.jpg'], image_url: 'b.jpg' } }), 'a.jpg')
   assert.equal(orderItemImage({ products: { images: [], image_url: 'b.jpg' } }), 'b.jpg')
   assert.equal(orderItemImage({ products: { images: [null], image_url: 'real.jpg' } }), 'real.jpg')
@@ -213,6 +213,7 @@ test('orderItemImage survives a product deleted after the sale', () => {
   assert.equal(orderItemImage({ products: null }), '')
   assert.equal(orderItemImage({}), '')
   assert.equal(orderItemImage(null), '')
+  assert.equal(orderItemImage({ image_url: 'snapshot.jpg', products: null }), 'snapshot.jpg')
 })
 
 test('orderItemLabel shows the product, colour and size without empty separators', () => {
@@ -226,7 +227,7 @@ test('orderItemLabel shows the product, colour and size without empty separators
 test('ORDER_ITEM_FIELDS asks for exactly the columns the thumbnail renders', () => {
   // A column missing here becomes an undefined value at runtime, and a stale
   // extra one becomes a PostgREST error — so pin the contract.
-  for (const column of ['product_name', 'size', 'color', 'qty', 'unit_price', 'line_total']) {
+  for (const column of ['product_id', 'image_url', 'product_name', 'size', 'color', 'qty', 'unit_price', 'line_total']) {
     assert.ok(ORDER_ITEM_FIELDS.includes(column), `${column} must be selected`)
   }
   assert.match(ORDER_ITEM_FIELDS, /products\(name, images, image_url\)/)

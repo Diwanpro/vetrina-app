@@ -160,13 +160,13 @@ test('the size picker greys out what cannot be bought', () => {
 
 test('the card never counts stock and asks for the price on WhatsApp', () => {
   const flat = strip(storefront)
-  assert.match(flat, /disabled=\{soldOut\}/)
+  assert.match(flat, /disabled=\{soldOut \|\| demo\}/)
   assert.match(flat, /اسأل عن السعر/)
   assert.match(flat, /whatsappLink\(store\?\.phone, `مرحباً \$\{store\?\.name \|\| ''\}، أريد معرفة سعر: \$\{product\.name\}`\)/)
   // Offers become a badge on the card.
   assert.match(flat, /const badge = offerBadge\(product\.offers\?\.\[0\]\)/)
   // "أضف" is a labelled button, not a bare quantity control.
-  assert.match(flat, /أضف\s*<\/button>/)
+  assert.match(flat, /\{demo \? 'عرض' : 'أضف'\}/)
 })
 
 test('prices stay behind show_prices everywhere they are shown', () => {
@@ -246,7 +246,7 @@ test('the repair migration folds hand-written keys into canonical codes', () => 
 
 test('the settings screen edits all 58 wilayas through the RPC', () => {
   const flat = strip(settings)
-  assert.match(flat, /select\('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates, slug'\)/)
+  assert.match(flat, /select\('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates, slug, store_type'\)/)
   assert.match(flat, /supabase\.rpc\('engine_update_delivery_rates', \{ p_store: ctx\.storeId, p_rates: payload,? \}\)/)
   assert.match(flat, /WILAYAS\.map\(wilaya => \(/)
   assert.equal(WILAYAS.length, 58)
