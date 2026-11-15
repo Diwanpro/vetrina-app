@@ -65,3 +65,9 @@
 ## 7) الاختبارات
 
 `tests/shipping-credentials.test.mjs` (التشفير/العبث/AAD/القناع)، `tests/shipping-registry.test.mjs` (عقد الشركات/بناء الفحص)، `tests/shipping-migration.test.mjs` (RLS، عدم لمس `orders`، RPC المقنّعة)، و`tests/shipping.integration.sql` لفحص العزل على مشروع Supabase حي.
+
+## 8) حالة التنفيذ (P1/P2)
+
+- الـ migration `202611120015` **مطبّقة فعلياً** على مشروع Supabase المتصل (`Diwanpro's Project`) عبر `create_migration`، وفُحصت حيّةً: 6 جداول، RLS مفعّل على 6/6، `shipping_connections` بلا أي سياسة، 5 سياسات قراءة، دالتان مقنّعتان، و`orders` ما زال بـ 27 عموداً دون تغيير.
+- `next build` نجح (مع محاكاة خط Tajawal بسبب حظر الشبكة عن Google Fonts في بيئة الاختبار)، وكل اختبارات `node --test` خضراء بعد `npm install`.
+- **قبل P3** يجب ضبط `SHIPPING_MASTER_KEY` و`SUPABASE_SERVICE_ROLE_KEY` كمتغيّرات سيرفرية في بيئة النشر (Vercel) — لم تُضبط هنا حتى لا يُنشأ سرّ دون موافقة صريحة. عناوين `SHIPPING_<CODE>_<ENV>_BASE_URL` اختيارية.
