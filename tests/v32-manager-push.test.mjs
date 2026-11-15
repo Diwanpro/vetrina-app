@@ -52,3 +52,41 @@ test('service worker action opens alerts; staff UI shares existing browser subsc
  assert.doesNotMatch(ui,/\.unsubscribe\(\)/)
  assert.doesNotMatch(ui,/<select\b/)
 })
+test('real Web Push sender encrypts payload and sets VAPID/high priority (local transport, not a phone)', async () => {
+ const { createServer, globalAgent } = await import('node:https')
+ const { execFileSync } = await import('node:child_process')
+ const { tmpdir } = await import('node:os')
+ const directory=await fs.mkdtemp(`${tmpdir()}/vetrina-push-tls-`)
+ execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',`${directory}/key.pem`,'-out',`${directory}/cert.pem`,'-days','1','-subj','/CN=127.0.0.1','-addext','subjectAltName=IP:127.0.0.1'],{stdio:'ignore'})
+ const key=await fs.readFile(`${directory}/key.pem`), cert=await fs.readFile(`${directory}/cert.pem`)
+ const previousCa=globalAgent.options.ca
+ globalAgent.options.ca=cert
+ const { createECDH, randomBytes } = await import('node:crypto')
+ const webpush = await import('web-push')
+ const { sendPush } = await import('../lib/push/sender.js')
+ const old = process.env.PUSH_VAPID_CONFIG
+ const vapid = webpush.generateVAPIDKeys()
+ process.env.PUSH_VAPID_CONFIG = JSON.stringify({...vapid, subject:'mailto:test@example.com'})
+ const client = createECDH('prime256v1'); client.generateKeys()
+ let received
+ const server = createServer({key,cert}, (req, res) => {
+   const chunks=[]
+   req.on('data', chunk => chunks.push(chunk))
+   req.on('end', () => { received={headers:req.headers,body:Buffer.concat(chunks)}; res.writeHead(201); res.end() })
+ })
+ try {
+   await new Promise(resolve => server.listen(0, '0.0.0.0', resolve))
+   const response=await sendPush({endpoint:`https://127.0.0.1:${server.address().port}/push`,p256dh:client.getPublicKey().toString('base64url'),auth:randomBytes(16).toString('base64url')},buildOosPush({id:'transport',store_id:'branch',product_name:'فستان',color:'أحمر',size:'M'}))
+   assert.equal(response.statusCode,201)
+   assert.equal(received.headers.urgency,'high')
+   assert.equal(received.headers['content-encoding'],'aes128gcm')
+   assert.match(received.headers.authorization,/vapid/)
+   assert.equal(received.body.includes(Buffer.from('فستان')),false)
+ } finally {
+   await new Promise(resolve => server.close(resolve))
+   globalAgent.options.ca=previousCa
+   await fs.rm(directory,{recursive:true,force:true})
+   if (old === undefined) delete process.env.PUSH_VAPID_CONFIG
+   else process.env.PUSH_VAPID_CONFIG=old
+ }
+})
