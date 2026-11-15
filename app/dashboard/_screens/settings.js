@@ -8,6 +8,7 @@ import { Notice, fieldClass, primaryClass, secondaryClass } from '@/components/d
 import CustomSelect from '@/components/ui/CustomSelect'
 import { STORE_TYPE_OPTIONS, isStoreType, STORE_TYPES } from '@/lib/store-catalog'
 import { THEME_OPTIONS, THEME_LABELS, normalizeStoreTheme, resolveStoreTheme } from '@/lib/store-theme'
+import { validateStoreLogo, logoUploadError } from '@/lib/store-logo'
 import BranchProfileEditor from '@/components/dashboard/BranchProfileEditor'
 import { supabase } from '@/lib/supabase'
 import { canAddBranch } from '@/lib/commercial'
@@ -117,12 +118,14 @@ export default function SettingsPage() {
       // Upload Logo if file exists
       let finalLogoUrl = storeSettings.logo_url
       if (logoFile) {
-        const ext = (logoFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+        const invalid = validateStoreLogo(logoFile)
+        if (invalid) throw new Error(invalid)
+        const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[logoFile.type]
         const path = `${ctx.tenantId}/${ctx.storeId}/logo-${Date.now()}.${ext}`
         const { error: upErr } = await supabase.storage.from('store-logos').upload(path, logoFile, {
           cacheControl: '3600', upsert: true, contentType: logoFile.type || 'image/jpeg'
         })
-        if (upErr) throw new Error(`فشل رفع الشعار: ${upErr.message}`)
+        if (upErr) throw new Error(logoUploadError(upErr))
         const { data: pub } = await supabase.storage.from('store-logos').getPublicUrl(path)
         finalLogoUrl = pub?.publicUrl || ''
       }
@@ -152,15 +155,29 @@ export default function SettingsPage() {
       setSettingsSuccess(typeChanged
         ? 'تم حفظ تخصص الفرع والقالب؛ سيتم تحديث التصنيفات والكتالوج التجريبي...'
         : 'تم حفظ إعدادات المحل')
+      setLogoFile(null)
       loadStoreSettings()
-      // getAppContext caches the branch type in the session; a reload makes the
-      // dashboard and storefront pick up the new catalogue immediately.
-      if (typeChanged) window.setTimeout(() => window.location.reload(), 900)
+      window.dispatchEvent(new Event('vetrina:auth'))
+      // SessionProvider refreshes on vetrina:auth; no page reload is required.
+
     } catch (err) {
       setSettingsError(`خطأ: ${err.message}`)
     } finally {
       setSettingsBusy(false)
     }
+  }
+
+  async function saveSpecialty(patch) {
+    setSettingsBusy(true); setSettingsError('')
+    const next = { ...storeSettings, ...patch }
+    try {
+      const { error } = await supabase.rpc('engine_set_branch_specialty', { p_store: ctx.storeId, p_store_type: next.store_type, p_theme_key: next.theme_key })
+      if (error) throw error
+      setStoreSettings(next)
+      window.dispatchEvent(new Event('vetrina:auth'))
+      setSettingsSuccess('حُفظ تخصص الفرع وتم تحديث القالب والتصنيفات')
+    } catch (err) { setSettingsError(err.message) }
+    finally { setSettingsBusy(false) }
   }
 
   // Rebuilds cost averages from real purchase receipts. Dry run first so the
@@ -357,7 +374,7 @@ export default function SettingsPage() {
                 <CustomSelect
                   value={storeSettings.store_type}
                   disabled={settingsBusy}
-                  onChange={value => setStoreSettings({ ...storeSettings, store_type: value })}
+                  onChange={value => saveSpecialty({ store_type: value })}
                   options={STORE_TYPE_OPTIONS}
                   aria-label="تخصص الفرع"
                   className={`${fieldClass} mt-1`}
@@ -370,7 +387,7 @@ export default function SettingsPage() {
                   <CustomSelect
                     value={storeSettings.theme_key}
                     disabled={settingsBusy}
-                    onChange={value => setStoreSettings({ ...storeSettings, theme_key: value })}
+                    onChange={value => saveSpecialty({ theme_key: value })}
                     options={THEME_OPTIONS}
                     aria-label="قالب المتجر الافتراضي"
                     className={`${fieldClass} mt-1`}
@@ -410,7 +427,12 @@ export default function SettingsPage() {
                 )}
               </div>
               <label className="block text-sm text-neutral-300">شعار المحل (صورة)
-                <input type="file" accept="image/*" onChange={e => setLogoFile(e.target.files?.[0] || null)} className={`${fieldClass} mt-1`} />
+                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => {
+                  const file = e.target.files?.[0] || null
+                  const invalid = file ? validateStoreLogo(file) : null
+                  setSettingsError(invalid || '')
+                  setLogoFile(invalid ? null : file)
+                }} className={`${fieldClass} mt-1`} />
                 {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="شعار المحل" className="mt-2 h-20 w-20 rounded-lg object-cover" />}
               </label>
             </div>
@@ -612,6 +634,7 @@ export default function SettingsPage() {
                       });
                       if (themeError) throw themeError;
                     }
+                    if (createdStoreId) localStorage.setItem(`vetrina.branch:${ctx.user.id}:${ctx.tenantId}`, createdStoreId)
                     location.reload();
                   });
                 }}

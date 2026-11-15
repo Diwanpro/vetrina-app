@@ -1,5 +1,6 @@
 'use client'
 
+import { usePathname } from 'next/navigation'
 import { useDashboardSession } from './SessionProvider'
 import { routeAllowed } from '@/lib/access'
 import { NAV_ITEMS, activeGroup } from './navItems'
@@ -7,7 +8,8 @@ import OrdersBadge from './OrdersBadge'
 
 export default function BottomNav({ active = '/dashboard' }) {
   const ctx = useDashboardSession()
-  const group = activeGroup(active)
+  const pathname = usePathname()
+  const group = activeGroup(pathname || active)
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/5 bg-[#161616]/95 backdrop-blur">
       <div className="flex overflow-x-auto">
@@ -18,6 +20,7 @@ export default function BottomNav({ active = '/dashboard' }) {
             <a
               key={item.href}
               href={item.href}
+              aria-current={isActive ? 'page' : undefined}
               className={`relative flex min-w-[72px] flex-1 flex-col items-center py-2 px-1 ${
                 isActive ? 'text-gold' : 'text-neutral-500'
               }`}

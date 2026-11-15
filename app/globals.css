@@ -251,3 +251,10 @@ select option:hover {
     transition: none;
   }
 }
+
+/* v3.3: visible branch specialty inside the dashboard as well as storefront. */
+.dashboard-theme-feminine { background: #20131c; }
+.dashboard-theme-feminine .bg-surface, .dashboard-theme-feminine .bg-card { background-color: #2a1a25; }
+.dashboard-theme-feminine header, .dashboard-theme-feminine aside { background-color: #281923; }
+.dashboard-theme-feminine .text-gold { color: #f2b6cd; }
+.dashboard-theme-feminine .bg-gold { background-color: #f2b6cd; }

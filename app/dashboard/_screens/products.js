@@ -17,6 +17,7 @@ import SearchableSelect from '@/components/ui/SearchableSelect'
 import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
 import { notifyBranchPush } from '@/lib/push/client'
 
+import { brandsFor, cleanBrand } from '@/lib/brand-catalog'
 import { FABRIC_OPTIONS, STYLE_OPTIONS, generateDescription, generateProductName, smartSpecsFromForm, validateSmartEntry } from '@/lib/product-entry'
 
 const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
@@ -100,7 +101,7 @@ export default function ProductsPage() {
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, description, category, subcategory, base_price, images, image_url, external_video_url, product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
+        .select('id, name, brand, description, category, subcategory, base_price, images, image_url, external_video_url, product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).order('created_at', { ascending: false }).order('id'))
       setProducts(mergeMockProducts(rows, context.storeType, context.storeId, 'dashboard'))
     } catch (err) { setError(err.message) }
@@ -228,7 +229,7 @@ export default function ProductsPage() {
     const validation = validateSmartEntry({ ...form, cells: filledCells })
     if (validation) { setError(validation); return }
     const specs = smartSpecsFromForm(form, filledCells, ctx)
-    const productName = form.name.trim() || generateProductName(specs)
+    const productName = form.name.trim() || [cleanBrand(form.brand), generateProductName(specs)].filter(Boolean).join(' · ')
     const videoUrl = form.external_video_url.trim() ? safeVideoUrl(form.external_video_url) : ''
     if (form.external_video_url.trim() && !videoUrl) {
       setError('رابط الفيديو غير صالح. الصق رابطاً يبدأ بـ https:// (تيك توك، إنستغرام، فيسبوك…)')
@@ -277,6 +278,7 @@ export default function ProductsPage() {
       .insert({
         tenant_id: ctx.tenantId,
         name: productName,
+        brand: cleanBrand(form.brand) || null,
         description: form.description.trim() || generateDescription(specs),
         category: form.category,
         subcategory: form.subcategory.trim() || null,
@@ -498,6 +500,38 @@ export default function ProductsPage() {
             </div>
 
             <div className="space-y-3">
+              <div className="block">
+                <span className="mb-1 block text-xs text-neutral-400">نوع المنتج</span>
+                <CustomSelect
+                  value={form.category}
+                  onChange={e => setForm({ ...form, category: e, subcategory: '', brand: '' })}
+                  options={MAIN_CATEGORIES.map(c => ({ label: c, value: c }))}
+                  className={`${selectClass} mt-1`}
+                />
+                <span className="mt-1 block text-[11px] text-neutral-500">
+                  نوع المتجر الحالي: {storeTypeLabel(ctx.storeType)} · تتغير التصنيفات تلقائياً مع نوع المنتج.
+                </span>
+              </div>
+              <div className="block">
+                <span className="mb-1 block text-xs text-neutral-400">التصنيف (حسب نوع المتجر)</span>
+                <CustomSelect
+                  value={form.subcategory}
+                  onChange={next => setForm(previous => ({ ...previous, subcategory: next, brand: '' }))}
+                  options={subcategoryOptions}
+                  placeholder="اختر التصنيف"
+                  aria-label="التصنيف حسب نوع المتجر"
+                  className={`${selectClass} mt-1`}
+                />
+                <span className="mt-1 block text-[11px] text-neutral-500">
+                  مثال: متجر نسائي + أحذية ← كعب عالي، صنادل، أحذية رياضية نسائية.
+                </span>
+              </div>
+
+              <CustomSelect searchable allowCreate aria-label="الماركة / اسم المنتج" value={form.brand || ''}
+                options={[{ value: '', label: 'بدون ماركة · اختياري' }, ...brandsFor(form.category, form.subcategory, products.map(product => product.brand))]}
+                placeholder="الماركة / اسم المنتج · ابحث أو اكتب ماركة محلية"
+                onChange={brand => setForm(prev => ({ ...prev, brand: cleanBrand(brand) }))} />
+
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">اسم المنتج</span>
                 <input
@@ -543,32 +577,6 @@ export default function ProductsPage() {
                   className={`${selectClass} mt-1`}
                 />
                 <span id="size-type-help" className="mt-1 block text-[11px] text-neutral-500">تغيير نوع المقاس يمسح كميات الجدول. أدخل الكميات بعد اختيار النوع.</span>
-              </div>
-              <div className="block">
-                <span className="mb-1 block text-xs text-neutral-400">نوع المنتج</span>
-                <CustomSelect
-                  value={form.category}
-                  onChange={e => setForm({ ...form, category: e, subcategory: '' })}
-                  options={MAIN_CATEGORIES.map(c => ({ label: c, value: c }))}
-                  className={`${selectClass} mt-1`}
-                />
-                <span className="mt-1 block text-[11px] text-neutral-500">
-                  نوع المتجر الحالي: {storeTypeLabel(ctx.storeType)} · تتغير التصنيفات تلقائياً مع نوع المنتج.
-                </span>
-              </div>
-              <div className="block">
-                <span className="mb-1 block text-xs text-neutral-400">التصنيف (حسب نوع المتجر)</span>
-                <CustomSelect
-                  value={form.subcategory}
-                  onChange={next => setForm(previous => ({ ...previous, subcategory: next }))}
-                  options={subcategoryOptions}
-                  placeholder="اختر التصنيف"
-                  aria-label="التصنيف حسب نوع المتجر"
-                  className={`${selectClass} mt-1`}
-                />
-                <span className="mt-1 block text-[11px] text-neutral-500">
-                  مثال: متجر نسائي + أحذية ← كعب عالي، صنادل، أحذية رياضية نسائية.
-                </span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <CustomSelect aria-label="نوع القماش" value={form.fabric || ''} options={FABRIC_OPTIONS} onChange={fabric => setForm(prev => ({ ...prev, fabric }))} />

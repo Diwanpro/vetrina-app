@@ -308,3 +308,4 @@ oos_push_outbox	dispatch_attempts	NO	0	integer
 oos_push_outbox	last_dispatched_at	YES	-	timestamptz
 oos_push_outbox	sent_count	NO	0	integer
 oos_push_outbox	failed_count	NO	0	integer
+products	brand	YES	-	text

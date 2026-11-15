@@ -275,6 +275,23 @@ export default function Storefront({ slug }) {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    if (!store?.store_id) return
+    let live = true
+    const refreshProfile = async () => {
+      if (document.hidden) return
+      const { data, error } = await supabase.rpc('get_store_by_slug', { p_slug: slug })
+      if (!live || error) return
+      if (!data) { setStore(null); setStatus('missing'); return }
+      if (data.store_type !== store.store_type) { await load(); return }
+      setStore(data)
+    }
+    const channel = supabase.channel(`public-profile-${store.store_id}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stores', filter: `id=eq.${store.store_id}` }, refreshProfile).subscribe()
+    const timer = setInterval(refreshProfile, 5000)
+    window.addEventListener('focus', refreshProfile)
+    return () => { live = false; clearInterval(timer); supabase.removeChannel(channel); window.removeEventListener('focus', refreshProfile) }
+  }, [slug, store?.store_id, store?.store_type, load])
+
   const { looks, loading: looksLoading } = useStoreLooks(slug)
   // A look tab with nothing behind it is worse than no tab at all.
   const showLooks = looks.length > 0

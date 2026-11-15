@@ -25,7 +25,8 @@ export default function SessionProvider({ children }) {
     }
     refresh()
     window.addEventListener('online', refresh); window.addEventListener('focus', refresh); window.addEventListener('vetrina:auth', refresh)
-    const timer = setInterval(refresh, 60000)
+    const timer = setInterval(refresh, 10000)
+    const channel = supabase.channel('branch-profile-session').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stores' }, refresh).subscribe()
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
       navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).then(() => navigator.serviceWorker.ready).then(registration => {
         const urls = performance.getEntriesByType('resource').map(entry => entry.name).filter(url => url.includes('/_next/static/'))
@@ -33,7 +34,7 @@ export default function SessionProvider({ children }) {
         registration.active?.postMessage({ type: 'CACHE_ASSETS', urls })
       }).catch(() => {})
     }
-    return () => { live = false; clearInterval(timer); window.removeEventListener('online', refresh); window.removeEventListener('focus', refresh); window.removeEventListener('vetrina:auth', refresh) }
+    return () => { live = false; clearInterval(timer); supabase.removeChannel(channel); window.removeEventListener('online', refresh); window.removeEventListener('focus', refresh); window.removeEventListener('vetrina:auth', refresh) }
   }, [])
   // App initialisation: register/refresh this device once per signed-in user.
   // Offline starts are skipped — the registry is server state and must not
@@ -86,6 +87,6 @@ export default function SessionProvider({ children }) {
     {ctx.locked ? <TrialCheck tenant={ctx.tenant} role={ctx.role} onActivated={() => location.reload()} />
       : blocked ? <div className="min-h-screen bg-surface p-8 text-neutral-100"><p role="alert">غير مصرح لك بالوصول إلى هذه الصفحة.</p><a href="/dashboard" className="mt-4 block text-gold">العودة للوحة التحكم</a></div>
       : needsBranch ? <div className="min-h-screen bg-surface p-8 text-neutral-100"><p>اختر فرعاً محدداً من لوحة التحكم للعمل في هذه الصفحة.</p><a href="/dashboard" className="mt-4 block text-gold">اختيار الفرع</a></div>
-      : <div key={`${ctx.user.id}:${ctx.staffId}:${ctx.role}:${ctx.tenantId}:${ctx.storeId || 'all'}`}>{children}</div>}
+      : <div key={`${ctx.user.id}:${ctx.staffId}:${ctx.role}:${ctx.tenantId}:${ctx.storeId || 'all'}:${ctx.storeType}:${ctx.storeTheme}`} >{children}</div>}
   </SessionContext.Provider>
 }

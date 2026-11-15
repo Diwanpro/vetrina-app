@@ -56,9 +56,9 @@ export default function BranchProfileEditor({ ctx, onSaved }) {
     setDrafts(current => ({ ...current, [row.id]: { ...draftFor(row), ...patch } }))
   }
 
-  async function save(row) {
+  async function save(row, nextDraft = null) {
     if (busyId) return
-    const draft = draftFor(row)
+    const draft = nextDraft || draftFor(row)
     setBusyId(row.id); setError(''); setSuccess('')
     try {
       const { error: rpcError } = await supabase.rpc('engine_set_branch_profile', {
@@ -71,6 +71,7 @@ export default function BranchProfileEditor({ ctx, onSaved }) {
         ? { ...item, store_type: draft.store_type, theme_key: draft.theme_key }
         : item))
       setSuccess(`تم حفظ تخصص فرع «${row.name}»`)
+      window.dispatchEvent(new Event('vetrina:auth'))
       onSaved?.()
     } catch (err) {
       setError(err.message || 'تعذر حفظ تخصص الفرع')
@@ -104,7 +105,7 @@ export default function BranchProfileEditor({ ctx, onSaved }) {
                 <CustomSelect
                   value={draft.store_type}
                   disabled={busyId === row.id}
-                  onChange={value => setDraft(row, { store_type: value })}
+                  onChange={value => { const next = { ...draftFor(row), store_type: value }; setDraft(row, next); save(row, next) }}
                   options={STORE_TYPE_OPTIONS}
                   aria-label={`تخصص فرع ${row.name}`}
                   className={`${fieldClass} mt-1`}
@@ -116,7 +117,7 @@ export default function BranchProfileEditor({ ctx, onSaved }) {
                   <CustomSelect
                     value={draft.theme_key}
                     disabled={busyId === row.id}
-                    onChange={value => setDraft(row, { theme_key: value })}
+                    onChange={value => { const next = { ...draftFor(row), theme_key: value }; setDraft(row, next); save(row, next) }}
                     options={THEME_OPTIONS}
                     aria-label={`قالب فرع ${row.name}`}
                     className={`${fieldClass} mt-1`}

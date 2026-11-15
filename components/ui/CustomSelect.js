@@ -1,5 +1,6 @@
 'use client'
 
+import SearchableSelect from './SearchableSelect'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useDrawerMenu, drawerClass } from './drawerMenu'
@@ -21,7 +22,14 @@ import { useDrawerMenu, drawerClass } from './drawerMenu'
  * The menu stays mounted while closing (useDrawerMenu) so the drawer can slide
  * back up smoothly instead of disappearing instantly.
  */
-export default function CustomSelect({
+export default function CustomSelect(props) {
+  if (props.searchable) return <SearchableSelect {...props} />
+  return <DrawerSelect {...props} />
+}
+function DrawerSelect({
+  searchable = false,
+  allowCreate = false,
+  onCreate,
   value,
   onChange,
   options = [],
