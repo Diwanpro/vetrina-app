@@ -1,12 +1,12 @@
 # تقرير «الحزمة الشاملة v3.1» — تقارير المراحل والتقرير النهائي
 
 **الفرع:** `arena/740f973f-vetrina-app`  
-**رأس الفرع:** `39eec5e76787cc3f316ff8f009769cb55afcd863` (`39eec5e` — تقرير)  
 **commit التنفيذ:** `0df838227cf93d87cfa935d07cf7f0c04b3df3bc` (`0df8382`)  
+**رأس الفرع:** commits توثيق لاحقة على `arena/740f973f-vetrina-app`؛ `git log -1` هو المرجع الحالي.  
 **الهجرة الحية:** `branch_specialty_themes_and_push_v31` — الإصدار `20261115145524`  
 **ملف الهجرة في المستودع:** `supabase/migrations/202611130019_branch_specialty_themes_and_push.sql`  
 **نشر الكود:** `dpl_3EVatAcXV25yRU67MDRgwaeBcoWe` — `READY / STAGED`  
-**أحدث نشر للفرع (docs):** `dpl_FoRz2utdcAfRxNxTSnwW4JAYfnWt` — `READY / STAGED`
+**نشرات التوثيق اللاحقة:** `READY / STAGED` أيضًا؛ رابط الفرع الثابت يُحدَّث تلقائيًا مع كل commit.
 
 > ملاحظة تنظيمية: نُفّذت المراحل الست دفعة واحدة بعد مزامنة الفرع مع `e6da4a0`، لذلك جُمعت تقاريرها هنا بترتيبها بدل إرسالها متفرقة. كل قسم أدناه هو تقرير مرحلته، ثم يليه التقرير النهائي الموحّد.
 
@@ -138,11 +138,11 @@
 ### 3) النشر
 
 - **commit التنفيذ:** `0df8382` — 51 ملفًا، `2678+/143-`، دُفع إلى `arena/740f973f-vetrina-app`.
-- **commit التقرير:** `39eec5e` — `docs/V31_REPORT_AR.md` فقط، وهو رأس الفرع الحالي.
+- **commits التقرير:** `39eec5e` ثم توابعه — تعديلات `docs/V31_REPORT_AR.md` فقط.
 - **Vercel للكود:** `dpl_3EVatAcXV25yRU67MDRgwaeBcoWe` — `READY / STAGED`، `timeToReady = 36798ms`، `https://vetrina-6ry89xwxh-diwanpro.vercel.app`.
-- **أحدث نشر للفرع:** `dpl_FoRz2utdcAfRxNxTSnwW4JAYfnWt` — `READY / STAGED`، `timeToReady = 32487ms`، `https://vetrina-3112p1noz-diwanpro.vercel.app`.
+- **نشر التوثيق المرجعي:** `dpl_FoRz2utdcAfRxNxTSnwW4JAYfnWt` — `READY / STAGED`، `timeToReady = 32487ms`، `https://vetrina-3112p1noz-diwanpro.vercel.app`.
 - **رابط الفرع الثابت (يُحدَّث تلقائيًا لأحدث نشر):** `https://vetrina-app-git-arena-740f973f-vetrina-app-diwanpro.vercel.app`
-- كلا النشرين يحملان `PUSH_VAPID_CONFIG` في بيئة البناء؛ `main` untouched.
+- كل نشرات الفرع تحمل `PUSH_VAPID_CONFIG` في بيئة البناء؛ `main` untouched.
 
 ### 4) القيود الصريحة المتبقية
 
