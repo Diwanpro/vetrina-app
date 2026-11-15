@@ -75,8 +75,9 @@ export default function PushOptIn({ slug, store }) {
       }
       const reg = await registration()
       const previous = await reg.pushManager.getSubscription()
-      if (previous) await previous.unsubscribe()
-      const subscription = await reg.pushManager.subscribe({
+      // Reuse the shared browser endpoint: recreating it silently invalidates
+      // manager and other branch subscriptions that use this root worker.
+      const subscription = previous || await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
       })
@@ -108,7 +109,7 @@ export default function PushOptIn({ slug, store }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ slug, endpoint: subscription.endpoint }),
         }).catch(() => {})
-        await subscription.unsubscribe()
+        // Only remove this store opt-in; staff/other branch bindings may share it.
       }
       setSubscribed(false)
       setOpen(false)
