@@ -11,8 +11,38 @@ import { useEffect } from 'react'
 import InstallPrompt from './InstallPrompt'
 import PushOptIn from './PushOptIn'
 import { manifestHref, safeStoreIcon } from '@/lib/pwa/client'
+import { cleanStoreName } from '@/lib/pwa/manifest'
 
 export default function StorePwa({ slug, store }) {
+  // Metadata may fail on the server while the browser RPC succeeds. Keep the
+  // title and native install name in sync with the live branch, not root branding.
+  useEffect(() => {
+    if (!store) return
+    const previousTitle = document.title
+    const name = cleanStoreName(store.name)
+    document.title = `${name} · تسوّق الآن`
+    const previous = ['application-name', 'apple-mobile-web-app-title'].map(key => {
+      let element = document.querySelector(`meta[name="${key}"]`)
+      const content = element?.getAttribute('content')
+      const created = !element
+      if (!element) {
+        element = document.createElement('meta')
+        element.name = key
+        document.head.appendChild(element)
+      }
+      element.setAttribute('content', name)
+      return { element, content, created }
+    })
+    return () => {
+      document.title = previousTitle
+      previous.forEach(({ element, content, created }) => {
+        if (created) element.remove()
+        else if (content === null) element.removeAttribute('content')
+        else element.setAttribute('content', content)
+      })
+    }
+  }, [store?.name])
+
   useEffect(() => {
     if (!slug || typeof document === 'undefined') return
     const href = manifestHref(slug)

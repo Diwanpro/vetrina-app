@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { isIosSafari, isStandalone } from '@/lib/pwa/client'
-import { safeStoreIcon } from '@/lib/pwa/manifest'
+import { cleanStoreName, safeStoreIcon } from '@/lib/pwa/manifest'
 
 function initials(name) {
   return String(name || 'متجر').trim().slice(0, 2)
@@ -65,7 +65,7 @@ export default function InstallPrompt({ slug, store }) {
   }
 
   if (!visible || !store) return null
-  const name = store.name || 'المتجر'
+  const name = cleanStoreName(store.name)
   const logo = safeStoreIcon(store.logo_url)
 
   return (
