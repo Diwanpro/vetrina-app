@@ -21,6 +21,7 @@ class FakeQuery {
     this.action = null
     this.payload = null
     this.result = null
+    this.insertError = null
     this.applied = false
   }
 
@@ -51,6 +52,10 @@ class FakeQuery {
   insert(payload) {
     this.action = 'insert'
     this.payload = payload
+    if (this.table === 'shipments' && this.rows().some(row => row.idempotency_key === payload.idempotency_key)) {
+      this.insertError = { code: '23505', message: 'duplicate idempotency key' }
+      return this
+    }
     this.result = { id: randomUUID(), ...payload }
     this.rows().push(this.result)
     return this
@@ -83,9 +88,17 @@ class FakeQuery {
     return { data: this.rows().find(row => this.matches(row)) || null, error: null }
   }
   async single() {
-    if (this.action === 'insert') return { data: this.result, error: null }
+    if (this.action === 'insert') return { data: this.result, error: this.insertError }
     this.applyUpdate()
     return { data: this.rows().find(row => this.matches(row)) || null, error: null }
+  }
+  // Supabase query builders are thenable: `await query.select(...).eq(...)`.
+  // The gateway uses that form to count previous shipping attempts.
+  then(resolve, reject) {
+    try {
+      this.applyUpdate()
+      resolve({ data: this.rows().filter(row => this.matches(row)), error: null })
+    } catch (error) { reject(error) }
   }
 }
 
@@ -233,6 +246,17 @@ test('P3 gateway ships, syncs, verifies webhooks and cancels without touching or
   })
   assert.equal(cancelled.shipment.status, 'cancelled')
   assert.equal(getMockParcel(created.trackingNumber)?.last_status, 'Annulé')
+
+  // Re-shipping after cancellation must not collide with the old idempotency
+  // key. A different order number gives the mock a distinct parcel.
+  state.snapshot.order_number = 'ORD-1001-R'
+  const reshipped = await shipOrder({
+    adminClient, userClient, ctx, storeId: STORE_ID,
+    input: { orderId: ORDER_ID, providerCode: 'yalidine', environment: 'sandbox' },
+  })
+  assert.notEqual(reshipped.trackingNumber, created.trackingNumber)
+  assert.equal(state.shipments.length, 2)
+  assert.notEqual(state.shipments[0].idempotency_key, state.shipments[1].idempotency_key)
 
   assert.ok(!state.tablesUsed.has('orders'), 'public.orders must never be written by the gateway')
   assert.deepEqual([...state.tablesUsed].sort(), [
