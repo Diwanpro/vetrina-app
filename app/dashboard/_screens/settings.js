@@ -16,6 +16,7 @@ import { localRows, pendingRows } from '@/lib/local-db'
 import { syncPending } from '@/lib/sync'
 import { formatDzd } from '@/lib/app-context'
 import { WILAYAS } from '@/lib/wilayas'
+import ShippingSettings from '@/components/dashboard/ShippingSettings'
 
 // --- STORE SETTINGS TAB CONSTANTS ---
 const RETURN_POLICY_OPTIONS = [
@@ -278,7 +279,7 @@ export default function SettingsPage() {
   }
 
   // --- TABS ---
-  const [activeTab, setActiveTab] = useState('identity') // identity, receipt, policies, system, general
+  const [activeTab, setActiveTab] = useState('identity') // identity, delivery, carriers, receipt, policies, system, general
 
   useEffect(() => {
     if (ctx?.storeId) loadStoreSettings()
@@ -309,11 +310,12 @@ export default function SettingsPage() {
         
         {/* TABS NAVIGATION */}
         <div className="flex flex-wrap gap-2 border-b border-white/10 pb-3">
-          {['identity', 'delivery', 'receipt', 'policies', 'system', 'general'].map(tab => (
+          {['identity', 'delivery', 'carriers', 'receipt', 'policies', 'system', 'general'].map(tab => (
             <button key={tab} type="button" onClick={() => setActiveTab(tab)}
               className={`px-3 py-2 text-sm rounded-lg ${activeTab === tab ? 'bg-gold text-[#121212]' : 'text-neutral-400 hover:bg-white/5'}`}>
               {tab === 'identity' && 'إعدادات المحل'}
               {tab === 'delivery' && 'أسعار التوصيل'}
+              {tab === 'carriers' && 'ربط شركات التوصيل'}
               {tab === 'receipt' && 'تخصيص الإيصال'}
               {tab === 'policies' && 'سياسات التشغيل'}
               {tab === 'system' && 'تفضيلات النظام'}
@@ -455,6 +457,18 @@ export default function SettingsPage() {
                 {ratesBusy ? 'جاري الحفظ...' : 'حفظ أسعار التوصيل'}
               </button>
             </div>
+          </section>
+        )}
+
+        {/* CARRIERS TAB: API keys are encrypted on the server, never stored on stores */}
+        {activeTab === 'carriers' && (
+          <section className="rounded-2xl border border-gold/20 bg-card p-5">
+            <h2 className="mb-1 text-gold">ربط شركات التوصيل</h2>
+            <p className="mb-4 text-xs leading-relaxed text-neutral-500">
+              الاستراتيجية المزدوجة (الخيار ج): ربط مباشر عبر API للتجار الذين يملكون مفاتيح، وتصدير CSV بالجملة لمن يرفع الطلبات يدوياً.
+              تبويب «أسعار التوصيل» يبقى مسؤولاً عن التسعير فقط.
+            </p>
+            <ShippingSettings />
           </section>
         )}
 
