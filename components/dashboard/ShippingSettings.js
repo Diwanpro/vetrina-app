@@ -18,10 +18,12 @@ const ENV_OPTIONS = [
   { value: 'sandbox', label: 'بيئة الاختبار (Sandbox)' },
   { value: 'production', label: 'الإنتاج (Production)' },
 ]
+// P4: the three approved activation strategies are explicit for all three
+// couriers (Yalidine, ZR Procolis, ZR new platform). Bulk-only needs no keys.
 const MODE_OPTIONS = [
-  { value: 'api', label: 'ربط مباشر عبر API' },
-  { value: 'bulk', label: 'تصدير بالجملة (CSV)' },
-  { value: 'both', label: 'الاثنان معاً' },
+  { value: 'bulk', label: 'وضع التصدير بالجملة CSV' },
+  { value: 'api', label: 'الربط المباشر API' },
+  { value: 'both', label: 'كلاهما' },
 ]
 const DELIVERY_OPTIONS = [
   { value: 'home', label: 'توصيل إلى العنوان' },
@@ -430,7 +432,7 @@ export default function ShippingSettings() {
             )}
 
             <p className="mt-3 border-t border-white/5 pt-2 text-[11px] leading-relaxed text-neutral-600">
-              هذه المرحلة تضبط المفاتيح وتختبر الاتصال فقط. محوّل الإنشاء/التتبّع/البورْدورو يُفعّل في P3، والتصدير بالجملة في P4.
+              يمكنك تفعيل يليدين وZR Procolis وZR Express (المنصة الجديدة) بشكل مستقل لكل فرع وبيئة، مع اختيار «وضع التصدير بالجملة CSV» أو «الربط المباشر API» أو «كلاهما». الشحن المباشر والتصدير يعملان حالياً عبر Mock Mode بلا مفاتيح Sandbox حقيقية.
             </p>
           </section>
         )

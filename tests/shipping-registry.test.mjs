@@ -15,15 +15,15 @@ test('the registry is complete and every provider satisfies the shared contract'
   assert.equal(credentialHintField(getProvider('yalidine')).key, 'apiToken')
 })
 
-test('capability flags are declared so the UI can hide unsupported actions', () => {
-  const liveP3 = ['create', 'track', 'label', 'cancel', 'webhook', 'pullStatuses']
+test('P4 capability flags are declared for every courier and CSV template', () => {
+  const liveCapabilities = ['create', 'track', 'label', 'cancel', 'webhook', 'pullStatuses']
   for (const provider of listProviders()) {
     assert.equal(provider.capabilities.test, true)
-    for (const flag of [...liveP3, 'bulkTemplate', 'fees']) {
+    for (const flag of [...liveCapabilities, 'bulkTemplate', 'fees']) {
       assert.equal(typeof provider.capabilities[flag], 'boolean', `${provider.code}.${flag}`)
-      // P3 ships only the Yalidine adapter; both ZR platforms remain P4 and
-      // CSV templates/fees are still planned.
-      const expected = provider.code === 'yalidine' && liveP3.includes(flag)
+      // P4 ships all three adapters with full mock capabilities and CSV
+      // templates. Fee tables are still outside scope.
+      const expected = flag !== 'fees'
       assert.equal(provider.capabilities[flag], expected, `${provider.code}.${flag}`)
     }
   }

@@ -57,8 +57,31 @@ SELECT p.proname, pg_get_function_result(p.oid) AS result, p.prosecdef, p.provol
 SELECT has_function_privilege('anon', 'public.engine_order_shipping_snapshot(uuid)', 'EXECUTE') AS anon_can_execute;
 -- Expect false.
 
--- 10) The P3 migration added no column/constraint/trigger/policy to orders.
+-- 10) The P3/P4 migrations added no column/constraint/trigger/policy to orders.
 SELECT count(*) AS orders_columns
   FROM information_schema.columns
  WHERE table_schema = 'public' AND table_name = 'orders';
--- Expect 27, exactly as before P1/P2/P3.
+-- Expect 27, exactly as before P1/P2/P3/P4.
+
+-- 11) P4 export-candidates RPC exists, is read-only definer, and anon cannot call it.
+SELECT p.proname, pg_get_function_result(p.oid) AS result, p.prosecdef, p.provolatile
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+ WHERE n.nspname = 'public' AND p.proname = 'engine_shipping_export_candidates';
+-- Expect 1 row: result = jsonb, prosecdef = true, provolatile = s.
+SELECT has_function_privilege('anon', 'public.engine_shipping_export_candidates(uuid, text)', 'EXECUTE') AS anon_can_execute;
+-- Expect false.
+
+-- 12) P4 duplicate-export guards are present.
+SELECT indexname, indexdef
+  FROM pg_indexes
+ WHERE schemaname = 'public'
+   AND indexname IN ('shipping_export_items_order_once','shipments_bulk_export_once')
+ ORDER BY indexname;
+-- Expect 2 rows; the second is a partial unique index on bulk/exported shipments.
+
+-- 13) An order with an active shipment or a previous export item must NOT be
+--     returned by engine_shipping_export_candidates('<STORE_UUID>', 'yalidine').
+--     Only confirmed/preparing delivery orders are eligible.
+
+-- 14) No shipping gateway write ever targets public.orders. Inspect triggers,
+--     policies, and column count again after applying 202611120017: unchanged.

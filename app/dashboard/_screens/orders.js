@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, Modal, secondaryClass } from '@/components/dashboard/EngineUI'
-import CustomSelect from '@/components/ui/CustomSelect'
 import ShippingButton from '@/components/dashboard/ShippingButton'
+import ShippingExportButton from '@/components/dashboard/ShippingExportButton'
 import { formatDzd } from '@/lib/app-context'
 import { supabase } from '@/lib/supabase'
 import { getProvider } from '@/lib/shipping/registry'
@@ -26,6 +26,7 @@ const STATUS_TONE = {
 }
 
 const wilayaName = code => WILAYAS.find(entry => entry.code === code)?.name || ''
+const environmentLabel = environment => environment === 'sandbox' ? 'Sandbox' : 'الإنتاج'
 
 // Authenticated gateway call. The access token comes from the browser's own
 // Supabase session; the gateway re-checks staff role/branch on every request.
@@ -87,7 +88,7 @@ function OrderItemRow({ item }) {
   )
 }
 
-function OrderCard({ order, storeName, warning, busy, onStatus, onOpen, shipment, onShip, shippingBusy, shippingDisabled }) {
+function OrderCard({ order, storeName, warning, busy, onStatus, onOpen, shipment, onShip, shippingOptions = [], shippingBusy, shippingDisabled }) {
   const phone = telLink(order.customer_phone)
   const whatsapp = whatsappLink(order.customer_phone, orderWhatsappMessage(order, storeName))
   const moves = nextStatuses(order.status)
@@ -166,6 +167,7 @@ function OrderCard({ order, storeName, warning, busy, onStatus, onOpen, shipment
           shipment={shipment}
           busy={shippingBusy}
           disabled={shippingDisabled}
+          options={shippingOptions}
           onShip={onShip}
         />
         {moves.map(move => (
@@ -201,9 +203,10 @@ export default function OrdersScreen() {
   const [reason, setReason] = useState('')
   const [shippingConnections, setShippingConnections] = useState([])
   const [shipments, setShipments] = useState([])
-  const [shippingTarget, setShippingTarget] = useState('')
   const [shippingBusyId, setShippingBusyId] = useState('')
   const [shippingError, setShippingError] = useState('')
+  const [exportBusy, setExportBusy] = useState(null)
+  const [exportNotice, setExportNotice] = useState(null)
 
   const shippingAllowed = Boolean(
     ctx && ['owner', 'manager'].includes(ctx.role) && !ctx.offline && (ctx.stores || []).length,
@@ -239,10 +242,9 @@ export default function OrdersScreen() {
 
   useEffect(() => { load() }, [load])
 
-  // P3 shipping: load connections/shipments for every branch the owner can see.
-  // The UI discovers providers from the registry — adding a carrier later does
-  // not add a branch here. ZR adapters are still P4, so only providers whose
-  // registry capabilities include `create` are selectable.
+  // P3/P4 shipping: load connections/shipments for every branch the owner can
+  // see. Both "شحن الطلب" and "تصدير الشحنات (CSV)" derive their options from
+  // these ENABLED connections; no carrier name is hard-coded in this screen.
   const shippingStores = useMemo(() => ctx?.stores || [], [ctx?.stores])
 
   const loadShipping = useCallback(async () => {
@@ -269,25 +271,42 @@ export default function OrdersScreen() {
     setShippingConnections(connections)
     setShipments(rows)
     setShippingError(failed ? 'تعذر تحميل روابط الشحن لبعض الفروع.' : '')
-    const options = [...new Map(connections
-      .filter(row => row.enabled && ['api', 'both'].includes(row.mode) && getProvider(row.provider_code)?.capabilities?.create)
-      .map(row => [`${row.provider_code}:${row.environment}`, {
-        value: `${row.provider_code}:${row.environment}`,
-        label: `${getProvider(row.provider_code)?.label || row.provider_code} · ${row.environment === 'sandbox' ? 'Sandbox' : 'الإنتاج'}`,
-      }])).values()]
-    setShippingTarget(current => options.some(option => option.value === current) ? current : (options[0]?.value || ''))
   }, [shippingAllowed, shippingStores])
 
   useEffect(() => {
     if (shippingAllowed) loadShipping()
   }, [shippingAllowed, loadShipping])
 
-  const shippingOptions = useMemo(() => [...new Map(shippingConnections
-    .filter(row => row.enabled && ['api', 'both'].includes(row.mode) && getProvider(row.provider_code)?.capabilities?.create)
-    .map(row => [`${row.provider_code}:${row.environment}`, {
-      value: `${row.provider_code}:${row.environment}`,
-      label: `${getProvider(row.provider_code)?.label || row.provider_code} · ${row.environment === 'sandbox' ? 'Sandbox' : 'الإنتاج'}`,
-    }])).values()], [shippingConnections])
+  // «شحن الطلب» options are per-order/per-branch and come ONLY from enabled
+  // API/both connections whose registry capability `create` is true. Yalidine
+  // and both ZR platforms therefore appear automatically once activated.
+  const shippingOptionsFor = useCallback(storeId => {
+    if (!storeId) return []
+    return [...new Map(shippingConnections
+      .filter(row => row.store_id === storeId && row.enabled &&
+        ['api', 'both'].includes(row.mode) && getProvider(row.provider_code)?.capabilities?.create)
+      .map(row => [`${row.provider_code}:${row.environment}`, {
+        value: `${row.provider_code}:${row.environment}`,
+        label: `${getProvider(row.provider_code)?.label || row.provider_code} · ${environmentLabel(row.environment)}`,
+        description: `${row.mode === 'both' ? 'API + CSV' : 'API'} · ${environmentLabel(row.environment)}`,
+      }])).values()]
+  }, [shippingConnections])
+
+  // «تصدير الشحنات (CSV)» company-template menu: enabled bulk/both connections
+  // with a registry `bulkTemplate` capability. Each menu value also carries the
+  // branch, because the export RPC is deliberately scoped to one store.
+  const exportTemplates = useMemo(() => [...new Map(shippingConnections
+    .filter(row => row.enabled && ['bulk', 'both'].includes(row.mode) &&
+      getProvider(row.provider_code)?.capabilities?.bulkTemplate)
+    .map(row => {
+      const provider = getProvider(row.provider_code)
+      const branch = storeNames(row.store_id) || 'الفرع الحالي'
+      return [`${row.provider_code}:${row.environment}:${row.store_id}`, {
+        value: `${row.provider_code}:${row.environment}:${row.store_id}`,
+        label: `${provider?.label || row.provider_code} · ${branch} · ${environmentLabel(row.environment)}`,
+        description: `قالب ${provider?.label || row.provider_code} · ${row.mode === 'both' ? 'API + CSV' : 'CSV'}`,
+      }]
+    })).values()], [shippingConnections, storeNames])
 
   const shipmentsByOrder = useMemo(() => {
     const map = new Map()
@@ -298,11 +317,11 @@ export default function OrdersScreen() {
     return map
   }, [shipments])
 
-  async function shipOrder(order) {
-    const [providerCode, environment] = shippingTarget.split(':')
+  async function shipOrder(order, selection = '') {
+    const [providerCode, environment] = String(selection || '').split(':')
     const storeId = order.store_id || ctx?.storeId
     if (!providerCode || !environment || !storeId) {
-      setShippingError('اختر رابط شركة التوصيل من الإعدادات أولاً.')
+      setShippingError('اختر شركة التوصيل من قائمة «شحن الطلب» أولاً.')
       return
     }
     const connection = shippingConnections.find(row =>
@@ -315,6 +334,7 @@ export default function OrdersScreen() {
     setShippingBusyId(order.id)
     setShippingError('')
     setSuccess('')
+    setExportNotice(null)
     try {
       const body = await shippingFetch('/api/shipping/shipments', {
         method: 'POST',
@@ -328,6 +348,40 @@ export default function OrdersScreen() {
       setShippingError(err.message || 'تعذر شحن الطلب')
     } finally {
       setShippingBusyId('')
+    }
+  }
+
+  async function exportShipments(selection = '') {
+    const [providerCode, environment, storeId] = String(selection || '').split(':')
+    if (!providerCode || !environment || !storeId) {
+      setExportNotice({ tone: 'error', text: 'اختر قالب شركة التوصيل من قائمة التصدير أولاً.' })
+      return
+    }
+    setExportBusy(selection)
+    setExportNotice(null)
+    setShippingError('')
+    setSuccess('')
+    try {
+      const body = await shippingFetch('/api/shipping/exports', {
+        method: 'POST',
+        body: JSON.stringify({ storeId, providerCode, environment }),
+      })
+      // The gateway already produced the BOM-prefixed UTF-8 CSV text via the
+      // existing csvText() helper; keep the BOM byte inside the Blob.
+      const url = URL.createObjectURL(new Blob([body.csv], { type: 'text/csv;charset=utf-8' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = body.filename || 'shipping.csv'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setExportNotice({ tone: 'success', text: `تم تصدير ${body.rowCount} طلباً عبر ${body.providerLabel} · الدفعة ${body.batchId}.` })
+      await loadShipping()
+    } catch (err) {
+      setExportNotice({ tone: 'error', text: err.message || 'تعذر تصدير الشحنات' })
+    } finally {
+      setExportBusy(null)
     }
   }
 
@@ -379,25 +433,35 @@ export default function OrdersScreen() {
 
       <Notice error={error} success={success} />
       {shippingAllowed && (
-        <div className="mb-3 space-y-2">
-          {shippingOptions.length > 1 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-neutral-400">شحن عبر</span>
-              <div className="min-w-56 flex-1 sm:max-w-72">
-                <CustomSelect
-                  value={shippingTarget}
-                  onChange={setShippingTarget}
-                  options={shippingOptions}
-                  aria-label="اختيار شركة التوصيل"
-                  placeholder="اختر شركة التوصيل"
-                />
-              </div>
-            </div>
-          )}
+        <div className="mb-3 space-y-2 rounded-xl border border-white/10 bg-card p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-neutral-400">
+              شحن مباشر عبر الروابط المفعّلة لكل فرع · التصدير يستبعد الطلبات المشحونة والمُصدّرة سابقاً.
+            </p>
+            <ShippingExportButton
+              templates={exportTemplates}
+              busy={Boolean(exportBusy)}
+              disabled={!exportTemplates.length}
+              onExport={exportShipments}
+            />
+          </div>
           {shippingError && <p role="alert" className="text-xs text-amber-300">{shippingError}</p>}
-          {!shippingOptions.length && (
+          {exportNotice && (
+            <p
+              role="status"
+              className={`text-xs ${exportNotice.tone === 'success' ? 'text-emerald-300' : 'text-amber-300'}`}
+            >
+              {exportNotice.text}
+            </p>
+          )}
+          {!shippingConnections.some(row => row.enabled && ['api', 'both'].includes(row.mode) && getProvider(row.provider_code)?.capabilities?.create) && (
             <p className="text-[11px] text-neutral-500">
-              لتفعيل زر «شحن الطلب»، اضبط رابط شركة التوصيل من «الإعدادات ← شركات التوصيل».
+              لتفعيل قائمة «شحن الطلب»، اضبط رابطاً مباشراً من «الإعدادات ← شركات التوصيل».
+            </p>
+          )}
+          {!exportTemplates.length && (
+            <p className="text-[11px] text-neutral-500">
+              لتفعيل «تصدير الشحنات (CSV)»، اختر «وضع التصدير بالجملة CSV» أو «كلاهما» في إعدادات شركة التوصيل.
             </p>
           )}
         </div>
@@ -449,8 +513,9 @@ export default function OrdersScreen() {
               onOpen={setDetail}
               shipment={shipmentsByOrder.get(order.id)}
               onShip={shipOrder}
+              shippingOptions={shippingOptionsFor(order.store_id || ctx?.storeId)}
               shippingBusy={shippingBusyId === order.id}
-              shippingDisabled={!shippingAllowed || !shippingTarget}
+              shippingDisabled={!shippingAllowed}
             />
           ))}
         </div>

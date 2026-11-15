@@ -10,6 +10,10 @@ const snapshotSql = await fs.readFile(
   new URL('../supabase/migrations/202611120016_shipping_order_snapshot.sql', import.meta.url),
   'utf8',
 )
+const exportSql = await fs.readFile(
+  new URL('../supabase/migrations/202611120017_shipping_export_candidates.sql', import.meta.url),
+  'utf8',
+)
 
 const TABLES = [
   'shipping_connections', 'shipments', 'shipment_events',
@@ -90,6 +94,33 @@ test('P3 snapshot RPC is read-only, definer-scoped and never alters orders', () 
   ]) {
     assert.doesNotMatch(snapshotSql, forbidden)
   }
+})
+
+test('P4 export RPC is read-only, tenant-scoped and excludes shipped/exported orders', () => {
+  assert.match(exportSql, /CREATE OR REPLACE FUNCTION public\.engine_shipping_export_candidates\(p_store uuid, p_provider_code text\)/)
+  assert.match(exportSql, /RETURNS jsonb[\s\S]*?STABLE SECURITY DEFINER SET search_path = public/)
+  assert.match(exportSql, /o\.status IN \('confirmed','preparing'\)/)
+  assert.match(exportSql, /o\.fulfillment_type = 'delivery'/)
+  assert.match(exportSql, /s\.status NOT IN \('cancelled','failed'\)/)
+  assert.match(exportSql, /FROM public\.shipping_export_items ei/)
+  assert.match(exportSql, /LIMIT 500/)
+  assert.match(exportSql, /REVOKE ALL ON FUNCTION public\.engine_shipping_export_candidates\(uuid, text\) FROM PUBLIC, anon;/)
+  assert.match(exportSql, /GRANT EXECUTE ON FUNCTION public\.engine_shipping_export_candidates\(uuid, text\) TO authenticated;/)
+  assert.match(exportSql, /CREATE UNIQUE INDEX IF NOT EXISTS shipping_export_items_order_once/)
+  assert.match(exportSql, /ON public\.shipping_export_items \(tenant_id, order_id\)/)
+  assert.match(exportSql, /CREATE UNIQUE INDEX IF NOT EXISTS shipments_bulk_export_once/)
+  assert.match(exportSql, /WHERE mode = 'bulk' AND status = 'exported'/)
+  for (const forbidden of [
+    /ALTER\s+TABLE\s+public\.orders\b/i,
+    /UPDATE\s+public\.orders\b/i,
+    /INSERT\s+INTO\s+public\.orders\b/i,
+    /DELETE\s+FROM\s+public\.orders\b/i,
+    /CREATE\s+(OR REPLACE\s+)?TRIGGER\b/i,
+    /CREATE\s+POLICY\b/i,
+  ]) {
+    assert.doesNotMatch(exportSql, forbidden)
+  }
+  assert.equal(exportSql.split('$$').length % 2, 1, 'P4 dollar-quoted blocks must be balanced')
 })
 
 test('idempotency, uniqueness and canonical statuses are enforced', () => {

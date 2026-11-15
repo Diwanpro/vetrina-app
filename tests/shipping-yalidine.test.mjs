@@ -34,13 +34,17 @@ function request(overrides = {}) {
   }
 }
 
-test('the adapter registry exposes Yalidine only, with all P3 capabilities', () => {
-  assert.deepEqual(listAdapterCodes(), ['yalidine'])
+test('the P4 adapter registry exposes Yalidine and both ZR platforms', () => {
+  assert.deepEqual(listAdapterCodes(), ['yalidine', 'zrexpress', 'zrexpressnew'])
   assert.equal(getAdapter('YALIDINE'), yalidineAdapter)
-  assert.equal(getAdapter('zrexpress'), null)
-  for (const flag of ['create', 'track', 'label', 'cancel', 'webhook', 'pullStatuses', 'test']) {
+  assert.equal(getAdapter('ZREXPRESS')?.code, 'zrexpress')
+  assert.equal(getAdapter('zrexpressnew')?.code, 'zrexpressnew')
+  for (const flag of [
+    'create', 'track', 'label', 'cancel', 'webhook', 'pullStatuses', 'bulkTemplate', 'test',
+  ]) {
     assert.equal(yalidineAdapter.capabilities[flag], true)
   }
+  assert.equal(yalidineAdapter.capabilities.fees, false)
 })
 
 test('transport switches between offline mock and live without adapter changes', () => {
