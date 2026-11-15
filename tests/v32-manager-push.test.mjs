@@ -1,0 +1,54 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import { eligibleStaff, buildOosPush, validStaffEndpoint } from '../lib/push/staff.js'
+const read = p => fs.readFile(new URL(`../${p}`, import.meta.url), 'utf8')
+const sub = { staff_id: 'staff', tenant_id: 'tenant', store_id: 'branch' }
+const user = { id: 'staff', tenant_id: 'tenant', store_id: 'branch', role: 'manager', is_active: true }
+test('OOS recipients: assigned manager or tenant owner only, never employee/inactive/cross-tenant', () => {
+ assert.equal(eligibleStaff(user, sub), true)
+ assert.equal(eligibleStaff({...user, role:'owner',store_id:'other'},sub),true)
+ for (const change of [{role:'employee'}, {role:'manager',store_id:'other'}, {tenant_id:'other'}, {is_active:false}, {id:'other'}]) assert.equal(eligibleStaff({...user,...change},sub),false)
+ assert.equal(eligibleStaff(null,sub),false)
+})
+test('staff endpoint allowlist rejects SSRF targets', () => {
+ assert.equal(validStaffEndpoint('https://fcm.googleapis.com/fcm/send/test'),true)
+ assert.equal(validStaffEndpoint('https://web.push.apple.com/test'),true)
+ assert.equal(validStaffEndpoint('https://updates.push.services.mozilla.com/wpush/test'),true)
+ for (const url of ['http://fcm.googleapis.com/x','https://localhost/x','https://127.0.0.1/x','https://fcm.googleapis.com.evil.com/x','https://user:pass@fcm.googleapis.com/x','https://fcm.googleapis.com:444/x']) assert.equal(validStaffEndpoint(url),false)
+})
+test('OOS payload has Arabic product size/color and safe dashboard action', () => {
+ const event={id:'event',store_id:'branch',store_name:'الفرع الشرقي',product_name:'فستان سهرة',size:'M',color:'أحمر'}
+ const result=buildOosPush(event)
+ for(const text of ['فستان سهرة','M','أحمر']) assert.ok(result.body.includes(text))
+ assert.equal(result.data.url,'/dashboard/alerts?store=branch')
+ assert.equal(result.actions[0].title,'فتح التنبيهات')
+ assert.equal(result.tag,'oos-event')
+ assert.equal(buildOosPush({...event,product_name:'x'.repeat(1000)}).body.length<400,true)
+})
+test('database produces push without browser and retries via cron; service-only capabilities and leases', async () => {
+ const sql=await read('supabase/migrations/202611130021_manager_oos_push.sql')
+ for(const pattern of [/OLD.quantity>0 AND NEW.quantity=0/, /net.http_post/, /cron.schedule/, /FOR UPDATE SKIP LOCKED/, /token=p_token/, /locked_until=now\(\)\+interval '2 minutes'/, /ENABLE ROW LEVEL SECURITY/, /FROM PUBLIC,anon,authenticated/, /attempts<100/]) assert.match(sql,pattern)
+ assert.doesNotMatch(sql,/(?:ALTER TABLE|UPDATE|INSERT INTO|DELETE FROM) public.orders\b/i)
+})
+test('opt-in and test enforce staff authorization and use separate subscription table', async () => {
+ const subscribe=await read('app/api/push/staff/subscribe/route.js')
+ const dispatch=await read('app/api/push/oos/route.js')
+ const testRoute=await read('app/api/push/staff/test/route.js')
+ assert.match(subscribe,/authorizeDispatch\(request, body.storeId\)/)
+ assert.match(subscribe,/staff_id: ctx.staffId/)
+ assert.match(subscribe,/staff_push_subscriptions/)
+ assert.match(testRoute,/row.staff_id === ctx.staffId/)
+ assert.match(dispatch,/claim_oos_push/)
+ assert.match(dispatch,/staffSubscriptions\(event.store_id, event.tenant_id\)/)
+ assert.match(dispatch,/isExpiredSubscription/)
+ assert.doesNotMatch(dispatch,/notifyBranchPush/)
+})
+test('service worker action opens alerts; staff UI shares existing browser subscription', async () => {
+ const sw=await read('public/service-worker.js')
+ const ui=await read('components/dashboard/ManagerPushOptIn.js')
+ assert.match(sw,/url.startsWith\('\/dashboard\/alerts'\)/)
+ assert.match(ui,/getSubscription\(\)/)
+ assert.doesNotMatch(ui,/\.unsubscribe\(\)/)
+ assert.doesNotMatch(ui,/<select\b/)
+})

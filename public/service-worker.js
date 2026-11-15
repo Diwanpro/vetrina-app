@@ -100,7 +100,7 @@ self.addEventListener('push', event => {
     badge: '/icon-192.png',
     tag: String(payload.tag || 'vetrina-update').slice(0, 120),
     data: { url },
-    actions: [{ action: 'open', title: 'افتح المتجر' }],
+    actions: [{ action: 'open', title: url.startsWith('/dashboard/alerts') ? 'فتح التنبيهات' : 'افتح المتجر' }],
   }
   event.waitUntil(self.registration.showNotification(title, options))
 })
