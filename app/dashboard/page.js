@@ -1,4 +1,5 @@
 'use client'
+import OosAlerts from '@/components/dashboard/OosAlerts'
 
 import { useEffect, useState } from 'react'
 import DashboardShell from '@/components/dashboard/DashboardShell'
@@ -347,6 +348,7 @@ export default function DashboardPage() {
   return (
     <DashboardShell active="/dashboard">
       <CreditPaymentToast />
+      <OosAlerts />
       <div className="space-y-3">
         <div className="flex justify-end"><LowStockBell /></div>
         {loading && <p role="status" className="text-sm text-neutral-400">جاري تحميل إحصائيات اليوم...</p>}

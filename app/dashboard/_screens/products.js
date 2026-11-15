@@ -17,6 +17,8 @@ import SearchableSelect from '@/components/ui/SearchableSelect'
 import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
 import { notifyBranchPush } from '@/lib/push/client'
 
+import { FABRIC_OPTIONS, STYLE_OPTIONS, generateDescription, generateProductName, smartSpecsFromForm, validateSmartEntry } from '@/lib/product-entry'
+
 const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
 function firstImage(product) {
   if (Array.isArray(product.images) && product.images.length) return product.images[0]
@@ -29,6 +31,7 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
+  const cameraInput = useRef(null)
   const [generating, setGenerating] = useState(false)
   const barcodeTask = useRef(0)
   const [saving, setSaving] = useState(false)
@@ -222,14 +225,10 @@ export default function ProductsPage() {
       setError(err.message)
       return
     }
-    if (!form.name.trim() || !form.base_price) {
-      setError('يرجى إدخال اسم المنتج وسعر البيع')
-      return
-    }
-    if (!form.subcategory.trim()) {
-      setError('اختر التصنيف المناسب لنوع المتجر ونوع المنتج')
-      return
-    }
+    const validation = validateSmartEntry({ ...form, cells: filledCells })
+    if (validation) { setError(validation); return }
+    const specs = smartSpecsFromForm(form, filledCells, ctx)
+    const productName = form.name.trim() || generateProductName(specs)
     const videoUrl = form.external_video_url.trim() ? safeVideoUrl(form.external_video_url) : ''
     if (form.external_video_url.trim() && !videoUrl) {
       setError('رابط الفيديو غير صالح. الصق رابطاً يبدأ بـ https:// (تيك توك، إنستغرام، فيسبوك…)')
@@ -277,8 +276,8 @@ export default function ProductsPage() {
       .from('products')
       .insert({
         tenant_id: ctx.tenantId,
-        name: form.name.trim(),
-        description: form.description.trim() || null,
+        name: productName,
+        description: form.description.trim() || generateDescription(specs),
         category: form.category,
         subcategory: form.subcategory.trim() || null,
         base_price: Number(form.base_price),
@@ -303,7 +302,7 @@ export default function ProductsPage() {
       product_id: product.id,
       color: cell.color,
       size: cell.size,
-      sku: `${form.name.trim().slice(0, 8)}-${cell.color}-${cell.size}`.replace(/\s+/g, ''),
+      sku: `${productName.slice(0, 8)}-${cell.color}-${cell.size}`.replace(/\s+/g, ''),
       cost_price_avg: costPrice,
     }))
 
@@ -337,7 +336,7 @@ export default function ProductsPage() {
 
     // v3.1: a NEW product automatically notifies only this branch's customers.
     // Fire-and-forget: a push failure must never undo a saved product.
-    const createdName = form.name.trim()
+    const createdName = productName
     void notifyBranchPush({ storeId: ctx.storeId, kind: 'product', name: createdName }).catch(() => {})
     setOpen(false)
     setForm({ name: '', description: '', category: MAIN_CATEGORIES[0], subcategory: '', base_price: '', cost_price: '', barcode: '', external_video_url: '', imageFile: null, imagePreview: '' })
@@ -375,6 +374,7 @@ export default function ProductsPage() {
         />
       </label>
 
+      <button type="button" onClick={() => setScanning('search')} className="mb-3 rounded-lg border border-gold/30 px-3 py-2 text-xs text-gold">مسح الباركود للبحث بالكاميرا</button>
       {!open && error && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
       {loading ? (
         <p className="text-sm text-neutral-500">جاري التحميل...</p>
@@ -504,7 +504,6 @@ export default function ProductsPage() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                  required
                 />
               </label>
               <div>
@@ -524,7 +523,7 @@ export default function ProductsPage() {
                     placeholder={generating ? 'جاري التوليد…' : 'الباركود'}
                     onChange={e => setForm(prev => ({ ...prev, barcode: e.target.value }))}
                     className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm outline-none focus:border-gold disabled:opacity-50" />
-                  <button type="button" disabled={saving || generating} onClick={() => setScanning(true)} title="مسح الباركود بالكاميرا" aria-label="مسح الباركود بالكاميرا"
+                  <button type="button" disabled={saving || generating} onClick={() => setScanning('entry')} title="مسح الباركود بالكاميرا" aria-label="مسح الباركود بالكاميرا"
                     className="rounded-lg border border-gold/30 bg-gold/10 px-3 text-gold disabled:opacity-50">
                     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 8v8M10 8v8M14 8v8M17 8v8" /></svg>
                   </button>
@@ -572,6 +571,15 @@ export default function ProductsPage() {
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2">
+                <CustomSelect aria-label="نوع القماش" value={form.fabric || ''} options={FABRIC_OPTIONS} onChange={fabric => setForm(prev => ({ ...prev, fabric }))} />
+                <CustomSelect aria-label="الستايل" value={form.style || ''} options={STYLE_OPTIONS} onChange={style => setForm(prev => ({ ...prev, style }))} />
+              </div>
+              <button type="button" className="text-sm text-gold" onClick={() => {
+                try { setForm(prev => ({ ...prev, description: generateDescription(smartSpecsFromForm(prev, filledSizeCells(matrix, sizes), ctx)) })) }
+                catch (err) { setError(err.message) }
+              }}>توليد وصف عربي تلقائياً</button>
+              <p className="text-xs text-neutral-400">الإلزامي فقط: الصورة واللون والمقاسات والكمية. الاسم والوصف يولدان تلقائياً. السعر اختياري (افتراضياً 0 دج، راجعه قبل البيع).</p>
+              <div className="grid grid-cols-2 gap-2">
                 <label className="block">
                   <span className="mb-1 block text-xs text-neutral-400">سعر البيع</span>
                   <input
@@ -580,7 +588,6 @@ export default function ProductsPage() {
                     value={form.base_price}
                     onChange={(e) => setForm({ ...form, base_price: e.target.value })}
                     className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                    required
                   />
                 </label>
                 <label className="block">
@@ -594,6 +601,11 @@ export default function ProductsPage() {
                   />
                 </label>
               </div>
+              <button type="button" onClick={() => cameraInput.current?.click()} className="rounded-lg border border-gold/30 px-3 py-2 text-sm text-gold">التقاط صورة</button>
+              <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                const file = e.target.files?.[0]
+                if (file) setForm(prev => ({ ...prev, imageFile: file, imagePreview: URL.createObjectURL(file) }))
+              }} />
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">صورة المنتج</span>
                 <input
@@ -702,7 +714,8 @@ export default function ProductsPage() {
       )}
       {scanning && <BarcodeScanner confirmLabel="استخدام الباركود" onClose={() => setScanning(false)} onScan={code => {
         if (!/^[\x21-\x7E]{1,48}$/.test(code)) throw new Error('الباركود غير صالح لهذا الحقل')
-        setForm(prev => ({ ...prev, barcode: code }))
+        if (scanning === 'search') setSearch(code)
+        else setForm(prev => ({ ...prev, barcode: code }))
       }} />}
     </>
   )

@@ -278,3 +278,8 @@ shifts	total_collections	NO	0	bigint
 shifts	total_employee_payments	NO	0	bigint	
 shifts	notes	YES	-	text	
 shifts	closed_at	YES	UNKNOWN	timestamptz	
+inventory_master	id	NO	gen_random_uuid()	uuid
+inventory_master	tenant_id	NO	-	uuid
+inventory_master	variant_id	NO	-	uuid
+inventory_master	quantity	NO	0	integer
+inventory_master	updated_at	NO	now()	timestamptz

@@ -48,7 +48,12 @@ export default function LowStockBell() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    const channel = supabase.channel('low-stock-live').on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, load).subscribe()
+    const timer = setInterval(load, 10000)
+    return () => { clearInterval(timer); supabase.removeChannel(channel) }
+  }, [load])
 
   const count = alerts.length
 
