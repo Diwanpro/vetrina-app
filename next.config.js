@@ -3,7 +3,9 @@ const nextConfig = {
   reactStrictMode: true,
   allowedDevOrigins: ['.monkeycode-ai.live', '*.e2b.app'],
   async headers() {
-    return [{ source: '/vetrina-presentation.html', headers: [
+    return [{ source: '/vetrina-guide.html', headers: [
+      { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+    ] }, { source: '/vetrina-presentation.html', headers: [
       { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
     ] }, { source: '/service-worker.js', headers: [
       { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },

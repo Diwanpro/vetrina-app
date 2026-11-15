@@ -351,12 +351,20 @@ export default function DashboardPage() {
       <OosAlerts />
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="grid min-w-0 w-full gap-3 sm:w-auto sm:grid-cols-2">
           <a href="/vetrina-presentation.html" target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm font-bold text-gold shadow-sm transition hover:border-gold hover:bg-gold/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gold">
+            className="inline-flex flex-wrap items-center justify-center gap-2 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm font-bold text-gold shadow-sm transition hover:border-gold hover:bg-gold/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gold">
             <span aria-hidden="true">▶</span>
             شاهد العرض التقديمي
             <span className="text-xs font-normal text-neutral-400">يفتح في تبويب جديد ↗</span>
           </a>
+          <a href="/vetrina-guide.html" target="_blank" rel="noopener noreferrer"
+            className="inline-flex flex-wrap items-center justify-center gap-2 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-sm font-bold text-gold shadow-sm transition hover:border-gold hover:bg-gold/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gold">
+            <span aria-hidden="true">▤</span>
+            دليل الاستخدام
+            <span className="text-xs font-normal text-neutral-400">يفتح في تبويب جديد ↗</span>
+          </a>
+          </div>
           <LowStockBell />
         </div>
         {loading && <p role="status" className="text-sm text-neutral-400">جاري تحميل إحصائيات اليوم...</p>}
