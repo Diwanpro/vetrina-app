@@ -5,6 +5,12 @@ import fs from 'node:fs/promises'
 if (process.env.VERCEL_ENV !== 'preview') {
   throw new Error('Phase 3 mock review build refuses non-preview deployments. Remove preview-only Vercel config only after production approval.')
 }
+// Vercel generic builder also scans root middleware independently of outputs.
+// Hide only its no-op source in the disposable remote checkout, never locally.
+if (process.env.VERCEL === '1') {
+  await fs.mkdir('.cache', {recursive:true})
+  await fs.rename('middleware.ts', '.cache/phase3-app-middleware.disabled')
+}
 await fs.rm('.cache/hybrid-preview', {recursive:true,force:true})
 execFileSync(process.execPath,['scripts/preview-hybrid.mjs','--build-only'],{stdio:'inherit'})
 const names=await fs.readdir('.cache/hybrid-preview')
