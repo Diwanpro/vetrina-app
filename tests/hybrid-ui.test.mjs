@@ -169,3 +169,43 @@ test('printing absent model shows an empty state and blocks print; copies are in
  fireEvent.change(screen.getByRole('spinbutton'),{target:{value:'2.9'}})
  await waitFor(()=>assert.equal(document.querySelectorAll('svg[data-code]').length,2))
 })
+test('Phase3 actual product UI builds one composite ONE_SIZE cell and confirms destructive changes',async()=>{
+ reset();render(React.createElement(imports.Products));await screen.findByText('قميص الاختبار')
+ fireEvent.click(screen.getByRole('button',{name:'إضافة منتج'}))
+ await choose('نوع اللون','لون مركب')
+ await choose('مكونات اللون المركب','أسود');await choose('مكونات اللون المركب','أبيض')
+ fireEvent.click(screen.getByRole('button',{name:'إضافة لون'}))
+ await choose(/ملابس \(S/, 'مقاس موحد (مقاس موحد)')
+ const input=screen.getByLabelText('كمية أبيض / أسود مقاس مقاس موحد')
+ fireEvent.change(input,{target:{value:'3'}})
+ window.confirm=()=>false
+ await choose('مقاس موحد (مقاس موحد)', /أحذية/)
+ assert.equal(screen.getByLabelText('كمية أبيض / أسود مقاس مقاس موحد').value,'3')
+ window.confirm=()=>true
+ await choose('مقاس موحد (مقاس موحد)', /أحذية/)
+ assert.equal(!!screen.queryByLabelText('كمية أبيض / أسود مقاس مقاس موحد'),false)
+})
+test('Phase3 model picker retains explicit color and ONE_SIZE confirmation',async()=>{
+ reset();state.products[0].product_variants[0]={...state.products[0].product_variants[0],color:'أبيض / أسود',color_components:['أبيض','أسود'],size:'ONE_SIZE'}
+ render(React.createElement(imports.POS));await screen.findByText('قميص الاختبار');await scan('MODEL001')
+ const confirm=await screen.findByRole('button',{name:'تأكيد التركيبة وإضافتها للسلة'});assert.equal(confirm.disabled,true)
+ await choose('لون الموديل','أبيض / أسود');assert.equal(confirm.disabled,true)
+ await choose('مقاس الموديل','مقاس موحد · المتاح 3');assert.equal(confirm.disabled,false)
+})
+test('Phase3 product submits structured composite ONE_SIZE through existing atomic RPC',async()=>{
+ reset();render(React.createElement(imports.Products));await screen.findByText('قميص الاختبار')
+ fireEvent.click(screen.getByRole('button',{name:'إضافة منتج'}))
+ await choose(/ملابس \(S/, 'مقاس موحد (مقاس موحد)')
+ await choose('نوع اللون','لون مركب')
+ await choose('مكونات اللون المركب','أسود');await choose('مكونات اللون المركب','أبيض')
+ fireEvent.click(screen.getByRole('button',{name:'إضافة لون'}))
+ fireEvent.change(screen.getByLabelText('كمية أبيض / أسود مقاس مقاس موحد'),{target:{value:'3'}})
+ const form=document.querySelector('form')
+ fireEvent.change(form.querySelector('input[type="file"]'),{target:{files:[new window.File(['img'],'bag.jpg',{type:'image/jpeg'})]}})
+ fireEvent.submit(form)
+ await waitFor(()=>assert.equal(state.rpcCalls.filter(c=>c.name==='engine_create_product_atomic').length,1))
+ const variants=state.rpcCalls.find(c=>c.name==='engine_create_product_atomic').args.p_variants
+ assert.equal(variants.length,1);assert.equal(variants[0].size,'ONE_SIZE');assert.equal(variants[0].quantity,3)
+ assert.deepEqual(variants[0].color_components,['أبيض','أسود'])
+ assert.equal(!!document.querySelector('select'),false)
+})

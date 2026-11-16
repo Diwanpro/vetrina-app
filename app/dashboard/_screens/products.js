@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { normalizeColorComponents, colorLabel, sizeLabel } from '@/lib/product-attributes'
 import VoiceInput from '@/components/VoiceInput'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
 import { fetchAllRows } from '@/lib/cash'
@@ -64,6 +65,9 @@ export default function ProductsPage() {
   const sizes = sizesForType(sizeType)
   const [matrix, setMatrix] = useState(() => emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
   const [newColor, setNewColor] = useState('')
+  const [colorMode, setColorMode] = useState('single')
+  const [components, setComponents] = useState([])
+  const [colorMetadata, setColorMetadata] = useState({})
   const [customSubs, setCustomSubs] = useState({})
 
   function openVideoEditor(product) {
@@ -105,7 +109,7 @@ export default function ProductsPage() {
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, brand, description, category, subcategory, base_price, images, image_url, external_video_url, product_barcodes(barcode), product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
+        .select('id, name, brand, description, category, subcategory, base_price, images, image_url, external_video_url, product_barcodes(barcode), product_variants!inner(id, barcode, color, color_components, size, inventory!inner(quantity, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).order('created_at', { ascending: false }).order('id'))
       setProducts(mergeMockProducts(rows, context.storeType, context.storeId, 'dashboard'))
     } catch (err) { setError(err.message) }
@@ -199,6 +203,7 @@ export default function ProductsPage() {
 
   function changeSizeType(type) {
     if (type === sizeType) return
+    if ((Object.values(matrix).some(row => Object.values(row).some(q => String(q) !== '')) || Object.values(variantBarcodes).some(Boolean)) && !window.confirm('سيتم مسح الكميات وباركودات التركيبات. هل تريد المتابعة؟')) return
     setSizeType(type)
     setVariantBarcodes({})
     // Reset all quantities, including overlapping numeric sizes, so shoe stock
@@ -208,15 +213,15 @@ export default function ProductsPage() {
   }
 
   function addCustomColor() {
-    const color = newColor.trim()
-    if (!color) return
-    if (matrix[color]) {
-      setError('هذا اللون موجود مسبقاً')
-      return
-    }
-    setError('')
-    setMatrix((prev) => ({ ...prev, [color]: emptySizeRow(sizes) }))
-    setNewColor('')
+    try {
+      const parts = normalizeColorComponents(colorMode === 'composite' ? components : [newColor])
+      if (colorMode === 'composite' && parts.length < 2) throw new Error('اختر لونين على الأقل')
+      const color = colorLabel(parts)
+      if (Object.hasOwn(matrix, color)) throw new Error('هذا اللون موجود مسبقاً')
+      setColorMetadata(prev => ({ ...prev, [color]: parts }))
+      setMatrix(prev => ({ ...prev, [color]: emptySizeRow(sizes) }))
+      setNewColor(''); setComponents([]); setError('')
+    } catch (err) { setError(err.message) }
   }
 
   async function handleSave(e) {
@@ -225,7 +230,7 @@ export default function ProductsPage() {
     setError('')
     let filledCells, payload
     try {
-      filledCells = filledSizeCells(matrix, sizes)
+      filledCells = filledSizeCells(matrix, sizes).map(cell => ({ ...cell, color_components: colorMetadata[cell.color] || [cell.color] }))
       payload = productBarcodePayload(filledCells, form.barcode, variantBarcodes)
     } catch (err) { setError(err.message); return }
     const validation = validateSmartEntry({ ...form, cells: filledCells })
@@ -265,6 +270,7 @@ export default function ProductsPage() {
       setOpen(false)
       setForm({ name: '', description: '', category: MAIN_CATEGORIES[0], subcategory: '', base_price: '', cost_price: '', barcode: '', external_video_url: '', imageFile: null, imagePreview: '' })
       setVariantBarcodes({})
+      setColorMetadata({}); setComponents([]); setColorMode('single')
       setSizeType(SIZE_TYPES[0].value)
       setMatrix(emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
       setNewColor(''); await loadProducts()
@@ -503,7 +509,7 @@ export default function ProductsPage() {
                   value={sizeType}
                   disabled={saving}
                   onChange={e => changeSizeType(e)}
-                  options={SIZE_TYPES.map(option => ({ label: `${option.label} (${option.sizes.join(', ')})`, value: option.value }))}
+                  options={SIZE_TYPES.map(option => ({ label: `${option.label} (${option.sizes.map(sizeLabel).join(', ')})`, value: option.value }))}
                   className={`${selectClass} mt-1`}
                 />
                 <span id="size-type-help" className="mt-1 block text-[11px] text-neutral-500">تغيير نوع المقاس يمسح كميات الجدول. أدخل الكميات بعد اختيار النوع.</span>
@@ -582,6 +588,12 @@ export default function ProductsPage() {
 
               <div>
                 <p className="mb-1.5 text-xs text-neutral-400">المخزون حسب اللون والمقاس</p>
+                <CustomSelect aria-label="نوع اللون" value={colorMode} options={[{value:'single',label:'لون مفرد'},{value:'composite',label:'لون مركب'}]} onChange={setColorMode} disabled={saving} />
+                {colorMode === 'composite' && <div className="my-2 space-y-2">
+                  <CustomSelect aria-label="مكونات اللون المركب" value="" placeholder="أضف مكوّن لون" disabled={saving} options={[...new Set([...DEFAULT_COLORS, ...Object.keys(matrix), newColor.trim()].filter(Boolean))].filter(c => !components.includes(c) && (colorMetadata[c]?.length || 1) === 1).map(c => ({value:c,label:c}))} onChange={c => { if (components.length < 6) setComponents(prev => [...prev,c]) }} />
+                  <p className="text-xs text-neutral-400">{components.join(' / ') || 'اختر لونين على الأقل — يمكنك كتابة اسم جديد أدناه ثم اختياره'}</p>
+                  {components.map(c => <button type="button" key={c} onClick={() => setComponents(prev => prev.filter(x => x !== c))} className="m-1 rounded border border-neutral-600 p-2 text-xs">إزالة {c}</button>)}
+                </div>}
                 <div className="mb-2 flex gap-2">
                   <input
                     value={newColor}
@@ -603,7 +615,7 @@ export default function ProductsPage() {
                       <tr>
                         <th className="p-2">اللون</th>
                         {sizes.map((s) => (
-                          <th key={s} className="p-2">{s}</th>
+                          <th key={s} className="p-2">{sizeLabel(s)}</th>
                         ))}
                       </tr>
                     </thead>
@@ -618,7 +630,7 @@ export default function ProductsPage() {
                                 min="0"
                                 step="1"
                                 disabled={saving}
-                                aria-label={`كمية ${color} مقاس ${size}`}
+                                aria-label={`كمية ${color} مقاس ${sizeLabel(size)}`}
                                 value={matrix[color][size] ?? ''}
                                 onChange={(e) =>
                                   setMatrix((prev) => ({
@@ -644,7 +656,7 @@ export default function ProductsPage() {
               {colorRows.flatMap(color => sizes.filter(size => Number(matrix[color]?.[size]) > 0).map(size => {
                 const key = barcodeCellKey(color, size)
                 return <div key={key} className="flex items-center gap-2">
-                  <label className="flex-1 text-xs text-neutral-300">{color} / {size}
+                  <label className="flex-1 text-xs text-neutral-300">{color} / {sizeLabel(size)}
                     <input data-barcode-input="variant-code" data-variant-barcode-key={key} dir="ltr" aria-label={`باركود ${color} ${size}`} maxLength={64} disabled={saving} value={variantBarcodes[key] || ''} onChange={e => setVariantBarcodes(prev => ({ ...prev, [key]: e.target.value }))} placeholder="توليد تلقائي عند الحفظ" className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm" />
                   </label>
                   <button type="button" disabled={saving} onClick={() => setScanning(`variant:${key}`)} aria-label={`مسح باركود ${color} ${size}`} className="rounded-lg border border-gold/30 px-3 py-2 text-xs text-gold">مسح</button>

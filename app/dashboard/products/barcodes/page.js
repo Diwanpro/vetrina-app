@@ -49,7 +49,7 @@ export default function BarcodePrintPage() {
         if (!ctx.tenantId || !ctx.storeId) throw new Error('تعذر تحديد المتجر')
         const { data: product, error: productError } = await supabase.from('products').select('id, name').eq('id', productId).eq('tenant_id', ctx.tenantId).single()
         if (productError) throw productError
-        const variants = await fetchAllRows(supabase.from('product_variants').select('id, color, size, inventory!inner(store_id)')
+        const variants = await fetchAllRows(supabase.from('product_variants').select('id, color, color_components, size, inventory!inner(store_id)')
           .eq('product_id', productId).eq('inventory.store_id', ctx.storeId).order('id'))
         const records = await fetchAllRows(supabase.from('product_barcodes').select('id, product_id, variant_id, barcode, barcode_type, is_primary')
           .eq('tenant_id', ctx.tenantId).eq('product_id', productId).order('id'))

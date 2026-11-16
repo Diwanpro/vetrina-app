@@ -9,6 +9,17 @@ export function installHybridPreviewBackend() {
     {id:'v',tenant_id:'demo',product_id:'p',variant_id:variant.id,barcode:'100000000001',barcode_type:'variant'},
   ]
   const state = {context,products:[{id:'p',tenant_id:'demo',name:'قميص تجريبي · كمية 10 / محجوز 7',base_price:2500,is_active:true,product_variants:[variant],product_barcodes:registry.slice()}],registry}
+  // Phase 3 examples are ephemeral and use distinct real-looking demo codes.
+  for (const [index, name, color, parts, sizes] of [
+    [2,'حقيبة · مقاس موحد','أسود',['أسود'],['ONE_SIZE']],
+    [3,'حقيبة · لون مركب','أبيض / أسود',['أبيض','أسود'],['ONE_SIZE']],
+    [4,'قميص مخطط · لون مركب','أبيض / أزرق',['أبيض','أزرق'],['M','L']],
+  ]) {
+    const pid='phase3-'+index;
+    const variants=sizes.map((size,j)=>({id:pid+'-'+j,color,color_components:parts,size,barcode:String(200000000000+index*100+j+1),inventory:[{store_id:'branch',quantity:10,reserved_qty:7}]}));
+    const rows=[{id:pid+'-model',tenant_id:'demo',product_id:pid,variant_id:null,barcode:String(200000000000+index*100),barcode_type:'model'},...variants.map(v=>({id:v.id+'-code',tenant_id:'demo',product_id:pid,variant_id:v.id,barcode:v.barcode,barcode_type:'variant'}))];
+    registry.push(...rows);state.products.push({id:pid,tenant_id:'demo',name,base_price:2500,is_active:true,product_variants:variants,product_barcodes:rows});
+  }
   const response=(data=null,error=null)=>({data,error})
   function query(table) {
     return {filters:{},select(){return this},eq(k,v){this.filters[k]=v;return this},order(){return this},range(){return this},limit(){return this},

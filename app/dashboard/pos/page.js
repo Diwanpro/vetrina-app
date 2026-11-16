@@ -1,5 +1,6 @@
 'use client'
 
+import { sizeLabel } from '@/lib/product-attributes'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { availableStock, STOCK_RESERVED_MESSAGE } from '@/lib/stock-availability'
 import { isNetworkError } from '@/lib/access'
@@ -155,7 +156,7 @@ function PosLookSheet({ look, ctx, onClose, onAdd }) {
                                 active ? 'border-gold bg-gold/15 text-gold' : 'border-white/10 text-neutral-400'
                               }`}
                             >
-                              {[color, size].filter(Boolean).join(' · ') || 'مقاس واحد'}
+                              {[color, sizeLabel(size)].filter(Boolean).join(' · ') || 'مقاس واحد'}
                             </button>
                           )
                         })}
@@ -263,7 +264,7 @@ export default function PosPage() {
       }
       await syncPending().catch(err => { console.error('[pos] catalogue sync failed', err) })
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, tenant_id, name, base_price, category, subcategory, images, image_url, product_barcodes(id, tenant_id, product_id, variant_id, barcode, barcode_type), product_variants!inner(id, color, size, min_price, barcode, inventory!inner(quantity, reserved_qty, store_id))')
+        .select('id, tenant_id, name, base_price, category, subcategory, images, image_url, product_barcodes(id, tenant_id, product_id, variant_id, barcode, barcode_type), product_variants!inner(id, color, color_components, size, min_price, barcode, inventory!inner(quantity, reserved_qty, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).eq('is_active', true)
         .order('created_at', { ascending: false }).order('id'))
       setProducts(mergeMockProducts(await cacheCatalog(context, rows), context.storeType, context.storeId, 'dashboard'))
@@ -751,7 +752,7 @@ export default function PosPage() {
                           : 'bg-[#222] text-neutral-300'
                       }`}
                     >
-                      {v.size} ({v.qty})
+                      {sizeLabel(v.size)} ({v.qty})
                     </button>
                   ))}
                 </div>
@@ -804,7 +805,7 @@ export default function PosPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-neutral-100">{i.name}</p>
-                          <p className="mt-0.5 text-[11px] text-neutral-500">{i.color} / {i.size}</p>
+                          <p className="mt-0.5 text-[11px] text-neutral-500">{i.color} / {sizeLabel(i.size)}</p>
                           {i.offerId && <p className="mt-0.5 text-[11px] text-gold/80">{i.offerKind === 'bundle' ? 'عرض حزمة مطبّق' : 'خصم مطبّق'}</p>}
                         </div>
                         <span className="shrink-0 text-gold">{formatDzd(lineSubtotal(i))}</span>
@@ -870,7 +871,7 @@ export default function PosPage() {
               {cart.map((i) => (
                 <li key={i.variantId} className="flex justify-between">
                   <div>
-                    <span>{i.name} · {i.color}/{i.size} × {i.qty}</span>
+                    <span>{i.name} · {i.color}/{sizeLabel(i.size)} × {i.qty}</span>
                     <div className="mt-2 flex items-center gap-3">
                       <button type="button" aria-label={`إنقاص كمية ${i.name}`} disabled={saving || i.qty <= 1} onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">−</button>
                       <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving} onClick={() => { if (i.qty >= i.max) { setError(STOCK_RESERVED_MESSAGE); return } updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item)) }} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">+</button>
