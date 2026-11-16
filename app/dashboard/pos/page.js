@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { availableStock, STOCK_RESERVED_MESSAGE } from '@/lib/stock-availability'
 import { isNetworkError } from '@/lib/access'
 import { cacheCatalog, cachedCatalog, syncPending } from '@/lib/sync'
 import { persistLocalSale, localRows } from '@/lib/local-db'
@@ -258,7 +259,7 @@ export default function PosPage() {
       }
       await syncPending().catch(err => { console.error('[pos] catalogue sync failed', err) })
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, base_price, category, subcategory, images, image_url, product_variants!inner(id, color, size, min_price, barcode, inventory!inner(quantity, store_id))')
+        .select('id, name, base_price, category, subcategory, images, image_url, product_variants!inner(id, color, size, min_price, barcode, inventory!inner(quantity, reserved_qty, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).eq('is_active', true)
         .order('created_at', { ascending: false }).order('id'))
       setProducts(mergeMockProducts(await cacheCatalog(context, rows), context.storeType, context.storeId, 'dashboard'))
@@ -317,7 +318,7 @@ export default function PosPage() {
         ...v,
         qty: (v.inventory || [])
           .filter((i) => ctx.storeId && i.store_id === ctx.storeId)
-          .reduce((s, i) => s + Number(i.quantity || 0), 0),
+          .reduce((s, i) => s + availableStock(i), 0),
       }))
       .filter((v) => v.qty > 0)
   }, [selected, ctx.storeId])
@@ -391,9 +392,9 @@ export default function PosPage() {
   const creditRemainder = Math.max(0, totals.amount - paidCash)
 
   function addVariant(product, variant, qty) {
-    if (qty <= 0) throw new Error('هذا المقاس غير متوفر في المتجر الحالي')
+    if (qty <= 0) throw new Error(STOCK_RESERVED_MESSAGE)
     const existing = cart.find(item => item.variantId === variant.id)
-    if (existing && existing.qty >= qty) throw new Error('تمت إضافة كامل المخزون المتاح لهذا المقاس')
+    if (existing && existing.qty >= qty) throw new Error(STOCK_RESERVED_MESSAGE)
     updateCart(prev => {
       const found = prev.find(item => item.variantId === variant.id)
       if (found) return prev.map(item => item.variantId === variant.id
@@ -444,11 +445,11 @@ export default function PosPage() {
         if (!product || !catVariant) continue
         const stock = (catVariant.inventory || [])
           .filter(row => row.store_id === ctx.storeId)
-          .reduce((sum, row) => sum + Number(row.quantity || 0), 0)
-        if (stock <= 0) continue
+          .reduce((sum, row) => sum + availableStock(row), 0)
+        if (stock <= 0) throw new Error(STOCK_RESERVED_MESSAGE)
         const unit = Number(units[item.product_id] ?? product.base_price ?? 0)
         const existing = cart.find(line => line.variantId === catVariant.id)
-        if (existing && existing.qty >= stock) continue
+        if (existing && existing.qty >= stock) throw new Error(STOCK_RESERVED_MESSAGE)
         updateCart(prev => {
           const found = prev.find(line => line.variantId === catVariant.id)
           if (found) return prev.map(line => line.variantId === catVariant.id
@@ -478,7 +479,7 @@ export default function PosPage() {
     const variant = product?.product_variants.find(variant => variant.barcode === code || variant.id === code)
     if (!variant) throw new Error('الباركود غير موجود في كتالوج هذا الفرع. حدّث الكتالوج أثناء الاتصال.')
     const qty = (variant.inventory || []).filter(row => row.store_id === context.storeId)
-      .reduce((sum, row) => sum + Number(row.quantity || 0), 0)
+      .reduce((sum, row) => sum + availableStock(row), 0)
     addVariant(product, variant, qty)
     setDone('تمت إضافة المقاس إلى السلة'); setError('')
     setTimeout(() => setDone(''), 2500)
@@ -542,7 +543,7 @@ export default function PosPage() {
         unitPrice: item.price, lineTotal: lineSubtotal(item),
       }))
       setLastReceipt({
-        number: row.local_id,
+        number: `مسودة غير مؤكدة · ${row.local_id}`,
         date: row.created_at,
         items: receiptItems,
         total: row.total_amount,
@@ -554,16 +555,17 @@ export default function PosPage() {
       setReceiptOpen(true)
       // The local transaction is durable before clearing the cart, even online.
       setCart([]); setCheckout(false); setCartOpen(false); setCashPaid(''); setSplitting(false)
-      setDone('تم حفظ الفاتورة محلياً؛ بانتظار المزامنة')
+      setDone('مسودة محفوظة محلياً؛ ليست بيعاً مؤكداً حتى يتحقق الخادم')
       if (navigator.onLine) {
         // A failed sync used to be swallowed here, which is why a sale could be
         // "done" on screen while the dashboard stayed at zero.
         await syncPending().catch(err => { console.error('[pos] syncPending failed', err) })
         const saved = (await localRows()).find(value => value.local_id === row.local_id)
+        if (saved?.status === 'synced') setLastReceipt(previous => ({ ...previous, number: row.local_id }))
         if (saved?.status === 'error') console.error('[pos] sale sync error', saved.error, row.local_id)
         setDone(saved?.status === 'synced'
           ? 'تم البيع والمزامنة بنجاح'
-          : `الفاتورة محفوظة محلياً لكنها لم تُزامَن بعد${saved?.error ? `: ${saved.error}` : ''}. راجع الإعدادات.`)
+          : `مسودة غير مؤكدة؛ لم يتحقق منها الخادم بعد${saved?.error ? `: ${saved.error}` : ''}. راجع الإعدادات.`)
       }
       await loadProducts()
       setTimeout(() => setDone(''), 5000)
@@ -575,6 +577,7 @@ export default function PosPage() {
     <DashboardShell active="/dashboard/pos">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-base font-medium text-neutral-100">نقطة البيع</h1>
+        <p className="text-xs text-amber-300">الحفظ المحلي مسودة فقط؛ يتأكد البيع بعد موافقة الخادم. الكتالوج القديم يتطلب تحديثاً أثناء الاتصال.</p>
         <StorefrontLink ctx={ctx} />
         <div className="flex items-center gap-3">
           <span className="text-xs text-neutral-500">
@@ -773,8 +776,8 @@ export default function PosPage() {
                             onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))}
                             className="rounded border border-white/10 px-2.5 py-1 disabled:opacity-30">−</button>
                           <span className="min-w-6 text-center text-neutral-100">{i.qty}</span>
-                          <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving || i.qty >= i.max}
-                            onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))}
+                          <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving}
+                            onClick={() => { if (i.qty >= i.max) { setError(STOCK_RESERVED_MESSAGE); return } updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item)) }}
                             className="rounded border border-white/10 px-2.5 py-1 disabled:opacity-30">+</button>
                         </div>
                         <button type="button" disabled={saving}
@@ -831,7 +834,7 @@ export default function PosPage() {
                     <span>{i.name} · {i.color}/{i.size} × {i.qty}</span>
                     <div className="mt-2 flex items-center gap-3">
                       <button type="button" aria-label={`إنقاص كمية ${i.name}`} disabled={saving || i.qty <= 1} onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">−</button>
-                      <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving || i.qty >= i.max} onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">+</button>
+                      <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving} onClick={() => { if (i.qty >= i.max) { setError(STOCK_RESERVED_MESSAGE); return } updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item)) }} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">+</button>
                       <button type="button" disabled={saving} onClick={() => { const next = cart.filter(item => item.variantId !== i.variantId); updateCart(next); if (!next.length) { setCheckout(false); setCartOpen(false) } }} className="text-red-300">حذف</button>
                     </div>
                   </div>
