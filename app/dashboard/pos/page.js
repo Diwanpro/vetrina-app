@@ -1,6 +1,8 @@
 'use client'
 
+import { sizeLabel } from '@/lib/product-attributes'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { availableStock, STOCK_RESERVED_MESSAGE } from '@/lib/stock-availability'
 import { isNetworkError } from '@/lib/access'
 import { cacheCatalog, cachedCatalog, syncPending } from '@/lib/sync'
 import { persistLocalSale, localRows } from '@/lib/local-db'
@@ -8,6 +10,8 @@ import { logAction } from '@/lib/audit'
 import { meetsFloor, validMoney, FLOOR_PRICE_MESSAGE } from '@/lib/cash'
 import { applyOffers, lineSubtotal, cacheOffers, cachedOffers, posOffers } from '@/lib/offers'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
+import BarcodeModelPicker from '@/components/dashboard/BarcodeModelPicker'
+import { resolveHybridBarcode, variantStock } from '@/lib/barcode/hybrid'
 import MixedPaymentModal from '@/components/dashboard/MixedPaymentModal'
 import { fetchAllRows } from '@/lib/cash'
 import DashboardShell from '@/components/dashboard/DashboardShell'
@@ -17,6 +21,10 @@ import { formatDzd, getAppContext } from '@/lib/app-context'
 import CustomSelect from '@/components/ui/CustomSelect'
 import StoreTabRail, { buildStoreTabs } from '@/components/store/StoreTabRail'
 import { lookUnitPrices } from '@/lib/storefront'
+import KeyboardWedgeListener from '@/components/dashboard/KeyboardWedgeListener'
+import ReceiptPrinter from '@/components/dashboard/ReceiptPrinter'
+import { StorefrontLink } from '@/components/dashboard/BranchStoreLinks'
+import { mergeMockProducts } from '@/lib/mock-catalog'
 
 const PAYMENTS = [
   { value: 'cash', label: 'نقداً' },
@@ -148,7 +156,7 @@ function PosLookSheet({ look, ctx, onClose, onAdd }) {
                                 active ? 'border-gold bg-gold/15 text-gold' : 'border-white/10 text-neutral-400'
                               }`}
                             >
-                              {[color, size].filter(Boolean).join(' · ') || 'مقاس واحد'}
+                              {[color, sizeLabel(size)].filter(Boolean).join(' · ') || 'مقاس واحد'}
                             </button>
                           )
                         })}
@@ -214,8 +222,14 @@ export default function PosPage() {
   const [activeLook, setActiveLook] = useState(null)
   const saleSaving = useRef(false)
   const [scanning, setScanning] = useState(false)
+  const [modelScan, setModelScan] = useState(null)
+  const barcodeBusy = useRef(false)
   const [loading, setLoading] = useState(true)
-  const [ctx, setCtx] = useState({ tenantId: null, storeId: null, user: null })
+  const [ctx, setCtx] = useState({ tenantId: null, storeId: null, user: null, storeType: 'mens' })
+  const [search, setSearch] = useState('')
+  const [storeInfo, setStoreInfo] = useState({})
+  const [lastReceipt, setLastReceipt] = useState(null)
+  const [receiptOpen, setReceiptOpen] = useState(false)
   const [selected, setSelected] = useState(null)
   const [picked, setPicked] = useState({ color: '', size: '' })
   const [cart, setCart] = useState([])
@@ -240,13 +254,20 @@ export default function PosPage() {
       const context = await getAppContext()
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
-      if (!navigator.onLine || context.offline) { setProducts(await cachedCatalog(context)); return }
+      const { data: storeRow } = await supabase.from('stores')
+        .select('name, phone, address, receipt_footer, tax_rc, logo_url, store_type')
+        .eq('id', context.storeId).maybeSingle()
+      setStoreInfo(storeRow || {})
+      if (!navigator.onLine || context.offline) {
+        setProducts(mergeMockProducts(await cachedCatalog(context), context.storeType, context.storeId, 'dashboard'))
+        return
+      }
       await syncPending().catch(err => { console.error('[pos] catalogue sync failed', err) })
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, base_price, category, subcategory, images, image_url, product_variants!inner(id, color, size, min_price, barcode, inventory!inner(quantity, store_id))')
+        .select('id, tenant_id, name, base_price, category, subcategory, images, image_url, product_barcodes(id, tenant_id, product_id, variant_id, barcode, barcode_type), product_variants!inner(id, color, color_components, size, min_price, barcode, inventory!inner(quantity, reserved_qty, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).eq('is_active', true)
         .order('created_at', { ascending: false }).order('id'))
-      setProducts(await cacheCatalog(context, rows))
+      setProducts(mergeMockProducts(await cacheCatalog(context, rows), context.storeType, context.storeId, 'dashboard'))
     } catch (err) {
       if (isNetworkError(err)) {
         try { const context = await getAppContext(); setProducts(await cachedCatalog(context)); setError('تعذر الوصول للخادم؛ تستخدم الكتالوج المحلي المحفوظ.') }
@@ -274,11 +295,18 @@ export default function PosPage() {
     [categories, discounted.length, looks.length]
   )
   const visible = useMemo(() => {
-    if (activeTab === 'all') return products
-    if (activeTab === 'offers') return discounted
+    const term = search.trim().toLowerCase()
+    const matches = product => !term || [
+      product.name, product.category, product.subcategory,
+      ...(product.product_variants || []).flatMap(variant => [variant.barcode, variant.sku]),
+      ...(product.product_barcodes || []).map(row => row.barcode),
+    ].some(value => String(value || '').toLowerCase().includes(term))
+    const catalog = term ? products.filter(matches) : products
+    if (activeTab === 'all') return catalog
+    if (activeTab === 'offers') return discounted.filter(matches)
     if (activeTab === 'looks') return []
-    return products.filter(product => (product.category || '').trim() === activeTab)
-  }, [products, discounted, activeTab])
+    return catalog.filter(product => (product.category || '').trim() === activeTab)
+  }, [products, discounted, activeTab, search])
 
   // A tab can disappear under the cashier: the last offer sells out, or the
   // manager unpublishes the only look. Leaving activeTab pointing at a chip that
@@ -296,7 +324,7 @@ export default function PosPage() {
         ...v,
         qty: (v.inventory || [])
           .filter((i) => ctx.storeId && i.store_id === ctx.storeId)
-          .reduce((s, i) => s + Number(i.quantity || 0), 0),
+          .reduce((s, i) => s + availableStock(i), 0),
       }))
       .filter((v) => v.qty > 0)
   }, [selected, ctx.storeId])
@@ -370,9 +398,9 @@ export default function PosPage() {
   const creditRemainder = Math.max(0, totals.amount - paidCash)
 
   function addVariant(product, variant, qty) {
-    if (qty <= 0) throw new Error('هذا المقاس غير متوفر في المتجر الحالي')
+    if (qty <= 0) throw new Error(STOCK_RESERVED_MESSAGE)
     const existing = cart.find(item => item.variantId === variant.id)
-    if (existing && existing.qty >= qty) throw new Error('تمت إضافة كامل المخزون المتاح لهذا المقاس')
+    if (existing && existing.qty >= qty) throw new Error(STOCK_RESERVED_MESSAGE)
     updateCart(prev => {
       const found = prev.find(item => item.variantId === variant.id)
       if (found) return prev.map(item => item.variantId === variant.id
@@ -423,11 +451,11 @@ export default function PosPage() {
         if (!product || !catVariant) continue
         const stock = (catVariant.inventory || [])
           .filter(row => row.store_id === ctx.storeId)
-          .reduce((sum, row) => sum + Number(row.quantity || 0), 0)
-        if (stock <= 0) continue
+          .reduce((sum, row) => sum + availableStock(row), 0)
+        if (stock <= 0) throw new Error(STOCK_RESERVED_MESSAGE)
         const unit = Number(units[item.product_id] ?? product.base_price ?? 0)
         const existing = cart.find(line => line.variantId === catVariant.id)
-        if (existing && existing.qty >= stock) continue
+        if (existing && existing.qty >= stock) throw new Error(STOCK_RESERVED_MESSAGE)
         updateCart(prev => {
           const found = prev.find(line => line.variantId === catVariant.id)
           if (found) return prev.map(line => line.variantId === catVariant.id
@@ -450,18 +478,51 @@ export default function PosPage() {
     } catch (err) { setError(err.message) }
   }
 
-  async function scanBarcode(code) {
-    const context = await getAppContext()
-    if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
-    const product = products.find(product => product.product_variants?.some(variant => variant.barcode === code || variant.id === code))
-    const variant = product?.product_variants.find(variant => variant.barcode === code || variant.id === code)
-    if (!variant) throw new Error('الباركود غير موجود في كتالوج هذا الفرع. حدّث الكتالوج أثناء الاتصال.')
-    const qty = (variant.inventory || []).filter(row => row.store_id === context.storeId)
-      .reduce((sum, row) => sum + Number(row.quantity || 0), 0)
-    addVariant(product, variant, qty)
-    setDone('تمت إضافة المقاس إلى السلة'); setError('')
-    setTimeout(() => setDone(''), 2500)
+  async function scanBarcode(rawCode) {
+    if (barcodeBusy.current || saving || saleSaving.current) throw new Error('انتظر انتهاء العملية الحالية')
+    if (modelScan) throw new Error('أكمل اختيار تركيبة الموديل أو أغلق النافذة أولاً')
+    barcodeBusy.current = true
+    try {
+      const code = String(rawCode || '').trim()
+      const context = await getAppContext()
+      if (!context.tenantId || !context.storeId || context.tenantId !== ctx.tenantId || context.storeId !== ctx.storeId) throw new Error('تغير الفرع؛ حدّث الكتالوج أولاً')
+      let registryRow
+      if (navigator.onLine && !context.offline) {
+        const { data, error: lookupError } = await supabase.from('product_barcodes')
+          .select('id, tenant_id, product_id, variant_id, barcode, barcode_type')
+          .eq('tenant_id', context.tenantId).eq('barcode', code).maybeSingle()
+        if (lookupError) {
+          if (!isNetworkError(lookupError)) throw lookupError
+        } else registryRow = data || null
+      }
+      const match = resolveHybridBarcode(products, code, context.tenantId, registryRow)
+      if (match.type === 'model') {
+        setModelScan({ productId: match.product.id, tenantId: context.tenantId, storeId: context.storeId })
+        setError('')
+        return
+      }
+      addVariant(match.product, match.variant, variantStock(match.variant, context.storeId))
+      setDone('تمت إضافة المقاس إلى السلة'); setError('')
+      setTimeout(() => setDone(''), 2500)
+    } finally { barcodeBusy.current = false }
   }
+
+  async function confirmModelVariant(variantId) {
+    if (barcodeBusy.current || saving) return
+    barcodeBusy.current = true
+    try {
+      const context = await getAppContext()
+      if (context.tenantId !== modelScan?.tenantId || context.storeId !== modelScan?.storeId) throw new Error('تغير الفرع؛ أعد مسح الموديل')
+      const product = products.find(p => p.id === modelScan.productId)
+      const variant = product?.product_variants?.find(v => v.id === variantId)
+      if (!variant) throw new Error('التركيبة غير متاحة؛ حدّث الكتالوج')
+      addVariant(product, variant, variantStock(variant, context.storeId))
+      setModelScan(null); setDone('تمت إضافة التركيبة المختارة'); setError('')
+    } catch (err) { setError(err.message) }
+    finally { barcodeBusy.current = false }
+  }
+
+  useEffect(() => { setModelScan(null) }, [ctx.tenantId, ctx.storeId])
 
   async function applyPrice(event) {
     event.preventDefault()
@@ -514,18 +575,36 @@ export default function PosPage() {
       const current = await getAppContext()
       if (current.locked || current.storeId !== ctx.storeId || current.user.id !== ctx.user.id) throw new Error('تغير الحساب أو الفرع. أعد تحميل نقطة البيع.')
       const row = await persistLocalSale(current, cart, payment, split)
+      // Keep a printable snapshot: the cart is cleared a line below, and a
+      // failed sync must still leave the cashier able to reprint the receipt.
+      const receiptItems = cart.map(item => ({
+        name: item.name, qty: item.qty, color: item.color, size: item.size,
+        unitPrice: item.price, lineTotal: lineSubtotal(item),
+      }))
+      setLastReceipt({
+        number: `مسودة غير مؤكدة · ${row.local_id}`,
+        date: row.created_at,
+        items: receiptItems,
+        total: row.total_amount,
+        paid: Number(split?.cash ?? paidCash) || 0,
+        credit: creditRemainder,
+        payment,
+        store: storeInfo,
+      })
+      setReceiptOpen(true)
       // The local transaction is durable before clearing the cart, even online.
       setCart([]); setCheckout(false); setCartOpen(false); setCashPaid(''); setSplitting(false)
-      setDone('تم حفظ الفاتورة محلياً؛ بانتظار المزامنة')
+      setDone('مسودة محفوظة محلياً؛ ليست بيعاً مؤكداً حتى يتحقق الخادم')
       if (navigator.onLine) {
         // A failed sync used to be swallowed here, which is why a sale could be
         // "done" on screen while the dashboard stayed at zero.
         await syncPending().catch(err => { console.error('[pos] syncPending failed', err) })
         const saved = (await localRows()).find(value => value.local_id === row.local_id)
+        if (saved?.status === 'synced') setLastReceipt(previous => ({ ...previous, number: row.local_id }))
         if (saved?.status === 'error') console.error('[pos] sale sync error', saved.error, row.local_id)
         setDone(saved?.status === 'synced'
           ? 'تم البيع والمزامنة بنجاح'
-          : `الفاتورة محفوظة محلياً لكنها لم تُزامَن بعد${saved?.error ? `: ${saved.error}` : ''}. راجع الإعدادات.`)
+          : `مسودة غير مؤكدة؛ لم يتحقق منها الخادم بعد${saved?.error ? `: ${saved.error}` : ''}. راجع الإعدادات.`)
       }
       await loadProducts()
       setTimeout(() => setDone(''), 5000)
@@ -535,19 +614,41 @@ export default function PosPage() {
 
   return (
     <DashboardShell active="/dashboard/pos">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-base font-medium text-neutral-100">نقطة البيع</h1>
+        <p className="text-xs text-amber-300">الحفظ المحلي مسودة فقط؛ يتأكد البيع بعد موافقة الخادم. الكتالوج القديم يتطلب تحديثاً أثناء الاتصال.</p>
+        <StorefrontLink ctx={ctx} />
         <div className="flex items-center gap-3">
           <span className="text-xs text-neutral-500">
             {activeTab === 'looks' ? `${looks.length} إطلالة` : `${visible.length} منتج`}
           </span>
           <button type="button" disabled={saving || !ctx.storeId} onClick={() => setScanning(true)}
             className="rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 text-sm text-gold disabled:opacity-50">مسح الباركود</button>
+          {lastReceipt && (
+            <button type="button" onClick={() => setReceiptOpen(true)}
+              className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">طباعة آخر إيصال</button>
+          )}
         </div>
       </div>
 
+      <KeyboardWedgeListener enabled={!modelScan && !saving} onScan={code => {
+        setSearch(code)
+        scanBarcode(code).catch(err => setError(err.message || 'الباركود غير موجود في الكتالوج'))
+      }} />
+      <label className="mb-3 block text-xs text-neutral-400">
+        بحث أو مسح باركود HID / Keyboard Wedge (يُدخل الرمز تلقائياً ويضيف المقاس للسلة)
+        <input
+          data-barcode-input="pos-search"
+          value={search}
+          onChange={event => setSearch(event.target.value)}
+          placeholder="امسح الباركود أو ابحث عن منتج..."
+          className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm text-white outline-none focus:border-gold"
+        />
+      </label>
+
       {error && !checkout && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
       {scanning && <BarcodeScanner onScan={scanBarcode} onClose={() => setScanning(false)} />}
+      {modelScan && products.find(p => p.id === modelScan.productId) && <BarcodeModelPicker key={`${modelScan.productId}:${modelScan.storeId}`} product={products.find(p => p.id === modelScan.productId)} storeId={modelScan.storeId} error={error} busy={saving} onClose={() => setModelScan(null)} onConfirm={confirmModelVariant} />}
       {/* The same rail the public store renders, from the same component.
           تبديل التبويب يغيّر الشبكة تحته مباشرة. */}
       <div className="mb-3 -mx-1">
@@ -575,7 +676,7 @@ export default function PosPage() {
                   // filtered down to an empty list (which made the product
                   // impossible to add to the cart).
                   const inStock = (p.product_variants || []).filter(v =>
-                    (v.inventory || []).some(i => i.store_id === ctx.storeId && Number(i.quantity) > 0))
+                    variantStock(v, ctx.storeId) > 0)
                   setSelected(p)
                   setPicked({ color: inStock[0]?.color || '', size: '' })
                 }}
@@ -651,7 +752,7 @@ export default function PosPage() {
                           : 'bg-[#222] text-neutral-300'
                       }`}
                     >
-                      {v.size} ({v.qty})
+                      {sizeLabel(v.size)} ({v.qty})
                     </button>
                   ))}
                 </div>
@@ -704,7 +805,7 @@ export default function PosPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-neutral-100">{i.name}</p>
-                          <p className="mt-0.5 text-[11px] text-neutral-500">{i.color} / {i.size}</p>
+                          <p className="mt-0.5 text-[11px] text-neutral-500">{i.color} / {sizeLabel(i.size)}</p>
                           {i.offerId && <p className="mt-0.5 text-[11px] text-gold/80">{i.offerKind === 'bundle' ? 'عرض حزمة مطبّق' : 'خصم مطبّق'}</p>}
                         </div>
                         <span className="shrink-0 text-gold">{formatDzd(lineSubtotal(i))}</span>
@@ -715,8 +816,8 @@ export default function PosPage() {
                             onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))}
                             className="rounded border border-white/10 px-2.5 py-1 disabled:opacity-30">−</button>
                           <span className="min-w-6 text-center text-neutral-100">{i.qty}</span>
-                          <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving || i.qty >= i.max}
-                            onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))}
+                          <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving}
+                            onClick={() => { if (i.qty >= i.max) { setError(STOCK_RESERVED_MESSAGE); return } updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item)) }}
                             className="rounded border border-white/10 px-2.5 py-1 disabled:opacity-30">+</button>
                         </div>
                         <button type="button" disabled={saving}
@@ -770,10 +871,10 @@ export default function PosPage() {
               {cart.map((i) => (
                 <li key={i.variantId} className="flex justify-between">
                   <div>
-                    <span>{i.name} · {i.color}/{i.size} × {i.qty}</span>
+                    <span>{i.name} · {i.color}/{sizeLabel(i.size)} × {i.qty}</span>
                     <div className="mt-2 flex items-center gap-3">
                       <button type="button" aria-label={`إنقاص كمية ${i.name}`} disabled={saving || i.qty <= 1} onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: item.qty - 1 } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">−</button>
-                      <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving || i.qty >= i.max} onClick={() => updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">+</button>
+                      <button type="button" aria-label={`زيادة كمية ${i.name}`} disabled={saving} onClick={() => { if (i.qty >= i.max) { setError(STOCK_RESERVED_MESSAGE); return } updateCart(prev => prev.map(item => item.variantId === i.variantId ? { ...item, qty: Math.min(item.qty + 1, item.max) } : item)) }} className="rounded border border-white/10 px-2 py-1 disabled:opacity-30">+</button>
                       <button type="button" disabled={saving} onClick={() => { const next = cart.filter(item => item.variantId !== i.variantId); updateCart(next); if (!next.length) { setCheckout(false); setCartOpen(false) } }} className="text-red-300">حذف</button>
                     </div>
                   </div>
@@ -867,6 +968,10 @@ export default function PosPage() {
         <div className="fixed top-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-emerald-900/90 px-4 py-2 text-sm text-emerald-100">
           {done}
         </div>
+      )}
+
+      {receiptOpen && lastReceipt && (
+        <ReceiptPrinter receipt={lastReceipt} onClose={() => setReceiptOpen(false)} />
       )}
     </DashboardShell>
   )

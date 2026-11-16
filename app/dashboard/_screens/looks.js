@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
 import { formatDzd, getAppContext } from '@/lib/app-context'
 import { safeVideoUrl } from '@/lib/video'
 import { supabase } from '@/lib/supabase'
@@ -260,17 +261,22 @@ export default function LooksPage() {
             return <li key={item.product_id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/5 bg-white/[0.02] p-2">
               <span className="min-w-0 flex-1 truncate text-sm text-neutral-200">{product.name}</span>
-              {variants.length > 0 && <select
-                value={item.variant_id || ''}
-                disabled={busy}
-                onChange={event => setVariant(item.product_id, event.target.value)}
-                className="min-h-9 rounded-lg border border-white/10 bg-[#141414] px-2 text-xs text-neutral-200"
-              >
-                <option value="">كل المقاسات</option>
-                {variants.map(variant => <option key={variant.id} value={variant.id}>
-                  {[variant.size, variant.color].filter(Boolean).join(' · ') || 'مقاس'}
-                </option>)}
-              </select>}
+              {variants.length > 0 && <div className="min-w-32 max-w-56">
+                <CustomSelect
+                  value={item.variant_id || ''}
+                  disabled={busy}
+                  onChange={value => setVariant(item.product_id, value)}
+                  options={[
+                    { value: '', label: 'كل المقاسات' },
+                    ...variants.map(variant => ({
+                      value: variant.id,
+                      label: [variant.size, variant.color].filter(Boolean).join(' · ') || 'مقاس',
+                    })),
+                  ]}
+                  aria-label={`مقاس ${product.name}`}
+                  className="min-h-9 text-xs"
+                />
+              </div>}
               <button type="button" onClick={() => toggleProduct(product)} disabled={busy}
                 className="text-xs text-red-300">إزالة</button>
             </li>

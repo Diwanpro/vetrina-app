@@ -6,6 +6,10 @@ import ActivationForm from '@/components/dashboard/ActivationForm'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import CustomSelect from '@/components/ui/CustomSelect'
+import { STORE_TYPE_OPTIONS, isStoreType, STORE_TYPES } from '@/lib/store-catalog'
+import { THEME_OPTIONS, THEME_LABELS, normalizeStoreTheme, resolveStoreTheme } from '@/lib/store-theme'
+import { validateStoreLogo, logoUploadError } from '@/lib/store-logo'
+import BranchProfileEditor from '@/components/dashboard/BranchProfileEditor'
 import { supabase } from '@/lib/supabase'
 import { canAddBranch } from '@/lib/commercial'
 import { scopeQuery, csvText } from '@/lib/access'
@@ -16,6 +20,7 @@ import { localRows, pendingRows } from '@/lib/local-db'
 import { syncPending } from '@/lib/sync'
 import { formatDzd } from '@/lib/app-context'
 import { WILAYAS } from '@/lib/wilayas'
+import ShippingSettings from '@/components/dashboard/ShippingSettings'
 
 // --- STORE SETTINGS TAB CONSTANTS ---
 const RETURN_POLICY_OPTIONS = [
@@ -38,12 +43,17 @@ export default function SettingsPage() {
   
   // --- STORE SETTINGS TAB STATE ---
   const [storeSettings, setStoreSettings] = useState({
-    name: '', address: '', phone: '', google_maps_url: '',
+    name: '', address: '', phone: '', google_maps_url: '', store_type: 'mens', theme_key: 'classic',
     receipt_footer: '', tax_rc: '', logo_on_receipt: false, prices_on_receipt: false,
     return_policy_days: '7', low_stock_alert: 10,
     enable_barcode: true, logo_url: ''
   })
   const [logoFile, setLogoFile] = useState(null)
+  // v3.1: every new branch declares its mandatory specialty; «متعدد» also
+  // chooses the default public-store theme through a CustomSelect.
+  const [newStoreType, setNewStoreType] = useState(STORE_TYPES.MENS)
+  const [newStoreTheme, setNewStoreTheme] = useState('classic')
+  const resolvedStoreTheme = resolveStoreTheme(storeSettings.store_type, storeSettings.theme_key)
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [settingsError, setSettingsError] = useState('')
   const [settingsSuccess, setSettingsSuccess] = useState('')
@@ -71,7 +81,7 @@ export default function SettingsPage() {
   async function loadStoreSettings() {
     if (!ctx?.storeId) return
     try {
-      const { data, error } = await supabase.from('stores').select('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates, slug').eq('id', ctx.storeId).single()
+      const { data, error } = await supabase.from('stores').select('name, address, phone, google_maps_url, receipt_footer, tax_rc, logo_on_receipt, prices_on_receipt, return_policy_days, low_stock_alert, enable_barcode, logo_url, delivery_rates, slug, store_type, theme_key').eq('id', ctx.storeId).single()
       if (error) throw error
       if (data) {
         setSlug(data.slug || '')
@@ -90,7 +100,9 @@ export default function SettingsPage() {
           return_policy_days: data.return_policy_days?.toString() || '7',
           low_stock_alert: data.low_stock_alert ?? 10,
           enable_barcode: data.enable_barcode ?? true,
-          logo_url: data.logo_url || ''
+          logo_url: data.logo_url || '',
+          store_type: data.store_type || 'mens',
+          theme_key: normalizeStoreTheme(data.theme_key)
         })
       }
     } catch (err) { setSettingsError(err.message) }
@@ -100,15 +112,20 @@ export default function SettingsPage() {
     if (!ctx?.storeId) return
     setSettingsBusy(true); setSettingsError(''); setSettingsSuccess('')
     try {
+      // v3.1: «تخصص الفرع» is mandatory before any setting is saved.
+      if (!isStoreType(storeSettings.store_type)) throw new Error('تخصص الفرع مطلوب')
+      const typeChanged = storeSettings.store_type !== ctx.storeType || storeSettings.theme_key !== ctx.themeKey
       // Upload Logo if file exists
       let finalLogoUrl = storeSettings.logo_url
       if (logoFile) {
-        const ext = (logoFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+        const invalid = validateStoreLogo(logoFile)
+        if (invalid) throw new Error(invalid)
+        const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[logoFile.type]
         const path = `${ctx.tenantId}/${ctx.storeId}/logo-${Date.now()}.${ext}`
         const { error: upErr } = await supabase.storage.from('store-logos').upload(path, logoFile, {
           cacheControl: '3600', upsert: true, contentType: logoFile.type || 'image/jpeg'
         })
-        if (upErr) throw new Error(`فشل رفع الشعار: ${upErr.message}`)
+        if (upErr) throw new Error(logoUploadError(upErr))
         const { data: pub } = await supabase.storage.from('store-logos').getPublicUrl(path)
         finalLogoUrl = pub?.publicUrl || ''
       }
@@ -126,20 +143,41 @@ export default function SettingsPage() {
         p_return_policy_days: Number(storeSettings.return_policy_days),
         p_low_stock_alert: Number(storeSettings.low_stock_alert),
         p_enable_barcode: storeSettings.enable_barcode,
-        p_logo_url: finalLogoUrl
+        p_logo_url: finalLogoUrl,
+        p_store_type: storeSettings.store_type,
+        p_theme_key: storeSettings.theme_key
       })
       
       if (rpcErr) {
         throw rpcErr
       }
 
-      setSettingsSuccess('تم حفظ إعدادات المحل')
+      setSettingsSuccess(typeChanged
+        ? 'تم حفظ تخصص الفرع والقالب؛ سيتم تحديث التصنيفات والكتالوج التجريبي...'
+        : 'تم حفظ إعدادات المحل')
+      setLogoFile(null)
       loadStoreSettings()
+      window.dispatchEvent(new Event('vetrina:auth'))
+      // SessionProvider refreshes on vetrina:auth; no page reload is required.
+
     } catch (err) {
       setSettingsError(`خطأ: ${err.message}`)
     } finally {
       setSettingsBusy(false)
     }
+  }
+
+  async function saveSpecialty(patch) {
+    setSettingsBusy(true); setSettingsError('')
+    const next = { ...storeSettings, ...patch }
+    try {
+      const { error } = await supabase.rpc('engine_set_branch_specialty', { p_store: ctx.storeId, p_store_type: next.store_type, p_theme_key: next.theme_key })
+      if (error) throw error
+      setStoreSettings(next)
+      window.dispatchEvent(new Event('vetrina:auth'))
+      setSettingsSuccess('حُفظ تخصص الفرع وتم تحديث القالب والتصنيفات')
+    } catch (err) { setSettingsError(err.message) }
+    finally { setSettingsBusy(false) }
   }
 
   // Rebuilds cost averages from real purchase receipts. Dry run first so the
@@ -278,7 +316,7 @@ export default function SettingsPage() {
   }
 
   // --- TABS ---
-  const [activeTab, setActiveTab] = useState('identity') // identity, receipt, policies, system, general
+  const [activeTab, setActiveTab] = useState('identity') // identity, delivery, carriers, receipt, policies, system, general
 
   useEffect(() => {
     if (ctx?.storeId) loadStoreSettings()
@@ -309,11 +347,12 @@ export default function SettingsPage() {
         
         {/* TABS NAVIGATION */}
         <div className="flex flex-wrap gap-2 border-b border-white/10 pb-3">
-          {['identity', 'delivery', 'receipt', 'policies', 'system', 'general'].map(tab => (
+          {['identity', 'delivery', 'carriers', 'receipt', 'policies', 'system', 'general'].map(tab => (
             <button key={tab} type="button" onClick={() => setActiveTab(tab)}
               className={`px-3 py-2 text-sm rounded-lg ${activeTab === tab ? 'bg-gold text-[#121212]' : 'text-neutral-400 hover:bg-white/5'}`}>
               {tab === 'identity' && 'إعدادات المحل'}
               {tab === 'delivery' && 'أسعار التوصيل'}
+              {tab === 'carriers' && 'ربط شركات التوصيل'}
               {tab === 'receipt' && 'تخصيص الإيصال'}
               {tab === 'policies' && 'سياسات التشغيل'}
               {tab === 'system' && 'تفضيلات النظام'}
@@ -330,6 +369,32 @@ export default function SettingsPage() {
               <label className="block text-sm text-neutral-300">اسم المحل
                 <input required value={storeSettings.name} onChange={e => setStoreSettings({ ...storeSettings, name: e.target.value })} className={`${fieldClass} mt-1`} />
               </label>
+              <div className="block text-sm text-neutral-300">
+                <span className="mb-1.5 block">تخصص الفرع <span className="text-gold">*</span></span>
+                <CustomSelect
+                  value={storeSettings.store_type}
+                  disabled={settingsBusy}
+                  onChange={value => saveSpecialty({ store_type: value })}
+                  options={STORE_TYPE_OPTIONS}
+                  aria-label="تخصص الفرع"
+                  className={`${fieldClass} mt-1`}
+                />
+                <span className="mt-1 block text-[11px] text-neutral-500">إلزامي لكل فرع على حدة: يحدد التصنيفات الذكية والبيانات التجريبية والقالب العام. القالب الفعلي: {THEME_LABELS[resolvedStoreTheme]}.</span>
+              </div>
+              {storeSettings.store_type === STORE_TYPES.MIXED && (
+                <div className="block text-sm text-neutral-300">
+                  <span className="mb-1.5 block">قالب المتجر الافتراضي</span>
+                  <CustomSelect
+                    value={storeSettings.theme_key}
+                    disabled={settingsBusy}
+                    onChange={value => saveSpecialty({ theme_key: value })}
+                    options={THEME_OPTIONS}
+                    aria-label="قالب المتجر الافتراضي"
+                    className={`${fieldClass} mt-1`}
+                  />
+                  <span className="mt-1 block text-[11px] text-neutral-500">للفروع «متعدد» فقط. النسائي يستخدم القالب الأنثوي تلقائياً والرجالي يستخدم القالب الحالي.</span>
+                </div>
+              )}
               <label className="block text-sm text-neutral-300">العنوان
                 <input value={storeSettings.address} onChange={e => setStoreSettings({ ...storeSettings, address: e.target.value })} className={`${fieldClass} mt-1`} />
               </label>
@@ -362,7 +427,12 @@ export default function SettingsPage() {
                 )}
               </div>
               <label className="block text-sm text-neutral-300">شعار المحل (صورة)
-                <input type="file" accept="image/*" onChange={e => setLogoFile(e.target.files?.[0] || null)} className={`${fieldClass} mt-1`} />
+                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => {
+                  const file = e.target.files?.[0] || null
+                  const invalid = file ? validateStoreLogo(file) : null
+                  setSettingsError(invalid || '')
+                  setLogoFile(invalid ? null : file)
+                }} className={`${fieldClass} mt-1`} />
                 {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="شعار المحل" className="mt-2 h-20 w-20 rounded-lg object-cover" />}
               </label>
             </div>
@@ -458,6 +528,18 @@ export default function SettingsPage() {
           </section>
         )}
 
+        {/* CARRIERS TAB: API keys are encrypted on the server, never stored on stores */}
+        {activeTab === 'carriers' && (
+          <section className="rounded-2xl border border-gold/20 bg-card p-5">
+            <h2 className="mb-1 text-gold">ربط شركات التوصيل</h2>
+            <p className="mb-4 text-xs leading-relaxed text-neutral-500">
+              الاستراتيجية المزدوجة (الخيار ج): ربط مباشر عبر API للتجار الذين يملكون مفاتيح، وتصدير CSV بالجملة لمن يرفع الطلبات يدوياً.
+              تبويب «أسعار التوصيل» يبقى مسؤولاً عن التسعير فقط.
+            </p>
+            <ShippingSettings />
+          </section>
+        )}
+
         {activeTab === 'receipt' && (
           <section className="rounded-2xl border border-white/10 bg-card p-5">
             <h2 className="mb-3 text-gold">تخصيص الإيصال</h2>
@@ -532,9 +614,7 @@ export default function SettingsPage() {
               <section className="rounded-2xl border border-white/10 bg-card p-5">
                 <h2 className="mb-3 text-gold">الفروع · {ctx.stores.length} / {ctx.tenant.branches_limit ?? 0}</h2>
                 <p className="mb-4 text-xs text-neutral-500">إضافة الفروع حسب حد الاشتراك. استخدم مفتاح ترقية لزيادة الحد.</p>
-                <div className="mb-4 flex flex-wrap gap-2">
-                  {ctx.stores.map(store => <span key={store.id} className="rounded-lg bg-white/5 px-3 py-2 text-sm text-neutral-300">{store.name}</span>)}
-                </div>
+                <BranchProfileEditor ctx={ctx} onSaved={() => { loadStoreSettings(); window.dispatchEvent(new Event('vetrina:auth')) }} />
                 <form onSubmit={event => {
                   event.preventDefault();
                   run(async () => {
@@ -543,8 +623,18 @@ export default function SettingsPage() {
                       alert('وصلت إلى حد الفروع. يرجى ترقية الاشتراك');
                       return;
                     }
-                    const { error } = await supabase.rpc('engine_add_store', { p_name: name, p_address: address });
+                    if (!isStoreType(newStoreType)) throw new Error('تخصص الفرع مطلوب')
+                    const { data: createdStoreId, error } = await supabase.rpc('engine_add_store', { p_name: name, p_address: address, p_store_type: newStoreType });
                     if (error) throw error;
+                    if (newStoreType === STORE_TYPES.MIXED && createdStoreId) {
+                      const { error: themeError } = await supabase.rpc('engine_set_branch_profile', {
+                        p_store: createdStoreId,
+                        p_store_type: newStoreType,
+                        p_theme_key: newStoreTheme,
+                      });
+                      if (themeError) throw themeError;
+                    }
+                    if (createdStoreId) localStorage.setItem(`vetrina.branch:${ctx.user.id}:${ctx.tenantId}`, createdStoreId)
                     location.reload();
                   });
                 }}
@@ -556,6 +646,31 @@ export default function SettingsPage() {
                 <label className="text-sm text-neutral-300">العنوان
                   <input disabled={busy} value={address} onChange={e => setAddress(e.target.value)} className={`${fieldClass} mt-1`} />
                 </label>
+                <div className="block text-sm text-neutral-300 sm:col-span-2">
+                  <span className="mb-1.5 block">تخصص الفرع <span className="text-gold">*</span></span>
+                  <CustomSelect
+                    value={newStoreType}
+                    disabled={busy}
+                    onChange={setNewStoreType}
+                    options={STORE_TYPE_OPTIONS}
+                    aria-label="تخصص الفرع الجديد"
+                    className={`${fieldClass} mt-1`}
+                  />
+                  <span className="mt-1 block text-[11px] text-neutral-500">كل فرع يحفظ تخصصه وحده؛ يمكن لحساب واحد إدارة فروع رجالية ونسائية ومتعددة معاً.</span>
+                </div>
+                {newStoreType === STORE_TYPES.MIXED && (
+                  <div className="block text-sm text-neutral-300 sm:col-span-2">
+                    <span className="mb-1.5 block">قالب المتجر الافتراضي</span>
+                    <CustomSelect
+                      value={newStoreTheme}
+                      disabled={busy}
+                      onChange={setNewStoreTheme}
+                      options={THEME_OPTIONS}
+                      aria-label="قالب الفرع الجديد"
+                      className={`${fieldClass} mt-1`}
+                    />
+                  </div>
+                )}
                 <button disabled={busy} className={primaryClass}>إضافة فرع</button>
               </form>
               </section>

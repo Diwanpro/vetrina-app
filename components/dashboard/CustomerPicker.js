@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fieldClass, secondaryClass } from '@/components/dashboard/EngineUI'
+import { useDrawerMenu, drawerClass } from '@/components/ui/drawerMenu'
 
 // Type-ahead over the tenant's customers, plus an explicit "new customer" mode.
 // Picking an existing row hands back its id so the caller never has to guess by
@@ -15,6 +16,8 @@ export default function CustomerPicker({ tenantId, value, onChange, disabled = f
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const box = useRef(null)
+  const showList = open && query.trim().length >= 2
+  const { mounted, phase } = useDrawerMenu(showList)
 
   // `value` may arrive pre-filled (an existing customer chosen earlier).
   const selected = value?.id ? value : null
@@ -120,8 +123,9 @@ export default function CustomerPicker({ tenantId, value, onChange, disabled = f
         className={fieldClass}
       />
       {error && <p className="text-xs text-red-300">{error}</p>}
-      {open && query.trim().length >= 2 && <div id="customer-picker-list" role="listbox"
-        className="absolute inset-x-0 z-10 max-h-56 overflow-y-auto rounded-lg border border-gold/20 bg-[#1A1A1A] shadow-2xl">
+      {showList && <p className="sr-only" aria-live="polite">قائمة الزبائن</p>}
+      {mounted && <div id="customer-picker-list" role="listbox"
+        className={`${drawerClass(phase)} absolute inset-x-0 z-10 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gold/20 bg-[#1A1A1A] shadow-2xl`}>
         {loading && <p className="px-3 py-2 text-xs text-neutral-400">جاري البحث...</p>}
         {!loading && rows.length === 0 && <p className="px-3 py-2 text-xs text-neutral-500">لا يوجد زبون بهذا الاسم</p>}
         {rows.map(row => <button key={row.id} type="button" role="option" aria-selected={false}

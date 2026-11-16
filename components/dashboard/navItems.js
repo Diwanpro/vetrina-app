@@ -26,6 +26,10 @@ export const NAV_ITEMS = [
 // sidebar highlight, the bottom nav and route gating all keep working without
 // the sidebar growing again.
 export const ROUTE_GROUPS = {
+  '/dashboard/stock': '/dashboard/stock',
+  '/dashboard/operations': '/dashboard/operations',
+  '/dashboard/customers-credit': '/dashboard/customers-credit',
+  '/dashboard/management': '/dashboard/management',
   '/dashboard': '/dashboard',
   '/dashboard/pos': '/dashboard/pos',
   '/dashboard/orders': '/dashboard/orders',

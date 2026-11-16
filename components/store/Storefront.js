@@ -16,11 +16,16 @@ import CartSheet from './CartSheet'
 import OrderSuccess from './OrderSuccess'
 import StoreTabRail, { buildStoreTabs } from './StoreTabRail'
 import ProductImage from './ProductImage'
+import { mergeMockProducts } from '@/lib/mock-catalog'
+import { resolveStoreTheme, themeClass } from '@/lib/store-theme'
+import StorePwa from './StorePwa'
 
 function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) {
   const single = product.variants.length === 1 ? product.variants[0] : null
   const badge = offerBadge(product.offers?.[0])
   const soldOut = isSoldOut(product)
+  // P5 demo rows are display-only: they have no database variant to order.
+  const demo = Boolean(product.is_mock)
   const askLink = whatsappLink(store?.phone, `مرحباً ${store?.name || ''}، أريد معرفة سعر: ${product.name}`)
   // Only an http(s) link is ever rendered; the column can hold anything.
   const videoHref = safeVideoUrl(product.external_video_url)
@@ -28,10 +33,10 @@ function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) 
 
   return (
     <article
-      className="sf-fade-up group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]"
+      className="sf-fade-up sf-card group overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]"
       style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
     >
-      <div className="relative aspect-[3/4] overflow-hidden bg-[#0d0d0d]">
+      <div className="sf-product-media relative aspect-[3/4] overflow-hidden bg-[#0d0d0d]">
         {/* The same element the POS uses: productImage() picks the source, and a
             URL that 404s now draws a labelled placeholder instead of an empty
             square, so a bad link is visible here rather than only in the logs. */}
@@ -50,6 +55,11 @@ function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) 
           <span className="pointer-events-none absolute start-2 top-2 z-10 flex items-center gap-1 rounded-full border border-gold/50 bg-gradient-to-l from-[#E8C55A] to-[#C9A227] px-2.5 py-1 text-[10px] font-bold text-[#121212] shadow-[0_6px_18px_rgba(212,175,55,0.35)]">
             <span aria-hidden="true">✦</span>
             {badge}
+          </span>
+        )}
+        {demo && (
+          <span className="pointer-events-none absolute end-2 bottom-2 z-10 rounded-full border border-sky-400/40 bg-black/70 px-2.5 py-1 text-[10px] font-medium text-sky-200 backdrop-blur">
+            بيانات تجريبية
           </span>
         )}
         {soldOut && (
@@ -88,13 +98,13 @@ function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) 
           )}
           <button
             type="button"
-            aria-label={`أضف ${product.name} إلى السلة`}
-            disabled={soldOut}
+            aria-label={demo ? `${product.name} قطعة تجريبية للعرض` : `أضف ${product.name} إلى السلة`}
+            disabled={soldOut || demo}
             onClick={() => (single && single.available > 0 ? onQuickAdd(product, single) : onOpen())}
             className="flex min-h-9 items-center gap-1 rounded-xl bg-gold px-3 text-[11px] font-bold text-[#121212] shadow-[0_4px_14px_rgba(212,175,55,0.3)] transition active:scale-95 disabled:opacity-30"
           >
-            <span aria-hidden="true" className="text-sm leading-none">+</span>
-            أضف
+            <span aria-hidden="true" className="text-sm leading-none">{demo ? '◉' : '+'}</span>
+            {demo ? 'عرض' : 'أضف'}
           </button>
         </div>
       </div>
@@ -253,7 +263,9 @@ export default function Storefront({ slug }) {
 
       const { data: list, error: productsError } = await supabase.rpc('get_store_products', { p_store_id: storeData.store_id })
       if (productsError) throw productsError
-      setProducts(normalizeProducts(list))
+      // A women's store gets the women's mock catalogue automatically; a men's
+      // store gets the clean men's list. Real merchant rows stay untouched.
+      setProducts(normalizeProducts(mergeMockProducts(list || [], storeData.store_type, null, 'storefront')))
       setStatus('ready')
     } catch (err) {
       setError(err.message || 'تعذر تحميل المتجر')
@@ -262,6 +274,23 @@ export default function Storefront({ slug }) {
   }, [slug])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!store?.store_id) return
+    let live = true
+    const refreshProfile = async () => {
+      if (document.hidden) return
+      const { data, error } = await supabase.rpc('get_store_by_slug', { p_slug: slug })
+      if (!live || error) return
+      if (!data) { setStore(null); setStatus('missing'); return }
+      if (data.store_type !== store.store_type) { await load(); return }
+      setStore(data)
+    }
+    const channel = supabase.channel(`public-profile-${store.store_id}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stores', filter: `id=eq.${store.store_id}` }, refreshProfile).subscribe()
+    const timer = setInterval(refreshProfile, 5000)
+    window.addEventListener('focus', refreshProfile)
+    return () => { live = false; clearInterval(timer); supabase.removeChannel(channel); window.removeEventListener('focus', refreshProfile) }
+  }, [slug, store?.store_id, store?.store_type, load])
 
   const { looks, loading: looksLoading } = useStoreLooks(slug)
   // A look tab with nothing behind it is worse than no tab at all.
@@ -281,6 +310,12 @@ export default function Storefront({ slug }) {
   const total = cartTotal(priced)
   const showPrices = store?.show_prices !== false
   const orderingEnabled = store?.accepts_orders !== false
+  // v3.1 Theme Engine: women's = feminine, men's = classic, mixed = the
+  // merchant's chosen default. Resolved from THIS branch's metadata.
+  const storeTheme = useMemo(
+    () => resolveStoreTheme(store?.store_type, store?.theme_key),
+    [store?.store_type, store?.theme_key],
+  )
 
   // `override` is the outfit's unit price for this piece. It is only a display
   // figure here: create_order recomputes it from the look, so a tampered value
@@ -373,7 +408,7 @@ export default function Storefront({ slug }) {
   }
 
   return (
-    <div className="relative min-h-screen pb-28">
+    <div className={`relative min-h-screen pb-28 ${themeClass(storeTheme)}`} data-store-theme={storeTheme}>
       {store && <StoreHeader store={store} cartCount={count} onCart={() => setCartOpen(true)} />}
 
       {status === 'loading' || !store ? (
@@ -444,7 +479,7 @@ export default function Storefront({ slug }) {
             className="sf-fade-up mx-auto flex min-h-14 w-full max-w-lg items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-[#1a1a1a]/90 px-4 shadow-[0_16px_40px_rgba(0,0,0,0.55)] backdrop-blur-xl active:scale-[0.99] sm:max-w-2xl"
           >
             <span className="flex items-center gap-2 text-sm font-medium text-neutral-100">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gold text-xs font-bold text-[#121212]">{count}</span>
+              <span className="sf-badge flex h-8 w-8 items-center justify-center rounded-full bg-gold text-xs font-bold text-[#121212]">{count}</span>
               عرض السلة
             </span>
             <span className="text-sm font-bold text-gold">{showPrices ? formatMoney(total) : 'متابعة'}</span>
@@ -501,6 +536,10 @@ export default function Storefront({ slug }) {
           onContinue={() => setSuccess(null)}
         />
       )}
+
+      {/* v3.1: dynamic branch manifest, service worker, install prompt and
+          branch-scoped push opt-in. Rendered only when the store is loaded. */}
+      <StorePwa slug={slug} store={store} />
     </div>
   )
 }

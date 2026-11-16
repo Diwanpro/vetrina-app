@@ -1,4 +1,6 @@
 'use client'
+import OosAlerts from '@/components/dashboard/OosAlerts'
+import MasterStock from '@/components/dashboard/MasterStock'
 
 import { useCallback, useEffect, useState } from 'react'
 import { getAppContext } from '@/lib/app-context'
@@ -43,6 +45,9 @@ export default function InventoryPage() {
         <h1 className="text-xl text-neutral-100">المخزون</h1>
         <button type="button" className={secondaryClass} onClick={() => setAdding('')}>إضافة مخزون يدوي</button>
       </div>
+      <OosAlerts />
+      <MasterStock ctx={ctx} variants={rows} />
+      <p className="mb-3 text-sm text-neutral-400">مخزون الفرع / المعرض (Branch)</p>
       {error && <p role="alert" className="mb-4 text-red-300">{error}</p>}
       {loading ? <p className="text-neutral-500">جاري التحميل...</p> : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

@@ -247,10 +247,7 @@ test('no insert names a column recorded as GENERATED ALWAYS', () => {
 })
 
 // ------------------------------------------------------------ product photos
-test('the seed uses Unsplash CDN ids, not picsum or page slugs', () => {
-  // picsum.photos answers with a *different random photo per request*, so a
-  // product's picture could change between two page loads, and it is slow to
-  // reach from Algeria. Real Unsplash ids are stable and cacheable.
+test('the seed uses local mock catalogue images, not picsum or external product URLs', () => {
   assert.doesNotMatch(withoutComments, /picsum\.photos/,
     'no product image may point at picsum any more')
 
@@ -258,27 +255,26 @@ test('the seed uses Unsplash CDN ids, not picsum or page slugs', () => {
   // the whole file would let an outfit cover mask a missing product photo.
   const imageBlock = seed.slice(seed.indexOf('p_image  constant text[]'))
   const pImage = imageBlock.slice(0, imageBlock.indexOf('];'))
-  const urls = [...pImage.matchAll(/'https:\/\/images\.unsplash\.com\/(photo-[^'?]+)\?/g)].map(m => m[1])
-  assert.equal(urls.length, 30, 'expected two photos for each of the 15 products')
+  const local = [...pImage.matchAll(/'(\/mock\/(?:mens|womens)\/[^']+)'/g)].map(m => m[1])
+  assert.equal(local.length, 30, 'expected two local photos for each of the 15 men\'s products')
+  assert.ok(new Set(local).size >= 15, 'the clean men\'s catalogue uses at least 15 distinct assets')
+  assert.doesNotMatch(pImage, /https?:\/\//, 'product pictures must render inside the sandboxed preview')
+  for (const file of local) {
+    assert.match(file, /^\/mock\/(?:mens|womens)\/[A-Za-z0-9._-]+\.(?:jpg|svg)$/, `${file} is not a local asset`)
+  }
 
-  // The seeded looks need a real cover too, or the إطلالات tab shows a wall of
-  // placeholders in the demo data.
+  // The seeded looks still use stable Unsplash covers; those are not product
+  // catalogue rows and remain reachable from a normal browser.
   const looksBlock = seed.slice(seed.indexOf('INSERT INTO public.looks(tenant_id'))
   const covers = [...looksBlock.slice(0, looksBlock.indexOf('RETURNING id')).matchAll(
     /https:\/\/images\.unsplash\.com\/(photo-[^'?]+)\?/g)].map(m => m[1])
   assert.ok(covers.length >= 1, 'seeded looks must carry a real cover')
-
-  for (const id of [...urls, ...covers]) {
-    // The CDN form is photo-<timestamp>-<hash>. A bare page slug such as
-    // photo-WWesmHEgXDs is what unsplash.com/photos/ uses and does not resolve
-    // on images.unsplash.com.
-    assert.match(id, /^photo-\d{9,13}-[0-9a-f]{6,12}$/, `${id} is not a CDN id`)
-  }
-  assert.equal(new Set(urls).size, urls.length, 'every photo must be distinct')
+  for (const id of covers) assert.match(id, /^photo-\d{9,13}-[0-9a-f]{6,12}$/, `${id} is not a CDN id`)
 })
 
-test('every product image URL carries the requested transform', () => {
+test('Unsplash look covers still carry the requested transform', () => {
   const urls = [...seed.matchAll(/'https:\/\/images\.unsplash\.com\/photo-[^']+'/g)].map(m => m[0].slice(1, -1))
+  assert.ok(urls.length >= 1, 'expected at least one look cover')
   for (const url of urls) {
     assert.match(url, /\?w=800&q=80$/, `${url} is missing ?w=800&q=80`)
   }

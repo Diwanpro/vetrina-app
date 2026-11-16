@@ -6,6 +6,7 @@ import { scopeQuery } from '@/lib/access'
 import { fetchAllRows } from '@/lib/cash'
 import { supabase } from '@/lib/supabase'
 import ManualStockModal from '@/components/dashboard/ManualStockModal'
+import { useDrawerMenu, drawerClass } from '@/components/ui/drawerMenu'
 
 const DEFAULT_THRESHOLD = 10
 
@@ -20,6 +21,7 @@ export default function LowStockBell() {
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(null)
   const [error, setError] = useState('')
+  const { mounted, phase } = useDrawerMenu(open)
 
   const load = useCallback(async () => {
     try {
@@ -46,7 +48,12 @@ export default function LowStockBell() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    const channel = supabase.channel('low-stock-live').on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, load).subscribe()
+    const timer = setInterval(load, 10000)
+    return () => { clearInterval(timer); supabase.removeChannel(channel) }
+  }, [load])
 
   const count = alerts.length
 
@@ -67,8 +74,8 @@ export default function LowStockBell() {
         )}
       </button>
 
-      {open && (
-        <div className="absolute end-0 z-[70] mt-2 w-80 max-w-[90vw] rounded-xl border border-gold/20 bg-[#1A1A1A] p-3 shadow-xl">
+      {mounted && (
+        <div className={`${drawerClass(phase)} absolute end-0 z-[70] mt-2 w-80 max-w-[90vw] rounded-xl border border-gold/20 bg-[#1A1A1A] p-3 shadow-xl`}>
           <p className="mb-2 text-xs text-neutral-400">
             النواقص (الحد: {threshold}) · {count}
           </p>

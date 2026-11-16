@@ -1,11 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { normalizeColorComponents, colorLabel, sizeLabel } from '@/lib/product-attributes'
 import VoiceInput from '@/components/VoiceInput'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
 import { fetchAllRows } from '@/lib/cash'
 import { SIZE_TYPES, sizesForType, emptySizeRow, emptySizeMatrix, filledSizeCells } from '@/lib/product-sizes'
-import { MAIN_CATEGORIES, subcategoriesFor } from '@/lib/categories'
+import { MAIN_CATEGORIES, subcategoriesFor, storeTypeLabel } from '@/lib/categories'
+import { mergeMockProducts } from '@/lib/mock-catalog'
+import KeyboardWedgeListener from '@/components/dashboard/KeyboardWedgeListener'
 import { loadCustomSubcategories, saveCustomSubcategory } from '@/lib/subcategories'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
@@ -13,6 +16,11 @@ import { selectClass } from '@/components/dashboard/EngineUI'
 import CustomSelect from '@/components/ui/CustomSelect'
 import SearchableSelect from '@/components/ui/SearchableSelect'
 import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
+import { notifyBranchPush } from '@/lib/push/client'
+import { barcodeCellKey, productBarcodePayload, validateBarcode } from '@/lib/barcode/hybrid'
+
+import { brandsFor, cleanBrand } from '@/lib/brand-catalog'
+import { FABRIC_OPTIONS, STYLE_OPTIONS, generateDescription, generateProductName, smartSpecsFromForm, validateSmartEntry } from '@/lib/product-entry'
 
 const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
 function firstImage(product) {
@@ -22,14 +30,19 @@ function firstImage(product) {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState([])
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
+  const cameraInput = useRef(null)
   const [generating, setGenerating] = useState(false)
   const barcodeTask = useRef(0)
+  const productSaving = useRef(false)
+  const [variantBarcodes, setVariantBarcodes] = useState({})
+  const [saveUncertain, setSaveUncertain] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [ctx, setCtx] = useState({ tenantId: null, storeId: null })
+  const [ctx, setCtx] = useState({ tenantId: null, storeId: null, storeType: 'mens' })
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -52,6 +65,9 @@ export default function ProductsPage() {
   const sizes = sizesForType(sizeType)
   const [matrix, setMatrix] = useState(() => emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
   const [newColor, setNewColor] = useState('')
+  const [colorMode, setColorMode] = useState('single')
+  const [components, setComponents] = useState([])
+  const [colorMetadata, setColorMetadata] = useState({})
   const [customSubs, setCustomSubs] = useState({})
 
   function openVideoEditor(product) {
@@ -93,9 +109,9 @@ export default function ProductsPage() {
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, description, category, subcategory, base_price, images, image_url, external_video_url, product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
+        .select('id, name, brand, description, category, subcategory, base_price, images, image_url, external_video_url, product_barcodes(barcode), product_variants!inner(id, barcode, color, color_components, size, inventory!inner(quantity, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).order('created_at', { ascending: false }).order('id'))
-      setProducts(rows)
+      setProducts(mergeMockProducts(rows, context.storeType, context.storeId, 'dashboard'))
     } catch (err) { setError(err.message) }
     finally { setLoading(false) }
   }
@@ -118,13 +134,25 @@ export default function ProductsPage() {
   // plus anything already used by existing products (covers rows created
   // before this feature existed).
   const subcategoryOptions = useMemo(() => {
-    const seeded = subcategoriesFor(form.category)
+    const seeded = subcategoriesFor(form.category, ctx.storeType)
     const custom = customSubs[form.category] || []
     const used = products
       .filter(product => product.category === form.category && product.subcategory)
       .map(product => product.subcategory)
     return [...new Set([...seeded, ...custom, ...used])].map(label => ({ label, value: label }))
-  }, [form.category, customSubs, products])
+  }, [form.category, ctx.storeType, customSubs, products])
+
+  // The HID/Keyboard-Wedge scanner writes into this same field, so a scanned
+  // barcode filters by name, category or any variant barcode.
+  const visibleProducts = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return products
+    return products.filter(product => [
+      product.name, product.description, product.category, product.subcategory,
+      ...(product.product_variants || []).flatMap(variant => [variant.barcode, variant.sku]),
+      ...(product.product_barcodes || []).map(row => row.barcode),
+    ].some(value => String(value || '').toLowerCase().includes(term)))
+  }, [products, search])
 
   async function createSubcategory(name) {
     try {
@@ -164,7 +192,7 @@ export default function ProductsPage() {
   }
   function openProductForm() {
     setOpen(true); setError('')
-    if (!form.barcode) regenerateBarcode()
+    setSaveUncertain(false)
   }
   function closeProductForm() {
     if (saving) return
@@ -175,7 +203,9 @@ export default function ProductsPage() {
 
   function changeSizeType(type) {
     if (type === sizeType) return
+    if ((Object.values(matrix).some(row => Object.values(row).some(q => String(q) !== '')) || Object.values(variantBarcodes).some(Boolean)) && !window.confirm('سيتم مسح الكميات وباركودات التركيبات. هل تريد المتابعة؟')) return
     setSizeType(type)
+    setVariantBarcodes({})
     // Reset all quantities, including overlapping numeric sizes, so shoe stock
     // can never silently become pants stock (or vice versa).
     setMatrix(prev => emptySizeMatrix(Object.keys(prev), sizesForType(type)))
@@ -183,146 +213,75 @@ export default function ProductsPage() {
   }
 
   function addCustomColor() {
-    const color = newColor.trim()
-    if (!color) return
-    if (matrix[color]) {
-      setError('هذا اللون موجود مسبقاً')
-      return
-    }
-    setError('')
-    setMatrix((prev) => ({ ...prev, [color]: emptySizeRow(sizes) }))
-    setNewColor('')
+    try {
+      const parts = normalizeColorComponents(colorMode === 'composite' ? components : [newColor])
+      if (colorMode === 'composite' && parts.length < 2) throw new Error('اختر لونين على الأقل')
+      const color = colorLabel(parts)
+      if (Object.hasOwn(matrix, color)) throw new Error('هذا اللون موجود مسبقاً')
+      setColorMetadata(prev => ({ ...prev, [color]: parts }))
+      setMatrix(prev => ({ ...prev, [color]: emptySizeRow(sizes) }))
+      setNewColor(''); setComponents([]); setError('')
+    } catch (err) { setError(err.message) }
   }
 
   async function handleSave(e) {
     e.preventDefault()
-    if (saving || generating) return
+    if (productSaving.current || generating || saveUncertain) return
     setError('')
-    let filledCells
-    let barcodes
+    let filledCells, payload
     try {
-      filledCells = filledSizeCells(matrix, sizes)
-      if (form.barcode.trim() && !/^[\x21-\x7E]{1,48}$/.test(form.barcode.trim())) throw new Error('الباركود يجب أن يحتوي على حروف لاتينية أو أرقام أو رموز دون مسافات (حتى 48 حرفاً)')
-    } catch (err) {
-      setError(err.message)
-      return
-    }
-    if (!form.name.trim() || !form.base_price) {
-      setError('يرجى إدخال اسم المنتج وسعر البيع')
-      return
-    }
+      filledCells = filledSizeCells(matrix, sizes).map(cell => ({ ...cell, color_components: colorMetadata[cell.color] || [cell.color] }))
+      payload = productBarcodePayload(filledCells, form.barcode, variantBarcodes)
+    } catch (err) { setError(err.message); return }
+    const validation = validateSmartEntry({ ...form, cells: filledCells })
+    if (validation) { setError(validation); return }
+    const specs = smartSpecsFromForm(form, filledCells, ctx)
+    const productName = form.name.trim() || [cleanBrand(form.brand), generateProductName(specs)].filter(Boolean).join(' · ')
     const videoUrl = form.external_video_url.trim() ? safeVideoUrl(form.external_video_url) : ''
-    if (form.external_video_url.trim() && !videoUrl) {
-      setError('رابط الفيديو غير صالح. الصق رابطاً يبدأ بـ https:// (تيك توك، إنستغرام، فيسبوك…)')
-      return
-    }
-    if (!ctx.tenantId || !ctx.storeId) {
-      setError('لا يمكن الحفظ: لم يتم العثور على المتجر أو المؤسسة')
-      return
-    }
-    if (!filledCells.length) {
-      setError('أدخل كمية واحدة على الأقل في جدول المقاسات')
-      return
-    }
-
-    setSaving(true)
+    if (form.external_video_url.trim() && !videoUrl) { setError('رابط الفيديو غير صالح'); return }
+    if (!ctx.tenantId || !ctx.storeId) { setError('تعذر تحديد المؤسسة والفرع'); return }
+    productSaving.current = true; setSaving(true)
+    let rpcStarted = false
     try {
-      const first = form.barcode.trim() || (await allocateBarcodes(1))[0]
-      barcodes = [first, ...await allocateBarcodes(filledCells.length - 1)]
-      // Check external/scanned codes before creating a product. The database
-      // UNIQUE constraint remains the final protection against concurrent writes.
-      const { data: duplicates, error: lookupError } = await supabase.from('product_variants')
-        .select('id, products!inner(tenant_id), inventory!inner(store_id)').eq('products.tenant_id', ctx.tenantId).eq('inventory.store_id', ctx.storeId).in('barcode', barcodes).limit(1)
-      if (lookupError) throw lookupError
-      if (duplicates?.length) throw new Error('هذا الباركود مستخدم مسبقاً. امسح رمزاً آخر أو اضغط توليد جديد.')
-    } catch (err) { setSaving(false); setError(err.message); return }
-    let images = []
-    if (form.imageFile) {
-      const ext = (form.imageFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
-      const path = `${ctx.tenantId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
-      const { error: upErr } = await supabase.storage.from('products').upload(path, form.imageFile, {
-        cacheControl: '3600',
-        upsert: true,
-        contentType: form.imageFile.type || 'image/jpeg',
-      })
-      if (upErr) {
-        setSaving(false)
-        setError(upErr.message || 'فشل رفع الصورة')
-        return
+      let images = []
+      // Storage is outside the SQL transaction. Never delete an uploaded image
+      // after an ambiguous network response: the product may already be committed.
+      if (form.imageFile) {
+        const ext = (form.imageFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+        const path = `${ctx.tenantId}/${crypto.randomUUID()}.${ext}`
+        const { error: upErr } = await supabase.storage.from('products').upload(path, form.imageFile, { cacheControl: '3600', upsert: false, contentType: form.imageFile.type || 'image/jpeg' })
+        if (upErr) throw upErr
+        const { data: pub } = supabase.storage.from('products').getPublicUrl(path)
+        if (pub?.publicUrl) images = [pub.publicUrl]
       }
-      const { data: pub } = supabase.storage.from('products').getPublicUrl(path)
-      if (pub?.publicUrl) images = [pub.publicUrl]
-    }
-
-    const { data: product, error: pErr } = await supabase
-      .from('products')
-      .insert({
-        tenant_id: ctx.tenantId,
-        name: form.name.trim(),
-        description: form.description.trim() || null,
-        category: form.category,
-        subcategory: form.subcategory.trim() || null,
-        base_price: Number(form.base_price),
-        type: 'variable',
-        images,
-        image_url: images[0] || null,
-        external_video_url: videoUrl || null,
-        is_active: true,
+      rpcStarted = true
+      const { data: productId, error: rpcError } = await supabase.rpc('engine_create_product_atomic', {
+        p_store: ctx.storeId, p_tenant: ctx.tenantId,
+        p_product: { name: productName, brand: cleanBrand(form.brand) || null,
+          description: form.description.trim() || generateDescription(specs), category: form.category,
+          subcategory: form.subcategory.trim() || null, base_price: Number(form.base_price || 0),
+          images, image_url: images[0] || null, external_video_url: videoUrl || null },
+        p_variants: payload.variants.map(v => ({ ...v, cost_price_avg: Number(form.cost_price || 0) })),
+        p_model_barcodes: payload.modelBarcodes,
       })
-      .select('id')
-      .single()
-
-    if (pErr || !product) {
-      setSaving(false)
-      setError(pErr?.message || 'فشل حفظ المنتج')
-      return
-    }
-
-    const costPrice = Number(form.cost_price || 0)
-    const variants = filledCells.map((cell, index) => ({
-      barcode: barcodes[index],
-      product_id: product.id,
-      color: cell.color,
-      size: cell.size,
-      sku: `${form.name.trim().slice(0, 8)}-${cell.color}-${cell.size}`.replace(/\s+/g, ''),
-      cost_price_avg: costPrice,
-    }))
-
-    const { data: createdVariants, error: vErr } = await supabase
-      .from('product_variants')
-      .insert(variants)
-      .select('id, color, size')
-
-    if (vErr || !createdVariants) {
-      setSaving(false)
-      setError(vErr?.message || 'فشل حفظ المقاسات')
-      return
-    }
-
-    const inventoryRows = createdVariants.map((v) => {
-      const cell = filledCells.find((c) => c.color === v.color && c.size === v.size)
-      return {
-        store_id: ctx.storeId,
-        variant_id: v.id,
-        quantity: cell?.qty || 0,
-      }
-    })
-
-    const { error: iErr } = await supabase.from('inventory').insert(inventoryRows)
-    setSaving(false)
-
-    if (iErr) {
-      setError(iErr.message || 'فشل حفظ المخزون')
-      return
-    }
-
-    setOpen(false)
-    setForm({ name: '', description: '', category: MAIN_CATEGORIES[0], subcategory: '', base_price: '', cost_price: '', barcode: '', external_video_url: '', imageFile: null, imagePreview: '' })
-    setSizeType(SIZE_TYPES[0].value)
-    setMatrix(emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
-    setNewColor('')
-    loadProducts()
+      if (rpcError) throw rpcError
+      if (!productId) throw new Error('لم يصل تأكيد الحفظ')
+      void notifyBranchPush({ storeId: ctx.storeId, kind: 'product', name: productName }).catch(() => {})
+      setOpen(false)
+      setForm({ name: '', description: '', category: MAIN_CATEGORIES[0], subcategory: '', base_price: '', cost_price: '', barcode: '', external_video_url: '', imageFile: null, imagePreview: '' })
+      setVariantBarcodes({})
+      setColorMetadata({}); setComponents([]); setColorMode('single')
+      setSizeType(SIZE_TYPES[0].value)
+      setMatrix(emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
+      setNewColor(''); await loadProducts()
+    } catch (err) {
+      if (rpcStarted && !err.code) {
+        setSaveUncertain(true)
+        setError('تعذر تأكيد نتيجة الحفظ. لا تعِد الإرسال؛ أغلق النموذج وحدّث قائمة المنتجات للتحقق أولاً. ' + (err.message || ''))
+      } else setError(err.code === '23505' ? 'هذا الباركود مستخدم في المؤسسة؛ اختر رمزاً آخر.' : err.message || 'تعذر حفظ المنتج')
+    } finally { productSaving.current = false; setSaving(false) }
   }
+
 
   return (
     <>
@@ -337,17 +296,34 @@ export default function ProductsPage() {
         </button>
       </div>
 
+      <KeyboardWedgeListener onScan={(code, input) => {
+        if (input?.dataset?.variantBarcodeKey) setVariantBarcodes(prev => ({ ...prev, [input.dataset.variantBarcodeKey]: code }))
+        else if (input?.id === 'product-barcode') setForm(prev => ({ ...prev, barcode: code }))
+        else setSearch(code)
+      }} />
+      <label className="mb-3 block text-xs text-neutral-400">
+        بحث بالاسم أو التصنيف أو الباركود (يعمل مع قارئ HID / Keyboard Wedge)
+        <input
+          data-barcode-input="products-search"
+          value={search}
+          onChange={event => setSearch(event.target.value)}
+          placeholder="امسح الباركود أو اكتب اسم المنتج..."
+          className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm text-white outline-none focus:border-gold"
+        />
+      </label>
+
+      <button type="button" onClick={() => setScanning('search')} className="mb-3 rounded-lg border border-gold/30 px-3 py-2 text-xs text-gold">مسح الباركود للبحث بالكاميرا</button>
       {!open && error && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
       {loading ? (
         <p className="text-sm text-neutral-500">جاري التحميل...</p>
-      ) : products.length === 0 ? (
+      ) : visibleProducts.length === 0 ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-card p-8 text-center">
           <p className="text-sm text-neutral-300">لا توجد منتجات بعد</p>
           <p className="mt-1 text-xs text-neutral-500">أضف أول منتج لبدء نقطة البيع</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
-          {products.map((p) => {
+          {visibleProducts.map((p) => {
             const stock = (p.product_variants || []).reduce(
               (sum, v) => sum + (v.inventory || []).filter(i => i.store_id === ctx.storeId).reduce((s, i) => s + Number(i.quantity || 0), 0),
               0
@@ -460,13 +436,44 @@ export default function ProductsPage() {
             </div>
 
             <div className="space-y-3">
+              <div className="block">
+                <span className="mb-1 block text-xs text-neutral-400">نوع المنتج</span>
+                <CustomSelect
+                  value={form.category}
+                  onChange={e => setForm({ ...form, category: e, subcategory: '', brand: '' })}
+                  options={MAIN_CATEGORIES.map(c => ({ label: c, value: c }))}
+                  className={`${selectClass} mt-1`}
+                />
+                <span className="mt-1 block text-[11px] text-neutral-500">
+                  نوع المتجر الحالي: {storeTypeLabel(ctx.storeType)} · تتغير التصنيفات تلقائياً مع نوع المنتج.
+                </span>
+              </div>
+              <div className="block">
+                <span className="mb-1 block text-xs text-neutral-400">التصنيف (حسب نوع المتجر)</span>
+                <CustomSelect
+                  value={form.subcategory}
+                  onChange={next => setForm(previous => ({ ...previous, subcategory: next, brand: '' }))}
+                  options={subcategoryOptions}
+                  placeholder="اختر التصنيف"
+                  aria-label="التصنيف حسب نوع المتجر"
+                  className={`${selectClass} mt-1`}
+                />
+                <span className="mt-1 block text-[11px] text-neutral-500">
+                  مثال: متجر نسائي + أحذية ← كعب عالي، صنادل، أحذية رياضية نسائية.
+                </span>
+              </div>
+
+              <CustomSelect searchable allowCreate aria-label="الماركة / اسم المنتج" value={form.brand || ''}
+                options={[{ value: '', label: 'بدون ماركة · اختياري' }, ...brandsFor(form.category, form.subcategory, products.map(product => product.brand))]}
+                placeholder="الماركة / اسم المنتج · ابحث أو اكتب ماركة محلية"
+                onChange={brand => setForm(prev => ({ ...prev, brand: cleanBrand(brand) }))} />
+
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">اسم المنتج</span>
                 <input
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                  required
                 />
               </label>
               <div>
@@ -480,19 +487,19 @@ export default function ProductsPage() {
                   className="w-full resize-y rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold" />
               </div>
               <div>
-                <label htmlFor="product-barcode" className="mb-2 block text-xs text-neutral-400">الباركود · يُولّد تلقائياً</label>
+                <label htmlFor="product-barcode" className="mb-2 block text-xs text-neutral-400">باركود الموديل العام · اختياري</label>
                 <div className="flex gap-2">
-                  <input id="product-barcode" dir="ltr" maxLength={48} value={form.barcode} disabled={saving || generating}
+                  <input id="product-barcode" data-barcode-input="product-barcode" dir="ltr" maxLength={64} value={form.barcode} disabled={saving || generating}
                     placeholder={generating ? 'جاري التوليد…' : 'الباركود'}
                     onChange={e => setForm(prev => ({ ...prev, barcode: e.target.value }))}
                     className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm outline-none focus:border-gold disabled:opacity-50" />
-                  <button type="button" disabled={saving || generating} onClick={() => setScanning(true)} title="مسح الباركود بالكاميرا" aria-label="مسح الباركود بالكاميرا"
+                  <button type="button" disabled={saving || generating} onClick={() => setScanning('entry')} title="مسح الباركود بالكاميرا" aria-label="مسح الباركود بالكاميرا"
                     className="rounded-lg border border-gold/30 bg-gold/10 px-3 text-gold disabled:opacity-50">
                     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 8v8M10 8v8M14 8v8M17 8v8" /></svg>
                   </button>
                 </div>
                 <div className="mt-2 flex items-start justify-between gap-3">
-                  <p className="text-[11px] text-neutral-500">رمز رقمي فريد من 12 خانة افتراضياً. يُحفظ الرمز الظاهر لأول مقاس، وتُولّد رموز مستقلة لباقي المقاسات.</p>
+                  <p className="text-[11px] text-neutral-500">هذا الرمز يفتح اختيار اللون والمقاس في الكاشير. اتركه فارغاً إن لم تحتج باركود موديل. رموز التركيبات الفارغة تُولّد عند الحفظ.</p>
                   <button type="button" disabled={saving || generating} onClick={regenerateBarcode} className="shrink-0 text-xs text-gold disabled:opacity-50">توليد جديد</button>
                 </div>
               </div>
@@ -502,30 +509,20 @@ export default function ProductsPage() {
                   value={sizeType}
                   disabled={saving}
                   onChange={e => changeSizeType(e)}
-                  options={SIZE_TYPES.map(option => ({ label: `${option.label} (${option.sizes.join(', ')})`, value: option.value }))}
+                  options={SIZE_TYPES.map(option => ({ label: `${option.label} (${option.sizes.map(sizeLabel).join(', ')})`, value: option.value }))}
                   className={`${selectClass} mt-1`}
                 />
                 <span id="size-type-help" className="mt-1 block text-[11px] text-neutral-500">تغيير نوع المقاس يمسح كميات الجدول. أدخل الكميات بعد اختيار النوع.</span>
               </div>
-              <div className="block">
-                <span className="mb-1 block text-xs text-neutral-400">التصنيف</span>
-                <CustomSelect
-                  value={form.category}
-                  onChange={e => setForm({ ...form, category: e, subcategory: '' })}
-                  options={MAIN_CATEGORIES.map(c => ({ label: c, value: c }))}
-                  className={`${selectClass} mt-1`}
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <CustomSelect aria-label="نوع القماش" value={form.fabric || ''} options={FABRIC_OPTIONS} onChange={fabric => setForm(prev => ({ ...prev, fabric }))} />
+                <CustomSelect aria-label="الستايل" value={form.style || ''} options={STYLE_OPTIONS} onChange={style => setForm(prev => ({ ...prev, style }))} />
               </div>
-              <div className="block">
-                <span className="mb-1 block text-xs text-neutral-400">التصنيف الفرعي</span>
-                <SearchableSelect
-                  value={form.subcategory}
-                  onChange={next => setForm(previous => ({ ...previous, subcategory: next }))}
-                  onCreate={createSubcategory}
-                  options={subcategoryOptions}
-                  className={`${selectClass} mt-1`}
-                />
-              </div>
+              <button type="button" className="text-sm text-gold" onClick={() => {
+                try { setForm(prev => ({ ...prev, description: generateDescription(smartSpecsFromForm(prev, filledSizeCells(matrix, sizes), ctx)) })) }
+                catch (err) { setError(err.message) }
+              }}>توليد وصف عربي تلقائياً</button>
+              <p className="text-xs text-neutral-400">الإلزامي فقط: الصورة واللون والمقاسات والكمية. الاسم والوصف يولدان تلقائياً. السعر اختياري (افتراضياً 0 دج، راجعه قبل البيع).</p>
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">
                   <span className="mb-1 block text-xs text-neutral-400">سعر البيع</span>
@@ -535,7 +532,6 @@ export default function ProductsPage() {
                     value={form.base_price}
                     onChange={(e) => setForm({ ...form, base_price: e.target.value })}
                     className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                    required
                   />
                 </label>
                 <label className="block">
@@ -549,6 +545,11 @@ export default function ProductsPage() {
                   />
                 </label>
               </div>
+              <button type="button" onClick={() => cameraInput.current?.click()} className="rounded-lg border border-gold/30 px-3 py-2 text-sm text-gold">التقاط صورة</button>
+              <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                const file = e.target.files?.[0]
+                if (file) setForm(prev => ({ ...prev, imageFile: file, imagePreview: URL.createObjectURL(file) }))
+              }} />
               <label className="block">
                 <span className="mb-1 block text-xs text-neutral-400">صورة المنتج</span>
                 <input
@@ -587,6 +588,12 @@ export default function ProductsPage() {
 
               <div>
                 <p className="mb-1.5 text-xs text-neutral-400">المخزون حسب اللون والمقاس</p>
+                <CustomSelect aria-label="نوع اللون" value={colorMode} options={[{value:'single',label:'لون مفرد'},{value:'composite',label:'لون مركب'}]} onChange={setColorMode} disabled={saving} />
+                {colorMode === 'composite' && <div className="my-2 space-y-2">
+                  <CustomSelect aria-label="مكونات اللون المركب" value="" placeholder="أضف مكوّن لون" disabled={saving} options={[...new Set([...DEFAULT_COLORS, ...Object.keys(matrix), newColor.trim()].filter(Boolean))].filter(c => !components.includes(c) && (colorMetadata[c]?.length || 1) === 1).map(c => ({value:c,label:c}))} onChange={c => { if (components.length < 6) setComponents(prev => [...prev,c]) }} />
+                  <p className="text-xs text-neutral-400">{components.join(' / ') || 'اختر لونين على الأقل — يمكنك كتابة اسم جديد أدناه ثم اختياره'}</p>
+                  {components.map(c => <button type="button" key={c} onClick={() => setComponents(prev => prev.filter(x => x !== c))} className="m-1 rounded border border-neutral-600 p-2 text-xs">إزالة {c}</button>)}
+                </div>}
                 <div className="mb-2 flex gap-2">
                   <input
                     value={newColor}
@@ -608,7 +615,7 @@ export default function ProductsPage() {
                       <tr>
                         <th className="p-2">اللون</th>
                         {sizes.map((s) => (
-                          <th key={s} className="p-2">{s}</th>
+                          <th key={s} className="p-2">{sizeLabel(s)}</th>
                         ))}
                       </tr>
                     </thead>
@@ -623,7 +630,7 @@ export default function ProductsPage() {
                                 min="0"
                                 step="1"
                                 disabled={saving}
-                                aria-label={`كمية ${color} مقاس ${size}`}
+                                aria-label={`كمية ${color} مقاس ${sizeLabel(size)}`}
                                 value={matrix[color][size] ?? ''}
                                 onChange={(e) =>
                                   setMatrix((prev) => ({
@@ -643,11 +650,24 @@ export default function ProductsPage() {
               </div>
             </div>
 
+            <fieldset className="mt-4 space-y-3 rounded-xl border border-gold/20 bg-[#171717] p-3">
+              <legend className="px-2 text-sm text-gold">باركودات التركيبات · اختيارية</legend>
+              <p className="text-xs text-neutral-400">أدخل رمزاً لكل لون/مقاس ذي كمية، أو اتركه فارغاً للتوليد الذري عند الحفظ. الرموز المحفوظة ثابتة لحماية الملصقات.</p>
+              {colorRows.flatMap(color => sizes.filter(size => Number(matrix[color]?.[size]) > 0).map(size => {
+                const key = barcodeCellKey(color, size)
+                return <div key={key} className="flex items-center gap-2">
+                  <label className="flex-1 text-xs text-neutral-300">{color} / {sizeLabel(size)}
+                    <input data-barcode-input="variant-code" data-variant-barcode-key={key} dir="ltr" aria-label={`باركود ${color} ${size}`} maxLength={64} disabled={saving} value={variantBarcodes[key] || ''} onChange={e => setVariantBarcodes(prev => ({ ...prev, [key]: e.target.value }))} placeholder="توليد تلقائي عند الحفظ" className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm" />
+                  </label>
+                  <button type="button" disabled={saving} onClick={() => setScanning(`variant:${key}`)} aria-label={`مسح باركود ${color} ${size}`} className="rounded-lg border border-gold/30 px-3 py-2 text-xs text-gold">مسح</button>
+                </div>
+              }))}
+            </fieldset>
             {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
 
             <button
               type="submit"
-              disabled={saving || generating}
+              disabled={saving || generating || saveUncertain}
               className="mt-4 w-full rounded-lg bg-gold py-2.5 text-sm font-medium text-[#121212] disabled:opacity-60"
             >
               {saving ? 'جاري الحفظ...' : 'حفظ المنتج'}
@@ -656,8 +676,10 @@ export default function ProductsPage() {
         </div>
       )}
       {scanning && <BarcodeScanner confirmLabel="استخدام الباركود" onClose={() => setScanning(false)} onScan={code => {
-        if (!/^[\x21-\x7E]{1,48}$/.test(code)) throw new Error('الباركود غير صالح لهذا الحقل')
-        setForm(prev => ({ ...prev, barcode: code }))
+        validateBarcode(code)
+        if (scanning === 'search') setSearch(code)
+        else if (String(scanning).startsWith('variant:')) setVariantBarcodes(prev => ({ ...prev, [scanning.slice(8)]: code }))
+        else setForm(prev => ({ ...prev, barcode: code }))
       }} />}
     </>
   )

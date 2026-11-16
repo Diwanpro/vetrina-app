@@ -1,5 +1,6 @@
 'use client'
 
+import { usePathname } from 'next/navigation'
 import { useDashboardSession } from './SessionProvider'
 import { routeAllowed } from '@/lib/access'
 import { NAV_ITEMS, activeGroup } from './navItems'
@@ -7,7 +8,8 @@ import OrdersBadge from './OrdersBadge'
 
 export default function Sidebar({ active = '/dashboard' }) {
   const ctx = useDashboardSession()
-  const group = activeGroup(active)
+  const pathname = usePathname()
+  const group = activeGroup(pathname || active)
   return (
     <aside className="hidden md:flex w-[84px] shrink-0 flex-col items-center border-l border-white/5 bg-[#161616] py-3 min-h-screen sticky top-0">
       <img
@@ -25,6 +27,7 @@ export default function Sidebar({ active = '/dashboard' }) {
             <a
               key={item.href}
               href={item.href}
+              aria-current={isActive ? 'page' : undefined}
               className={`relative w-full flex flex-col items-center justify-center rounded-xl py-2 px-1 transition ${
                 isActive
                   ? 'bg-gold/15 text-gold'

@@ -1,10 +1,17 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Notice, Modal, secondaryClass } from '@/components/dashboard/EngineUI'
+import ShippingButton from '@/components/dashboard/ShippingButton'
+import ShippingExportButton from '@/components/dashboard/ShippingExportButton'
+import NewOrderNotice from '@/components/dashboard/NewOrderNotice'
 import { formatDzd } from '@/lib/app-context'
 import { supabase } from '@/lib/supabase'
+import { getProvider } from '@/lib/shipping/registry'
+import {
+  fallbackExportTemplates, enabledTemplateValues, environmentLabel, DEFAULT_EXPORT_ENVIRONMENT,
+} from '@/lib/shipping/export-options'
 import { WILAYAS } from '@/lib/wilayas'
 import { whatsappLink } from '@/lib/storefront'
 import {
@@ -23,6 +30,25 @@ const STATUS_TONE = {
 }
 
 const wilayaName = code => WILAYAS.find(entry => entry.code === code)?.name || ''
+
+// Authenticated gateway call. The access token comes from the browser's own
+// Supabase session; the gateway re-checks staff role/branch on every request.
+async function shippingFetch(path, options = {}) {
+  const { data, error: sessionError } = await supabase.auth.getSession()
+  if (sessionError || !data?.session?.access_token) throw new Error('انتهت الجلسة، سجّل الدخول مجدداً.')
+  const response = await fetch(path, {
+    ...options,
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${data.session.access_token}`,
+      ...(options.headers || {}),
+    },
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body.error || `تعذر إكمال الطلب (${response.status})`)
+  return body
+}
 
 // One order line, as the merchant has to see it: what the item is, which
 // colour and size, how many, and its picture. The picture comes from the
@@ -65,7 +91,7 @@ function OrderItemRow({ item }) {
   )
 }
 
-function OrderCard({ order, storeName, warning, busy, onStatus, onOpen }) {
+function OrderCard({ order, storeName, warning, busy, onStatus, onOpen, shipment, onShip, shippingOptions = [], shippingBusy, shippingDisabled }) {
   const phone = telLink(order.customer_phone)
   const whatsapp = whatsappLink(order.customer_phone, orderWhatsappMessage(order, storeName))
   const moves = nextStatuses(order.status)
@@ -139,6 +165,14 @@ function OrderCard({ order, storeName, warning, busy, onStatus, onOpen }) {
         >
           واتساب
         </a>
+        <ShippingButton
+          order={order}
+          shipment={shipment}
+          busy={shippingBusy}
+          disabled={shippingDisabled}
+          options={shippingOptions}
+          onShip={onShip}
+        />
         {moves.map(move => (
           <button
             key={move.key}
@@ -170,6 +204,18 @@ export default function OrdersScreen() {
   const [pending, setPending] = useState(null)   // { order, status } awaiting a reason
   const [detail, setDetail] = useState(null)     // order whose items are being shown
   const [reason, setReason] = useState('')
+  const [shippingConnections, setShippingConnections] = useState([])
+  const [shipments, setShipments] = useState([])
+  const [shippingBusyId, setShippingBusyId] = useState('')
+  const [shippingError, setShippingError] = useState('')
+  const [exportBusy, setExportBusy] = useState(null)
+  const [exportNotice, setExportNotice] = useState(null)
+  const [newOrderNotice, setNewOrderNotice] = useState(null)
+  const seenOrderIds = useRef(null)
+
+  const shippingAllowed = Boolean(
+    ctx && ['owner', 'manager'].includes(ctx.role) && !ctx.offline && (ctx.stores || []).length,
+  )
 
   const storeNames = useMemo(() => {
     const map = new Map((ctx?.stores || []).map(store => [store.id, store.name]))
@@ -184,14 +230,22 @@ export default function OrdersScreen() {
       // pinned to the branch they are signed in to (RLS agrees).
       let query = supabase
         .from('orders')
-        .select('id, order_number, status, fulfillment_type, customer_name, customer_phone, wilaya_code, total, delivery_fee, delivery_fee_on_arrival, created_at, note, rejected_reason, store_id, ' + `order_items(${ORDER_ITEM_FIELDS})`)
+        .select('id, order_number, status, fulfillment_type, customer_name, customer_phone, wilaya_code, commune, address, total, delivery_fee, delivery_fee_on_arrival, created_at, note, rejected_reason, store_id, ' + `order_items(${ORDER_ITEM_FIELDS})`)
         .order('created_at', { ascending: false })
         .limit(300)
       query = ctx.allBranches ? query.eq('tenant_id', ctx.tenantId) : query.eq('store_id', ctx.storeId)
       const { data, error: queryError } = await query
       if (queryError) throw queryError
-      setOrders(data || [])
+      const rows = data || []
+      setOrders(rows)
       setError('')
+      // P5: a later poll (or manual refresh) detects newly inserted orders and
+      // raises an in-app notification carrying their product thumbnails.
+      if (seenOrderIds.current) {
+        const arrivals = rows.filter(order => order.status === 'new' && !seenOrderIds.current.has(order.id))
+        if (arrivals.length) setNewOrderNotice({ order: arrivals[0], count: arrivals.length })
+      }
+      seenOrderIds.current = new Set(rows.map(order => order.id))
     } catch (err) {
       setError(err.message || 'تعذر تحميل الطلبات')
     } finally {
@@ -200,6 +254,178 @@ export default function OrdersScreen() {
   }, [ctx?.tenantId, ctx?.storeId, ctx?.allBranches])
 
   useEffect(() => { load() }, [load])
+
+  // Lightweight polling keeps the new-order notice working without requiring a
+  // Realtime publication on public.orders (which stays read-only here).
+  useEffect(() => {
+    if (!ctx || ctx.offline) return
+    const timer = setInterval(() => { load() }, 30000)
+    return () => clearInterval(timer)
+  }, [ctx?.offline, load])
+
+  // P3/P4 shipping: load connections/shipments for every branch the owner can
+  // see. Both "شحن الطلب" and "تصدير الشحنات (CSV)" derive their options from
+  // these ENABLED connections; no carrier name is hard-coded in this screen.
+  const shippingStores = useMemo(() => ctx?.stores || [], [ctx?.stores])
+
+  const loadShipping = useCallback(async () => {
+    if (!shippingAllowed) return
+    const results = await Promise.allSettled(shippingStores.map(async store => {
+      const query = `storeId=${encodeURIComponent(store.id)}`
+      const [connectionsBody, shipmentsBody] = await Promise.all([
+        shippingFetch(`/api/shipping/connections?${query}`),
+        shippingFetch(`/api/shipping/shipments?${query}`),
+      ])
+      return {
+        connections: (connectionsBody.connections || []).map(row => ({ ...row, store_id: store.id })),
+        shipments: (shipmentsBody.shipments || []).map(row => ({ ...row, store_id: store.id })),
+      }
+    }))
+    const connections = []
+    const rows = []
+    let failed = 0
+    for (const result of results) {
+      if (result.status !== 'fulfilled') { failed += 1; continue }
+      connections.push(...result.value.connections)
+      rows.push(...result.value.shipments)
+    }
+    setShippingConnections(connections)
+    setShipments(rows)
+    setShippingError(failed ? 'تعذر تحميل روابط الشحن لبعض الفروع.' : '')
+  }, [shippingAllowed, shippingStores])
+
+  useEffect(() => {
+    if (shippingAllowed) loadShipping()
+  }, [shippingAllowed, loadShipping])
+
+  // «شحن الطلب» options are per-order/per-branch and come ONLY from enabled
+  // API/both connections whose registry capability `create` is true. Yalidine
+  // and both ZR platforms therefore appear automatically once activated.
+  const shippingOptionsFor = useCallback(storeId => {
+    if (!storeId) return []
+    return [...new Map(shippingConnections
+      .filter(row => row.store_id === storeId && row.enabled &&
+        ['api', 'both'].includes(row.mode) && getProvider(row.provider_code)?.capabilities?.create)
+      .map(row => [`${row.provider_code}:${row.environment}`, {
+        value: `${row.provider_code}:${row.environment}`,
+        label: `${getProvider(row.provider_code)?.label || row.provider_code} · ${environmentLabel(row.environment)}`,
+        description: `${row.mode === 'both' ? 'API + CSV' : 'API'} · ${environmentLabel(row.environment)}`,
+      }])).values()]
+  }, [shippingConnections])
+
+  // «تصدير الشحنات (CSV)» company-template menu: enabled bulk/both connections
+  // with a registry `bulkTemplate` capability. Each menu value also carries the
+  // branch, because the export RPC is deliberately scoped to one store.
+  const exportTemplates = useMemo(() => [...new Map(shippingConnections
+    .filter(row => row.enabled && ['bulk', 'both'].includes(row.mode) &&
+      getProvider(row.provider_code)?.capabilities?.bulkTemplate)
+    .map(row => {
+      const provider = getProvider(row.provider_code)
+      const branch = storeNames(row.store_id) || 'الفرع الحالي'
+      return [`${row.provider_code}:${row.environment}:${row.store_id}`, {
+        value: `${row.provider_code}:${row.environment}:${row.store_id}`,
+        label: `${provider?.label || row.provider_code} · ${branch} · ${environmentLabel(row.environment)}`,
+        description: `قالب ${provider?.label || row.provider_code} · ${row.mode === 'both' ? 'API + CSV' : 'CSV'}`,
+      }]
+    })).values()], [shippingConnections, storeNames])
+
+  // P5: no enabled bulk connection must NOT disable the button. The registry
+  // supplies the three courier templates so the drawer always opens; the actual
+  // download still requires an enabled connection.
+  const enabledExportValues = useMemo(() => enabledTemplateValues(exportTemplates), [exportTemplates])
+  const exportMenuTemplates = useMemo(() => {
+    if (exportTemplates.length) return exportTemplates
+    const storeId = ctx?.storeId || ctx?.stores?.[0]?.id
+    return fallbackExportTemplates({
+      storeId,
+      storeName: storeNames(storeId) || 'الفرع الحالي',
+      environment: process.env.NEXT_PUBLIC_SHIPPING_ENVIRONMENT || DEFAULT_EXPORT_ENVIRONMENT,
+    })
+  }, [exportTemplates, ctx?.storeId, ctx?.stores, storeNames])
+
+  const shipmentsByOrder = useMemo(() => {
+    const map = new Map()
+    for (const row of shipments) {
+      if (!['created', 'in_transit', 'delivered', 'returned', 'exported'].includes(row.status)) continue
+      map.set(row.order_id, row)
+    }
+    return map
+  }, [shipments])
+
+  async function shipOrder(order, selection = '') {
+    const [providerCode, environment] = String(selection || '').split(':')
+    const storeId = order.store_id || ctx?.storeId
+    if (!providerCode || !environment || !storeId) {
+      setShippingError('اختر شركة التوصيل من قائمة «شحن الطلب» أولاً.')
+      return
+    }
+    const connection = shippingConnections.find(row =>
+      row.store_id === storeId && row.provider_code === providerCode &&
+      row.environment === environment && row.enabled && ['api', 'both'].includes(row.mode))
+    if (!connection) {
+      setShippingError('لا يوجد رابط شحن مفعّل لهذا الفرع.')
+      return
+    }
+    setShippingBusyId(order.id)
+    setShippingError('')
+    setSuccess('')
+    setExportNotice(null)
+    try {
+      const body = await shippingFetch('/api/shipping/shipments', {
+        method: 'POST',
+        body: JSON.stringify({
+          storeId, orderId: order.id, providerCode, environment,
+        }),
+      })
+      setSuccess(`تم شحن الطلب ${order.order_number} · رقم التتبع ${body.trackingNumber || ''}`)
+      await loadShipping()
+    } catch (err) {
+      setShippingError(err.message || 'تعذر شحن الطلب')
+    } finally {
+      setShippingBusyId('')
+    }
+  }
+
+  async function exportShipments(selection = '') {
+    const [providerCode, environment, storeId] = String(selection || '').split(':')
+    if (!providerCode || !environment || !storeId) {
+      setExportNotice({ tone: 'error', text: 'اختر قالب شركة التوصيل من قائمة التصدير أولاً.' })
+      return
+    }
+    if (!enabledExportValues.has(selection)) {
+      setExportNotice({
+        tone: 'error',
+        text: 'القوالب ظاهرة للعرض، لكن تنزيل CSV يتطلب تفعيل رابط «تصدير بالجملة» أو «كلاهما» من «الإعدادات ← شركات التوصيل».',
+      })
+      return
+    }
+    setExportBusy(selection)
+    setExportNotice(null)
+    setShippingError('')
+    setSuccess('')
+    try {
+      const body = await shippingFetch('/api/shipping/exports', {
+        method: 'POST',
+        body: JSON.stringify({ storeId, providerCode, environment }),
+      })
+      // The gateway already produced the BOM-prefixed UTF-8 CSV text via the
+      // existing csvText() helper; keep the BOM byte inside the Blob.
+      const url = URL.createObjectURL(new Blob([body.csv], { type: 'text/csv;charset=utf-8' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = body.filename || 'shipping.csv'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setExportNotice({ tone: 'success', text: `تم تصدير ${body.rowCount} طلباً عبر ${body.providerLabel} · الدفعة ${body.batchId}.` })
+      await loadShipping()
+    } catch (err) {
+      setExportNotice({ tone: 'error', text: err.message || 'تعذر تصدير الشحنات' })
+    } finally {
+      setExportBusy(null)
+    }
+  }
 
   const counts = useMemo(() => tabCounts(orders), [orders])
   const warned = useMemo(() => rejectedCustomers(orders), [orders])
@@ -248,6 +474,48 @@ export default function OrdersScreen() {
       </div>
 
       <Notice error={error} success={success} />
+      <NewOrderNotice
+        order={newOrderNotice?.order}
+        count={newOrderNotice?.count || 1}
+        onOpen={order => { setDetail(order); setNewOrderNotice(null) }}
+        onDismiss={() => setNewOrderNotice(null)}
+      />
+      {shippingAllowed && (
+        <div className="mb-3 space-y-2 rounded-xl border border-white/10 bg-card p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-neutral-400">
+              شحن مباشر عبر الروابط المفعّلة لكل فرع · التصدير يستبعد الطلبات المشحونة والمُصدّرة سابقاً.
+            </p>
+            <ShippingExportButton
+              templates={exportMenuTemplates}
+              busy={Boolean(exportBusy)}
+              onExport={exportShipments}
+              setupHint={!exportTemplates.length
+                ? 'القوالب تفتح دائماً؛ فعّل رابط «تصدير بالجملة» أو «كلاهما» لتنزيل ملف CSV فعلي.'
+                : ''}
+            />
+          </div>
+          {shippingError && <p role="alert" className="text-xs text-amber-300">{shippingError}</p>}
+          {exportNotice && (
+            <p
+              role="status"
+              className={`text-xs ${exportNotice.tone === 'success' ? 'text-emerald-300' : 'text-amber-300'}`}
+            >
+              {exportNotice.text}
+            </p>
+          )}
+          {!shippingConnections.some(row => row.enabled && ['api', 'both'].includes(row.mode) && getProvider(row.provider_code)?.capabilities?.create) && (
+            <p className="text-[11px] text-neutral-500">
+              لتفعيل قائمة «شحن الطلب»، اضبط رابطاً مباشراً من «الإعدادات ← شركات التوصيل».
+            </p>
+          )}
+          {!exportTemplates.length && (
+            <p className="text-[11px] text-neutral-500">
+              قائمة «تصدير الشحنات (CSV)» تستجيب الآن وتعرض قوالب يليدين و ZR؛ لتنزيل ملف فعلي، اختر «وضع التصدير بالجملة CSV» أو «كلاهما» في إعدادات شركة التوصيل.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="sf-rail -mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1">
         {ORDER_TABS.map(entry => {
@@ -293,17 +561,38 @@ export default function OrdersScreen() {
               busy={busyId === order.id}
               onStatus={requestStatus}
               onOpen={setDetail}
+              shipment={shipmentsByOrder.get(order.id)}
+              onShip={shipOrder}
+              shippingOptions={shippingOptionsFor(order.store_id || ctx?.storeId)}
+              shippingBusy={shippingBusyId === order.id}
+              shippingDisabled={!shippingAllowed}
             />
           ))}
         </div>
       )}
 
       {detail && (
-        <Modal title={`القطع في الطلب ${detail.order_number}`} onClose={() => setDetail(null)}>
-          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-400">
-            <span>{detail.customer_name}</span>
-            <span dir="ltr">{detail.customer_phone}</span>
-            <span className="text-gold">{formatDzd(detail.total)}</span>
+        <Modal
+          title={detail.status === 'new'
+            ? `تفاصيل الطلب الجديد ${detail.order_number}`
+            : `القطع في الطلب ${detail.order_number}`}
+          onClose={() => setDetail(null)}
+        >
+          <div className="mb-3 rounded-xl border border-gold/20 bg-black/20 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 text-xs leading-6 text-neutral-300">
+                <p className="font-medium text-neutral-100">{detail.customer_name}</p>
+                <p dir="ltr">{detail.customer_phone}</p>
+                <p>{wilayaName(detail.wilaya_code)}{detail.address ? ` · ${detail.address}` : ''}</p>
+                <p>{shortDateTime(detail.created_at)} · <span className="text-gold">{formatDzd(detail.total)}</span></p>
+                {detail.note && <p className="text-neutral-400">ملاحظة: {detail.note}</p>}
+              </div>
+              <div dir="ltr" className="flex shrink-0 -space-x-2 space-x-reverse">
+                {(detail.order_items || []).slice(0, 3).map(item => (
+                  <ItemThumb key={item.id} item={item} size="lg" />
+                ))}
+              </div>
+            </div>
           </div>
 
           {detail.order_items?.length ? (

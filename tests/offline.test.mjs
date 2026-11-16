@@ -3,10 +3,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import 'fake-indexeddb/auto'
 const code = await fs.readFile(new URL('../lib/local-db.js', import.meta.url), 'utf8')
-const { saveCatalog, localGet, localRows, localPut, persistLocalSale, catalogKey, pendingRows } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
+const { saveCatalog, localGet, localRows, localPut, persistLocalSale, catalogKey, pendingRows } = await import('../lib/local-db.js')
 function fixture() {
   const ctx = { user: { id: crypto.randomUUID() }, staffId: crypto.randomUUID(), tenantId: 'tenant', storeId: 'branch-a', storeIds: ['branch-a'], allBranches: false }
-  const products = [{ id: 'product', product_variants: [{ id: 'variant', min_price: 100, inventory: [{ store_id: 'branch-a', quantity: 5 }] }] }]
+  const products = [{ id: 'product', product_variants: [{ id: 'variant', min_price: 100, inventory: [{ store_id: 'branch-a', quantity: 5, reserved_qty: 0 }] }] }]
   const cart = [{ variantId: 'variant', qty: 2, price: 150, originalPrice: 200, name: 'قميص' }]
   return { ctx, products, cart }
 }
@@ -25,7 +25,7 @@ test('sale and stock reservation persist atomically and retain their original au
 test('failed transactions do not lose stock or create a partial receipt', async () => {
   const { ctx, products, cart } = fixture()
   await saveCatalog(ctx, products)
-  await assert.rejects(persistLocalSale(ctx, [{ ...cart[0], qty: 6 }], 'cash'), /المخزون/)
+  await assert.rejects(persistLocalSale(ctx, [{ ...cart[0], qty: 6 }], 'cash'), /الكمية المتاحة/)
   await assert.rejects(persistLocalSale(ctx, [{ ...cart[0], price: 99 }], 'cash'))
   await assert.rejects(persistLocalSale(ctx, cart, 'invalid'))
   assert.equal((await pendingRows(ctx)).length, 0)
@@ -60,4 +60,18 @@ test('catalogs and queues remain isolated across tenant, staff, branch and user 
     assert.equal((await pendingRows({ ...ctx, ...change })).length, 0)
   }
   assert.equal(await localGet(catalogKey({ ...ctx, storeId: 'branch-b' })), undefined)
+})
+
+test('reservation-aware local sale rejects 4 of 10/7 atomically and accepts 3 as draft', async () => {
+ const {ctx, products, cart} = fixture()
+ products[0].product_variants[0].inventory[0] = {store_id:ctx.storeId,quantity:10,reserved_qty:7}
+ await saveCatalog(ctx,products)
+ await assert.rejects(persistLocalSale(ctx,[{...cart[0],qty:4}],'cash'),/يوجد حجز/)
+ assert.equal((await pendingRows(ctx)).length,0)
+ assert.equal((await localGet(catalogKey(ctx)))[0].product_variants[0].inventory[0].quantity,10)
+ const row = await persistLocalSale(ctx,[{...cart[0],qty:3}],'cash')
+ assert.equal(row.confirmation,'draft')
+ const stock=(await localGet(catalogKey(ctx)))[0].product_variants[0].inventory[0]
+ assert.equal(stock.quantity,7); assert.equal(stock.reserved_qty,7)
+ await assert.rejects(persistLocalSale(ctx,[{...cart[0],qty:1}],'cash'),/يوجد حجز/)
 })

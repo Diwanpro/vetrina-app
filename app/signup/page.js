@@ -5,14 +5,20 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { validateSignup } from '@/lib/trial'
 import { fieldClass, primaryClass } from '@/components/dashboard/EngineUI'
+import CustomSelect from '@/components/ui/CustomSelect'
+import { STORE_TYPE_OPTIONS } from '@/lib/store-catalog'
 
 // Public page: no auth required to render. The auth account is created by
 // GoTrue, then engine_create_trial_tenant builds tenant/store/owner inside one
 // SECURITY DEFINER transaction (tenants has RLS with no policies, so a browser
-// insert is not possible by design).
+// insert is not possible by design). v3.1: the mandatory «تخصص الفرع الأول»
+// travels with the RPC. It belongs to the first BRANCH, not to the account;
+// later branches can choose a different specialty from dashboard settings.
 export default function SignupPage() {
   const router = useRouter()
-  const [form, setForm] = useState({ storeName: '', ownerName: '', phone: '', password: '' })
+  const [form, setForm] = useState({
+    storeName: '', ownerName: '', phone: '', password: '', storeType: '',
+  })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -44,6 +50,7 @@ export default function SignupPage() {
         p_store_name: clean.storeName,
         p_owner_name: clean.ownerName,
         p_phone: clean.phone,
+        p_store_type: clean.storeType,
       })
       if (rpcError) throw rpcError
       if (!data?.ok) throw new Error(data?.error || 'تعذر إنشاء الحساب')
@@ -72,6 +79,19 @@ export default function SignupPage() {
             <label className="block text-sm text-neutral-300">اسم المحل
               <input required maxLength={200} disabled={busy} value={form.storeName} onChange={set('storeName')} className={`${fieldClass} mt-1.5`} />
             </label>
+            <div className="block text-sm text-neutral-300">
+              <span className="mb-1.5 block">تخصص الفرع الأول <span className="text-gold">*</span></span>
+              <CustomSelect
+                value={form.storeType}
+                disabled={busy}
+                onChange={value => setForm(current => ({ ...current, storeType: value }))}
+                options={STORE_TYPE_OPTIONS}
+                placeholder="اختر تخصص الفرع"
+                aria-label="تخصص الفرع الأول"
+                className={fieldClass}
+              />
+              <span className="mt-1 block text-[11px] text-neutral-500">خاص بهذا الفرع فقط: يحدد التصنيفات الذكية والبيانات التجريبية والقالب. يمكنك إضافة فروع بتخصصات مختلفة لاحقاً.</span>
+            </div>
             <label className="block text-sm text-neutral-300">اسم المالك
               <input required maxLength={200} disabled={busy} value={form.ownerName} onChange={set('ownerName')} className={`${fieldClass} mt-1.5`} />
             </label>

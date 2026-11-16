@@ -2,6 +2,17 @@
 const nextConfig = {
   reactStrictMode: true,
   allowedDevOrigins: ['.monkeycode-ai.live', '*.e2b.app'],
+  async headers() {
+    return [{ source: '/vetrina-guide.html', headers: [
+      { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+    ] }, { source: '/vetrina-presentation.html', headers: [
+      { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
+    ] }, { source: '/service-worker.js', headers: [
+      { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
+      { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+      { key: 'Service-Worker-Allowed', value: '/' },
+    ] }]
+  },
   // The sidebar collapsed into seven grouped destinations. These keep old links
   // and bookmarks working, landing the user on the right tab.
   async redirects() {
