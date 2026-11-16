@@ -8,7 +8,7 @@ test('Phase3 migration and atomic RPC execute in isolated PostgreSQL with full r
  const db=new PGlite()
  try {
  await db.exec(`
- CREATE ROLE anon; CREATE ROLE authenticated;
+ CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
  CREATE TABLE products(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),tenant_id uuid,name text,base_price integer,description text,category text,subcategory text,brand text,images text[],image_url text,external_video_url text,is_active boolean);
  CREATE TABLE product_variants(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),product_id uuid REFERENCES products(id),color text,size text,sku text,min_price integer,cost_price_avg numeric,barcode text);
  CREATE TABLE inventory(store_id uuid,variant_id uuid REFERENCES product_variants(id),quantity integer);

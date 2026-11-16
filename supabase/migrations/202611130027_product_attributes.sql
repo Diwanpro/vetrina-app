@@ -12,7 +12,7 @@ BEGIN
  RETURN result;
 END $$;
 REVOKE ALL ON FUNCTION public.p3_normalize_colors(text[]) FROM PUBLIC,anon;
-GRANT EXECUTE ON FUNCTION public.p3_normalize_colors(text[]) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.p3_normalize_colors(text[]) TO authenticated,service_role;
 ALTER TABLE public.product_variants ADD COLUMN color_components text[];
 ALTER TABLE public.product_variants ADD CONSTRAINT variants_color_components_p3 CHECK (
  color_components IS NULL OR (color_components = public.p3_normalize_colors(color_components) AND color = array_to_string(color_components,' / ') AND color IS NOT NULL)

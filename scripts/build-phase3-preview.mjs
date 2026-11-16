@@ -18,7 +18,7 @@ const output = '.vercel/output'
 await fs.rm(output, {recursive:true,force:true})
 await fs.mkdir(output, {recursive:true})
 await fs.cp('.cache/hybrid-preview', output + '/static', {recursive:true})
-const settings = JSON.parse(await fs.readFile('vercel.json','utf8'))
+const settings = JSON.parse(await fs.readFile('scripts/phase3-preview-config.json','utf8'))
 const headers = Object.fromEntries(settings.headers[0].headers.map(h => [h.key,h.value]))
 await fs.writeFile(output + '/config.json', JSON.stringify({version:3,routes:[{src:'/(.*)',headers,continue:true},{handle:'filesystem'}]}))
 console.log('Explicit static Build Output API generated; no middleware or functions.')
