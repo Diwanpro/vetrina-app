@@ -16,6 +16,7 @@ import CustomSelect from '@/components/ui/CustomSelect'
 import SearchableSelect from '@/components/ui/SearchableSelect'
 import { safeVideoUrl, videoButtonLabel } from '@/lib/video'
 import { notifyBranchPush } from '@/lib/push/client'
+import { barcodeCellKey, productBarcodePayload, validateBarcode } from '@/lib/barcode/hybrid'
 
 import { brandsFor, cleanBrand } from '@/lib/brand-catalog'
 import { FABRIC_OPTIONS, STYLE_OPTIONS, generateDescription, generateProductName, smartSpecsFromForm, validateSmartEntry } from '@/lib/product-entry'
@@ -35,6 +36,9 @@ export default function ProductsPage() {
   const cameraInput = useRef(null)
   const [generating, setGenerating] = useState(false)
   const barcodeTask = useRef(0)
+  const productSaving = useRef(false)
+  const [variantBarcodes, setVariantBarcodes] = useState({})
+  const [saveUncertain, setSaveUncertain] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [ctx, setCtx] = useState({ tenantId: null, storeId: null, storeType: 'mens' })
@@ -101,7 +105,7 @@ export default function ProductsPage() {
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, brand, description, category, subcategory, base_price, images, image_url, external_video_url, product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
+        .select('id, name, brand, description, category, subcategory, base_price, images, image_url, external_video_url, product_barcodes(barcode), product_variants!inner(id, barcode, color, size, inventory!inner(quantity, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).order('created_at', { ascending: false }).order('id'))
       setProducts(mergeMockProducts(rows, context.storeType, context.storeId, 'dashboard'))
     } catch (err) { setError(err.message) }
@@ -142,6 +146,7 @@ export default function ProductsPage() {
     return products.filter(product => [
       product.name, product.description, product.category, product.subcategory,
       ...(product.product_variants || []).flatMap(variant => [variant.barcode, variant.sku]),
+      ...(product.product_barcodes || []).map(row => row.barcode),
     ].some(value => String(value || '').toLowerCase().includes(term)))
   }, [products, search])
 
@@ -183,7 +188,7 @@ export default function ProductsPage() {
   }
   function openProductForm() {
     setOpen(true); setError('')
-    if (!form.barcode) regenerateBarcode()
+    setSaveUncertain(false)
   }
   function closeProductForm() {
     if (saving) return
@@ -195,6 +200,7 @@ export default function ProductsPage() {
   function changeSizeType(type) {
     if (type === sizeType) return
     setSizeType(type)
+    setVariantBarcodes({})
     // Reset all quantities, including overlapping numeric sizes, so shoe stock
     // can never silently become pants stock (or vice versa).
     setMatrix(prev => emptySizeMatrix(Object.keys(prev), sizesForType(type)))
@@ -215,138 +221,61 @@ export default function ProductsPage() {
 
   async function handleSave(e) {
     e.preventDefault()
-    if (saving || generating) return
+    if (productSaving.current || generating || saveUncertain) return
     setError('')
-    let filledCells
-    let barcodes
+    let filledCells, payload
     try {
       filledCells = filledSizeCells(matrix, sizes)
-      if (form.barcode.trim() && !/^[\x21-\x7E]{1,48}$/.test(form.barcode.trim())) throw new Error('الباركود يجب أن يحتوي على حروف لاتينية أو أرقام أو رموز دون مسافات (حتى 48 حرفاً)')
-    } catch (err) {
-      setError(err.message)
-      return
-    }
+      payload = productBarcodePayload(filledCells, form.barcode, variantBarcodes)
+    } catch (err) { setError(err.message); return }
     const validation = validateSmartEntry({ ...form, cells: filledCells })
     if (validation) { setError(validation); return }
     const specs = smartSpecsFromForm(form, filledCells, ctx)
     const productName = form.name.trim() || [cleanBrand(form.brand), generateProductName(specs)].filter(Boolean).join(' · ')
     const videoUrl = form.external_video_url.trim() ? safeVideoUrl(form.external_video_url) : ''
-    if (form.external_video_url.trim() && !videoUrl) {
-      setError('رابط الفيديو غير صالح. الصق رابطاً يبدأ بـ https:// (تيك توك، إنستغرام، فيسبوك…)')
-      return
-    }
-    if (!ctx.tenantId || !ctx.storeId) {
-      setError('لا يمكن الحفظ: لم يتم العثور على المتجر أو المؤسسة')
-      return
-    }
-    if (!filledCells.length) {
-      setError('أدخل كمية واحدة على الأقل في جدول المقاسات')
-      return
-    }
-
-    setSaving(true)
+    if (form.external_video_url.trim() && !videoUrl) { setError('رابط الفيديو غير صالح'); return }
+    if (!ctx.tenantId || !ctx.storeId) { setError('تعذر تحديد المؤسسة والفرع'); return }
+    productSaving.current = true; setSaving(true)
+    let rpcStarted = false
     try {
-      const first = form.barcode.trim() || (await allocateBarcodes(1))[0]
-      barcodes = [first, ...await allocateBarcodes(filledCells.length - 1)]
-      // Check external/scanned codes before creating a product. The database
-      // UNIQUE constraint remains the final protection against concurrent writes.
-      const { data: duplicates, error: lookupError } = await supabase.from('product_variants')
-        .select('id, products!inner(tenant_id), inventory!inner(store_id)').eq('products.tenant_id', ctx.tenantId).eq('inventory.store_id', ctx.storeId).in('barcode', barcodes).limit(1)
-      if (lookupError) throw lookupError
-      if (duplicates?.length) throw new Error('هذا الباركود مستخدم مسبقاً. امسح رمزاً آخر أو اضغط توليد جديد.')
-    } catch (err) { setSaving(false); setError(err.message); return }
-    let images = []
-    if (form.imageFile) {
-      const ext = (form.imageFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
-      const path = `${ctx.tenantId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
-      const { error: upErr } = await supabase.storage.from('products').upload(path, form.imageFile, {
-        cacheControl: '3600',
-        upsert: true,
-        contentType: form.imageFile.type || 'image/jpeg',
-      })
-      if (upErr) {
-        setSaving(false)
-        setError(upErr.message || 'فشل رفع الصورة')
-        return
+      let images = []
+      // Storage is outside the SQL transaction. Never delete an uploaded image
+      // after an ambiguous network response: the product may already be committed.
+      if (form.imageFile) {
+        const ext = (form.imageFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+        const path = `${ctx.tenantId}/${crypto.randomUUID()}.${ext}`
+        const { error: upErr } = await supabase.storage.from('products').upload(path, form.imageFile, { cacheControl: '3600', upsert: false, contentType: form.imageFile.type || 'image/jpeg' })
+        if (upErr) throw upErr
+        const { data: pub } = supabase.storage.from('products').getPublicUrl(path)
+        if (pub?.publicUrl) images = [pub.publicUrl]
       }
-      const { data: pub } = supabase.storage.from('products').getPublicUrl(path)
-      if (pub?.publicUrl) images = [pub.publicUrl]
-    }
-
-    const { data: product, error: pErr } = await supabase
-      .from('products')
-      .insert({
-        tenant_id: ctx.tenantId,
-        name: productName,
-        brand: cleanBrand(form.brand) || null,
-        description: form.description.trim() || generateDescription(specs),
-        category: form.category,
-        subcategory: form.subcategory.trim() || null,
-        base_price: Number(form.base_price),
-        type: 'variable',
-        images,
-        image_url: images[0] || null,
-        external_video_url: videoUrl || null,
-        is_active: true,
+      rpcStarted = true
+      const { data: productId, error: rpcError } = await supabase.rpc('engine_create_product_atomic', {
+        p_store: ctx.storeId, p_tenant: ctx.tenantId,
+        p_product: { name: productName, brand: cleanBrand(form.brand) || null,
+          description: form.description.trim() || generateDescription(specs), category: form.category,
+          subcategory: form.subcategory.trim() || null, base_price: Number(form.base_price || 0),
+          images, image_url: images[0] || null, external_video_url: videoUrl || null },
+        p_variants: payload.variants.map(v => ({ ...v, cost_price_avg: Number(form.cost_price || 0) })),
+        p_model_barcodes: payload.modelBarcodes,
       })
-      .select('id')
-      .single()
-
-    if (pErr || !product) {
-      setSaving(false)
-      setError(pErr?.message || 'فشل حفظ المنتج')
-      return
-    }
-
-    const costPrice = Number(form.cost_price || 0)
-    const variants = filledCells.map((cell, index) => ({
-      barcode: barcodes[index],
-      product_id: product.id,
-      color: cell.color,
-      size: cell.size,
-      sku: `${productName.slice(0, 8)}-${cell.color}-${cell.size}`.replace(/\s+/g, ''),
-      cost_price_avg: costPrice,
-    }))
-
-    const { data: createdVariants, error: vErr } = await supabase
-      .from('product_variants')
-      .insert(variants)
-      .select('id, color, size')
-
-    if (vErr || !createdVariants) {
-      setSaving(false)
-      setError(vErr?.message || 'فشل حفظ المقاسات')
-      return
-    }
-
-    const inventoryRows = createdVariants.map((v) => {
-      const cell = filledCells.find((c) => c.color === v.color && c.size === v.size)
-      return {
-        store_id: ctx.storeId,
-        variant_id: v.id,
-        quantity: cell?.qty || 0,
-      }
-    })
-
-    const { error: iErr } = await supabase.from('inventory').insert(inventoryRows)
-    setSaving(false)
-
-    if (iErr) {
-      setError(iErr.message || 'فشل حفظ المخزون')
-      return
-    }
-
-    // v3.1: a NEW product automatically notifies only this branch's customers.
-    // Fire-and-forget: a push failure must never undo a saved product.
-    const createdName = productName
-    void notifyBranchPush({ storeId: ctx.storeId, kind: 'product', name: createdName }).catch(() => {})
-    setOpen(false)
-    setForm({ name: '', description: '', category: MAIN_CATEGORIES[0], subcategory: '', base_price: '', cost_price: '', barcode: '', external_video_url: '', imageFile: null, imagePreview: '' })
-    setSizeType(SIZE_TYPES[0].value)
-    setMatrix(emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
-    setNewColor('')
-    loadProducts()
+      if (rpcError) throw rpcError
+      if (!productId) throw new Error('لم يصل تأكيد الحفظ')
+      void notifyBranchPush({ storeId: ctx.storeId, kind: 'product', name: productName }).catch(() => {})
+      setOpen(false)
+      setForm({ name: '', description: '', category: MAIN_CATEGORIES[0], subcategory: '', base_price: '', cost_price: '', barcode: '', external_video_url: '', imageFile: null, imagePreview: '' })
+      setVariantBarcodes({})
+      setSizeType(SIZE_TYPES[0].value)
+      setMatrix(emptySizeMatrix(DEFAULT_COLORS, sizesForType(SIZE_TYPES[0].value)))
+      setNewColor(''); await loadProducts()
+    } catch (err) {
+      if (rpcStarted && !err.code) {
+        setSaveUncertain(true)
+        setError('تعذر تأكيد نتيجة الحفظ. لا تعِد الإرسال؛ أغلق النموذج وحدّث قائمة المنتجات للتحقق أولاً. ' + (err.message || ''))
+      } else setError(err.code === '23505' ? 'هذا الباركود مستخدم في المؤسسة؛ اختر رمزاً آخر.' : err.message || 'تعذر حفظ المنتج')
+    } finally { productSaving.current = false; setSaving(false) }
   }
+
 
   return (
     <>
@@ -362,7 +291,8 @@ export default function ProductsPage() {
       </div>
 
       <KeyboardWedgeListener onScan={(code, input) => {
-        if (input?.id === 'product-barcode') setForm(prev => ({ ...prev, barcode: code }))
+        if (input?.dataset?.variantBarcodeKey) setVariantBarcodes(prev => ({ ...prev, [input.dataset.variantBarcodeKey]: code }))
+        else if (input?.id === 'product-barcode') setForm(prev => ({ ...prev, barcode: code }))
         else setSearch(code)
       }} />
       <label className="mb-3 block text-xs text-neutral-400">
@@ -551,9 +481,9 @@ export default function ProductsPage() {
                   className="w-full resize-y rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold" />
               </div>
               <div>
-                <label htmlFor="product-barcode" className="mb-2 block text-xs text-neutral-400">الباركود · يُولّد تلقائياً</label>
+                <label htmlFor="product-barcode" className="mb-2 block text-xs text-neutral-400">باركود الموديل العام · اختياري</label>
                 <div className="flex gap-2">
-                  <input id="product-barcode" data-barcode-input="product-barcode" dir="ltr" maxLength={48} value={form.barcode} disabled={saving || generating}
+                  <input id="product-barcode" data-barcode-input="product-barcode" dir="ltr" maxLength={64} value={form.barcode} disabled={saving || generating}
                     placeholder={generating ? 'جاري التوليد…' : 'الباركود'}
                     onChange={e => setForm(prev => ({ ...prev, barcode: e.target.value }))}
                     className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm outline-none focus:border-gold disabled:opacity-50" />
@@ -563,7 +493,7 @@ export default function ProductsPage() {
                   </button>
                 </div>
                 <div className="mt-2 flex items-start justify-between gap-3">
-                  <p className="text-[11px] text-neutral-500">رمز رقمي فريد من 12 خانة افتراضياً. يُحفظ الرمز الظاهر لأول مقاس، وتُولّد رموز مستقلة لباقي المقاسات.</p>
+                  <p className="text-[11px] text-neutral-500">هذا الرمز يفتح اختيار اللون والمقاس في الكاشير. اتركه فارغاً إن لم تحتج باركود موديل. رموز التركيبات الفارغة تُولّد عند الحفظ.</p>
                   <button type="button" disabled={saving || generating} onClick={regenerateBarcode} className="shrink-0 text-xs text-gold disabled:opacity-50">توليد جديد</button>
                 </div>
               </div>
@@ -708,11 +638,24 @@ export default function ProductsPage() {
               </div>
             </div>
 
+            <fieldset className="mt-4 space-y-3 rounded-xl border border-gold/20 bg-[#171717] p-3">
+              <legend className="px-2 text-sm text-gold">باركودات التركيبات · اختيارية</legend>
+              <p className="text-xs text-neutral-400">أدخل رمزاً لكل لون/مقاس ذي كمية، أو اتركه فارغاً للتوليد الذري عند الحفظ. الرموز المحفوظة ثابتة لحماية الملصقات.</p>
+              {colorRows.flatMap(color => sizes.filter(size => Number(matrix[color]?.[size]) > 0).map(size => {
+                const key = barcodeCellKey(color, size)
+                return <div key={key} className="flex items-center gap-2">
+                  <label className="flex-1 text-xs text-neutral-300">{color} / {size}
+                    <input data-barcode-input="variant-code" data-variant-barcode-key={key} dir="ltr" aria-label={`باركود ${color} ${size}`} maxLength={64} disabled={saving} value={variantBarcodes[key] || ''} onChange={e => setVariantBarcodes(prev => ({ ...prev, [key]: e.target.value }))} placeholder="توليد تلقائي عند الحفظ" className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm" />
+                  </label>
+                  <button type="button" disabled={saving} onClick={() => setScanning(`variant:${key}`)} aria-label={`مسح باركود ${color} ${size}`} className="rounded-lg border border-gold/30 px-3 py-2 text-xs text-gold">مسح</button>
+                </div>
+              }))}
+            </fieldset>
             {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
 
             <button
               type="submit"
-              disabled={saving || generating}
+              disabled={saving || generating || saveUncertain}
               className="mt-4 w-full rounded-lg bg-gold py-2.5 text-sm font-medium text-[#121212] disabled:opacity-60"
             >
               {saving ? 'جاري الحفظ...' : 'حفظ المنتج'}
@@ -721,8 +664,9 @@ export default function ProductsPage() {
         </div>
       )}
       {scanning && <BarcodeScanner confirmLabel="استخدام الباركود" onClose={() => setScanning(false)} onScan={code => {
-        if (!/^[\x21-\x7E]{1,48}$/.test(code)) throw new Error('الباركود غير صالح لهذا الحقل')
+        validateBarcode(code)
         if (scanning === 'search') setSearch(code)
+        else if (String(scanning).startsWith('variant:')) setVariantBarcodes(prev => ({ ...prev, [scanning.slice(8)]: code }))
         else setForm(prev => ({ ...prev, barcode: code }))
       }} />}
     </>

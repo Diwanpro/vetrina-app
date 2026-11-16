@@ -9,6 +9,8 @@ import { logAction } from '@/lib/audit'
 import { meetsFloor, validMoney, FLOOR_PRICE_MESSAGE } from '@/lib/cash'
 import { applyOffers, lineSubtotal, cacheOffers, cachedOffers, posOffers } from '@/lib/offers'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
+import BarcodeModelPicker from '@/components/dashboard/BarcodeModelPicker'
+import { resolveHybridBarcode, variantStock } from '@/lib/barcode/hybrid'
 import MixedPaymentModal from '@/components/dashboard/MixedPaymentModal'
 import { fetchAllRows } from '@/lib/cash'
 import DashboardShell from '@/components/dashboard/DashboardShell'
@@ -219,6 +221,8 @@ export default function PosPage() {
   const [activeLook, setActiveLook] = useState(null)
   const saleSaving = useRef(false)
   const [scanning, setScanning] = useState(false)
+  const [modelScan, setModelScan] = useState(null)
+  const barcodeBusy = useRef(false)
   const [loading, setLoading] = useState(true)
   const [ctx, setCtx] = useState({ tenantId: null, storeId: null, user: null, storeType: 'mens' })
   const [search, setSearch] = useState('')
@@ -259,7 +263,7 @@ export default function PosPage() {
       }
       await syncPending().catch(err => { console.error('[pos] catalogue sync failed', err) })
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, base_price, category, subcategory, images, image_url, product_variants!inner(id, color, size, min_price, barcode, inventory!inner(quantity, reserved_qty, store_id))')
+        .select('id, tenant_id, name, base_price, category, subcategory, images, image_url, product_barcodes(id, tenant_id, product_id, variant_id, barcode, barcode_type), product_variants!inner(id, color, size, min_price, barcode, inventory!inner(quantity, reserved_qty, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).eq('is_active', true)
         .order('created_at', { ascending: false }).order('id'))
       setProducts(mergeMockProducts(await cacheCatalog(context, rows), context.storeType, context.storeId, 'dashboard'))
@@ -294,6 +298,7 @@ export default function PosPage() {
     const matches = product => !term || [
       product.name, product.category, product.subcategory,
       ...(product.product_variants || []).flatMap(variant => [variant.barcode, variant.sku]),
+      ...(product.product_barcodes || []).map(row => row.barcode),
     ].some(value => String(value || '').toLowerCase().includes(term))
     const catalog = term ? products.filter(matches) : products
     if (activeTab === 'all') return catalog
@@ -472,18 +477,51 @@ export default function PosPage() {
     } catch (err) { setError(err.message) }
   }
 
-  async function scanBarcode(code) {
-    const context = await getAppContext()
-    if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
-    const product = products.find(product => product.product_variants?.some(variant => variant.barcode === code || variant.id === code))
-    const variant = product?.product_variants.find(variant => variant.barcode === code || variant.id === code)
-    if (!variant) throw new Error('الباركود غير موجود في كتالوج هذا الفرع. حدّث الكتالوج أثناء الاتصال.')
-    const qty = (variant.inventory || []).filter(row => row.store_id === context.storeId)
-      .reduce((sum, row) => sum + availableStock(row), 0)
-    addVariant(product, variant, qty)
-    setDone('تمت إضافة المقاس إلى السلة'); setError('')
-    setTimeout(() => setDone(''), 2500)
+  async function scanBarcode(rawCode) {
+    if (barcodeBusy.current || saving || saleSaving.current) throw new Error('انتظر انتهاء العملية الحالية')
+    if (modelScan) throw new Error('أكمل اختيار تركيبة الموديل أو أغلق النافذة أولاً')
+    barcodeBusy.current = true
+    try {
+      const code = String(rawCode || '').trim()
+      const context = await getAppContext()
+      if (!context.tenantId || !context.storeId || context.tenantId !== ctx.tenantId || context.storeId !== ctx.storeId) throw new Error('تغير الفرع؛ حدّث الكتالوج أولاً')
+      let registryRow
+      if (navigator.onLine && !context.offline) {
+        const { data, error: lookupError } = await supabase.from('product_barcodes')
+          .select('id, tenant_id, product_id, variant_id, barcode, barcode_type')
+          .eq('tenant_id', context.tenantId).eq('barcode', code).maybeSingle()
+        if (lookupError) {
+          if (!isNetworkError(lookupError)) throw lookupError
+        } else registryRow = data || null
+      }
+      const match = resolveHybridBarcode(products, code, context.tenantId, registryRow)
+      if (match.type === 'model') {
+        setModelScan({ productId: match.product.id, tenantId: context.tenantId, storeId: context.storeId })
+        setError('')
+        return
+      }
+      addVariant(match.product, match.variant, variantStock(match.variant, context.storeId))
+      setDone('تمت إضافة المقاس إلى السلة'); setError('')
+      setTimeout(() => setDone(''), 2500)
+    } finally { barcodeBusy.current = false }
   }
+
+  async function confirmModelVariant(variantId) {
+    if (barcodeBusy.current || saving) return
+    barcodeBusy.current = true
+    try {
+      const context = await getAppContext()
+      if (context.tenantId !== modelScan?.tenantId || context.storeId !== modelScan?.storeId) throw new Error('تغير الفرع؛ أعد مسح الموديل')
+      const product = products.find(p => p.id === modelScan.productId)
+      const variant = product?.product_variants?.find(v => v.id === variantId)
+      if (!variant) throw new Error('التركيبة غير متاحة؛ حدّث الكتالوج')
+      addVariant(product, variant, variantStock(variant, context.storeId))
+      setModelScan(null); setDone('تمت إضافة التركيبة المختارة'); setError('')
+    } catch (err) { setError(err.message) }
+    finally { barcodeBusy.current = false }
+  }
+
+  useEffect(() => { setModelScan(null) }, [ctx.tenantId, ctx.storeId])
 
   async function applyPrice(event) {
     event.preventDefault()
@@ -592,7 +630,7 @@ export default function PosPage() {
         </div>
       </div>
 
-      <KeyboardWedgeListener onScan={code => {
+      <KeyboardWedgeListener enabled={!modelScan && !saving} onScan={code => {
         setSearch(code)
         scanBarcode(code).catch(err => setError(err.message || 'الباركود غير موجود في الكتالوج'))
       }} />
@@ -609,6 +647,7 @@ export default function PosPage() {
 
       {error && !checkout && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
       {scanning && <BarcodeScanner onScan={scanBarcode} onClose={() => setScanning(false)} />}
+      {modelScan && products.find(p => p.id === modelScan.productId) && <BarcodeModelPicker key={`${modelScan.productId}:${modelScan.storeId}`} product={products.find(p => p.id === modelScan.productId)} storeId={modelScan.storeId} error={error} busy={saving} onClose={() => setModelScan(null)} onConfirm={confirmModelVariant} />}
       {/* The same rail the public store renders, from the same component.
           تبديل التبويب يغيّر الشبكة تحته مباشرة. */}
       <div className="mb-3 -mx-1">
@@ -636,7 +675,7 @@ export default function PosPage() {
                   // filtered down to an empty list (which made the product
                   // impossible to add to the cart).
                   const inStock = (p.product_variants || []).filter(v =>
-                    (v.inventory || []).some(i => i.store_id === ctx.storeId && Number(i.quantity) > 0))
+                    variantStock(v, ctx.storeId) > 0)
                   setSelected(p)
                   setPicked({ color: inStock[0]?.color || '', size: '' })
                 }}
