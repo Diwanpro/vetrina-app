@@ -8,9 +8,14 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        gold: '#D4AF37',
-        surface: '#121212',
-        card: '#1A1A1A',
+        // Phase 1: Tailwind names are bound to the CSS variables in
+        // app/globals.css so the palette has a single source of truth.
+        background: 'var(--background)',
+        foreground: 'var(--foreground)',
+        surface: 'var(--surface)',
+        card: 'var(--card)',
+        gold: 'var(--gold)',
+        border: 'var(--border)',
       },
       fontFamily: {
         tajawal: ['var(--font-tajawal)', 'sans-serif'],
