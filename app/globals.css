@@ -10,6 +10,9 @@
   --card: #1a1a1a;
   --gold: #d4af37;
   --border: rgba(255, 255, 255, 0.1);
+  /* RGB channels of --gold, so Tailwind's rgb(var(--gold-rgb) / <alpha-value>)
+     can generate every translucent gold utility. */
+  --gold-rgb: 212 175 55;
 }
 
 html,
@@ -161,6 +164,22 @@ select option:hover {
 /* Semantic sf-* hooks keep the overrides independent of Tailwind's arbitrary */
 /* colour utilities, so the dashboard's gold/black design is untouched.       */
 .vetrina-theme-feminine {
+  /* Phase 2 — approved feminine palette, scoped to the feminine storefront only.
+     The six global tokens are re-pointed HERE, never on :root, so Classic,
+     Dashboard and POS keep their own values. Stage 2 points the surfaces at
+     these tokens; the v3.1 hard-coded background/color below are holdovers. */
+  --background: #F8F1E8; /* warm ivory — page background */
+  --foreground: #3D3434; /* dark brown — primary text (≈10.7:1 on ivory) */
+  --surface: #FFFFFF;    /* white — elevated surfaces */
+  --card: #FFFFFF;       /* white — cards */
+  --gold: #C9A227;       /* gold — restrained accents only */
+  --gold-rgb: 201 162 39; /* RGB channels of the feminine gold */
+  --border: var(--feminine-rose); /* dusty rose — subtle borders */
+
+  /* Semantic tokens with no global equivalent. */
+  --feminine-blush: #E8C9C5; /* soft blush pink — selected / decorative */
+  --feminine-rose: #B88A80;  /* dusty rose — secondary accent */
+
   background:
     radial-gradient(1000px 520px at 85% -10%, rgba(239, 169, 198, 0.20), transparent 65%),
     radial-gradient(760px 420px at -10% 25%, rgba(198, 148, 187, 0.12), transparent 70%),

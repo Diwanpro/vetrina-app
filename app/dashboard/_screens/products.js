@@ -28,6 +28,36 @@ function firstImage(product) {
   return product.image_url || ''
 }
 
+// Collapsible add-form section. The body stays mounted and is only hidden
+// with CSS, so folding a section never unmounts an input or drops draft data.
+function ProductSection({ id, title, open, onToggle, summary, children }) {
+  const bodyId = `product-section-${id}`
+  return (
+    <section className="rounded-xl border border-white/10 bg-[#1a1a1a]">
+      <h3 className="m-0">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={onToggle}
+          className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-start"
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="text-sm font-medium text-neutral-100">{title}</span>
+            {!open && summary ? <span className="truncate text-[11px] text-neutral-500">{summary}</span> : null}
+          </span>
+          <svg aria-hidden="true" viewBox="0 0 24 24" className={`h-4 w-4 shrink-0 text-gold transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+      </h3>
+      <div id={bodyId} className={open ? 'px-3 pb-3' : 'hidden'}>
+        {children}
+      </div>
+    </section>
+  )
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState([])
   const [search, setSearch] = useState('')
@@ -69,6 +99,9 @@ export default function ProductsPage() {
   const [components, setComponents] = useState([])
   const [colorMetadata, setColorMetadata] = useState({})
   const [customSubs, setCustomSubs] = useState({})
+  // Collapsible add-form sections. Basics and variants start open, the rest
+  // start folded. This state only drives visibility: no draft value lives here.
+  const [sections, setSections] = useState(() => ({ basics: true, variants: true, pricing: false, barcode: false, media: false }))
 
   function openVideoEditor(product) {
     setVideoTarget(product)
@@ -190,9 +223,19 @@ export default function ProductsPage() {
     } catch (err) { if (task === barcodeTask.current) setError(err.message || 'تعذر توليد الباركود') }
     finally { if (task === barcodeTask.current) setGenerating(false) }
   }
+  function toggleSection(key) {
+    setSections(previous => ({ ...previous, [key]: !previous[key] }))
+  }
+  // A save error points at a field inside one section: fold that section back
+  // open so the message and the offending input are reachable. The checks
+  // themselves are untouched.
+  function revealSection(key) {
+    setSections(previous => ({ ...previous, [key]: true }))
+  }
   function openProductForm() {
     setOpen(true); setError('')
     setSaveUncertain(false)
+    setSections({ basics: true, variants: true, pricing: false, barcode: false, media: false })
   }
   function closeProductForm() {
     if (saving) return
@@ -200,6 +243,10 @@ export default function ProductsPage() {
   }
 
   const colorRows = Object.keys(matrix)
+  const filledCellCount = Object.values(matrix).reduce(
+    (sum, row) => sum + Object.values(row).filter(qty => Number(qty) > 0).length,
+    0,
+  )
 
   function changeSizeType(type) {
     if (type === sizeType) return
@@ -231,14 +278,18 @@ export default function ProductsPage() {
     let filledCells, payload
     try {
       filledCells = filledSizeCells(matrix, sizes).map(cell => ({ ...cell, color_components: colorMetadata[cell.color] || [cell.color] }))
+    } catch (err) { setError(err.message); revealSection('variants'); return }
+    try {
       payload = productBarcodePayload(filledCells, form.barcode, variantBarcodes)
-    } catch (err) { setError(err.message); return }
+    } catch (err) { setError(err.message); revealSection('barcode'); return }
     const validation = validateSmartEntry({ ...form, cells: filledCells })
-    if (validation) { setError(validation); return }
+    // Same first check the validator performs: no image at all. Anything else
+    // it reports comes from the colour/size/quantity cells.
+    if (validation) { setError(validation); revealSection(!form.imageFile && !form.imagePreview ? 'media' : 'variants'); return }
     const specs = smartSpecsFromForm(form, filledCells, ctx)
     const productName = form.name.trim() || [cleanBrand(form.brand), generateProductName(specs)].filter(Boolean).join(' · ')
     const videoUrl = form.external_video_url.trim() ? safeVideoUrl(form.external_video_url) : ''
-    if (form.external_video_url.trim() && !videoUrl) { setError('رابط الفيديو غير صالح'); return }
+    if (form.external_video_url.trim() && !videoUrl) { setError('رابط الفيديو غير صالح'); revealSection('media'); return }
     if (!ctx.tenantId || !ctx.storeId) { setError('تعذر تحديد المؤسسة والفرع'); return }
     productSaving.current = true; setSaving(true)
     let rpcStarted = false
@@ -278,7 +329,13 @@ export default function ProductsPage() {
       if (rpcStarted && !err.code) {
         setSaveUncertain(true)
         setError('تعذر تأكيد نتيجة الحفظ. لا تعِد الإرسال؛ أغلق النموذج وحدّث قائمة المنتجات للتحقق أولاً. ' + (err.message || ''))
-      } else setError(err.code === '23505' ? 'هذا الباركود مستخدم في المؤسسة؛ اختر رمزاً آخر.' : err.message || 'تعذر حفظ المنتج')
+      } else {
+        setError(err.code === '23505' ? 'هذا الباركود مستخدم في المؤسسة؛ اختر رمزاً آخر.' : err.message || 'تعذر حفظ المنتج')
+        // Storage is the only awaited step before the RPC, so a failure there
+        // is an image problem; a duplicate-code RPC error is a barcode problem.
+        if (!rpcStarted) revealSection('media')
+        else if (err.code === '23505') revealSection('barcode')
+      }
     } finally { productSaving.current = false; setSaving(false) }
   }
 
@@ -436,6 +493,9 @@ export default function ProductsPage() {
             </div>
 
             <div className="space-y-3">
+              <ProductSection id="basics" title="المعلومات الأساسية" open={sections.basics} onToggle={() => toggleSection('basics')}
+                summary={[form.name.trim(), form.brand, form.subcategory].filter(Boolean).join(' · ') || form.category}>
+                <div className="space-y-3">
               <div className="block">
                 <span className="mb-1 block text-xs text-neutral-400">نوع المنتج</span>
                 <CustomSelect
@@ -486,23 +546,21 @@ export default function ProductsPage() {
                   placeholder="اكتب تفاصيل المنتج أو أمْلِها بالصوت…"
                   className="w-full resize-y rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold" />
               </div>
-              <div>
-                <label htmlFor="product-barcode" className="mb-2 block text-xs text-neutral-400">باركود الموديل العام · اختياري</label>
-                <div className="flex gap-2">
-                  <input id="product-barcode" data-barcode-input="product-barcode" dir="ltr" maxLength={64} value={form.barcode} disabled={saving || generating}
-                    placeholder={generating ? 'جاري التوليد…' : 'الباركود'}
-                    onChange={e => setForm(prev => ({ ...prev, barcode: e.target.value }))}
-                    className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm outline-none focus:border-gold disabled:opacity-50" />
-                  <button type="button" disabled={saving || generating} onClick={() => setScanning('entry')} title="مسح الباركود بالكاميرا" aria-label="مسح الباركود بالكاميرا"
-                    className="rounded-lg border border-gold/30 bg-gold/10 px-3 text-gold disabled:opacity-50">
-                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 8v8M10 8v8M14 8v8M17 8v8" /></svg>
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <CustomSelect aria-label="نوع القماش" value={form.fabric || ''} options={FABRIC_OPTIONS} onChange={fabric => setForm(prev => ({ ...prev, fabric }))} />
+                    <CustomSelect aria-label="الستايل" value={form.style || ''} options={STYLE_OPTIONS} onChange={style => setForm(prev => ({ ...prev, style }))} />
+                  </div>
+                  <button type="button" className="text-sm text-gold" onClick={() => {
+                    try { setForm(prev => ({ ...prev, description: generateDescription(smartSpecsFromForm(prev, filledSizeCells(matrix, sizes), ctx)) })) }
+                    catch (err) { setError(err.message) }
+                  }}>توليد وصف عربي تلقائياً</button>
+                  <p className="text-xs text-neutral-400">الإلزامي فقط: الصورة واللون والمقاسات والكمية. الاسم والوصف يولدان تلقائياً. السعر اختياري (افتراضياً 0 دج، راجعه قبل البيع).</p>
                 </div>
-                <div className="mt-2 flex items-start justify-between gap-3">
-                  <p className="text-[11px] text-neutral-500">هذا الرمز يفتح اختيار اللون والمقاس في الكاشير. اتركه فارغاً إن لم تحتج باركود موديل. رموز التركيبات الفارغة تُولّد عند الحفظ.</p>
-                  <button type="button" disabled={saving || generating} onClick={regenerateBarcode} className="shrink-0 text-xs text-gold disabled:opacity-50">توليد جديد</button>
-                </div>
-              </div>
+              </ProductSection>
+
+              <ProductSection id="variants" title="الألوان والمقاسات والكميات" open={sections.variants} onToggle={() => toggleSection('variants')}
+                summary={`${colorRows.length} لون · ${filledCellCount} خلية بالكمية`}>
+                <div className="space-y-3">
               <div className="block">
                 <span className="mb-1 block text-xs text-neutral-400">نوع المقاس</span>
                 <CustomSelect
@@ -514,78 +572,6 @@ export default function ProductsPage() {
                 />
                 <span id="size-type-help" className="mt-1 block text-[11px] text-neutral-500">تغيير نوع المقاس يمسح كميات الجدول. أدخل الكميات بعد اختيار النوع.</span>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <CustomSelect aria-label="نوع القماش" value={form.fabric || ''} options={FABRIC_OPTIONS} onChange={fabric => setForm(prev => ({ ...prev, fabric }))} />
-                <CustomSelect aria-label="الستايل" value={form.style || ''} options={STYLE_OPTIONS} onChange={style => setForm(prev => ({ ...prev, style }))} />
-              </div>
-              <button type="button" className="text-sm text-gold" onClick={() => {
-                try { setForm(prev => ({ ...prev, description: generateDescription(smartSpecsFromForm(prev, filledSizeCells(matrix, sizes), ctx)) })) }
-                catch (err) { setError(err.message) }
-              }}>توليد وصف عربي تلقائياً</button>
-              <p className="text-xs text-neutral-400">الإلزامي فقط: الصورة واللون والمقاسات والكمية. الاسم والوصف يولدان تلقائياً. السعر اختياري (افتراضياً 0 دج، راجعه قبل البيع).</p>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">سعر البيع</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.base_price}
-                    onChange={(e) => setForm({ ...form, base_price: e.target.value })}
-                    className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">سعر التكلفة</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.cost_price}
-                    onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
-                    className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                  />
-                </label>
-              </div>
-              <button type="button" onClick={() => cameraInput.current?.click()} className="rounded-lg border border-gold/30 px-3 py-2 text-sm text-gold">التقاط صورة</button>
-              <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
-                const file = e.target.files?.[0]
-                if (file) setForm(prev => ({ ...prev, imageFile: file, imagePreview: URL.createObjectURL(file) }))
-              }} />
-              <label className="block">
-                <span className="mb-1 block text-xs text-neutral-400">صورة المنتج</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setForm({
-                      ...form,
-                      imageFile: file,
-                      imagePreview: file ? URL.createObjectURL(file) : '',
-                    })
-                  }}
-                  className="w-full text-xs text-neutral-400"
-                />
-                {form.imagePreview && (
-                  <img src={form.imagePreview} alt="" className="mt-2 h-20 w-20 rounded-lg object-cover" />
-                )}
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-xs text-neutral-400">رابط فيديو المنتج (تيك توك / إنستغرام / فيسبوك)</span>
-                <input
-                  type="url"
-                  dir="ltr"
-                  inputMode="url"
-                  value={form.external_video_url}
-                  onChange={(e) => setForm({ ...form, external_video_url: e.target.value })}
-                  placeholder="https://www.tiktok.com/@shop/video/..."
-                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-start text-sm outline-none focus:border-gold"
-                />
-                <span className="mt-1 block text-[11px] text-neutral-500">
-                  يظهر زر «شاهد الفيديو» في المتجر العام. اتركه فارغاً إن لم يكن هناك فيديو.
-                </span>
-              </label>
-
               <div>
                 <p className="mb-1.5 text-xs text-neutral-400">المخزون حسب اللون والمقاس</p>
                 <CustomSelect aria-label="نوع اللون" value={colorMode} options={[{value:'single',label:'لون مفرد'},{value:'composite',label:'لون مركب'}]} onChange={setColorMode} disabled={saving} />
@@ -648,21 +634,119 @@ export default function ProductsPage() {
                   </table>
                 </div>
               </div>
-            </div>
-
-            <fieldset className="mt-4 space-y-3 rounded-xl border border-gold/20 bg-[#171717] p-3">
-              <legend className="px-2 text-sm text-gold">باركودات التركيبات · اختيارية</legend>
-              <p className="text-xs text-neutral-400">أدخل رمزاً لكل لون/مقاس ذي كمية، أو اتركه فارغاً للتوليد الذري عند الحفظ. الرموز المحفوظة ثابتة لحماية الملصقات.</p>
-              {colorRows.flatMap(color => sizes.filter(size => Number(matrix[color]?.[size]) > 0).map(size => {
-                const key = barcodeCellKey(color, size)
-                return <div key={key} className="flex items-center gap-2">
-                  <label className="flex-1 text-xs text-neutral-300">{color} / {sizeLabel(size)}
-                    <input data-barcode-input="variant-code" data-variant-barcode-key={key} dir="ltr" aria-label={`باركود ${color} ${size}`} maxLength={64} disabled={saving} value={variantBarcodes[key] || ''} onChange={e => setVariantBarcodes(prev => ({ ...prev, [key]: e.target.value }))} placeholder="توليد تلقائي عند الحفظ" className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm" />
-                  </label>
-                  <button type="button" disabled={saving} onClick={() => setScanning(`variant:${key}`)} aria-label={`مسح باركود ${color} ${size}`} className="rounded-lg border border-gold/30 px-3 py-2 text-xs text-gold">مسح</button>
                 </div>
-              }))}
-            </fieldset>
+              </ProductSection>
+
+              <ProductSection id="pricing" title="الأسعار والتكلفة" open={sections.pricing} onToggle={() => toggleSection('pricing')}
+                summary={form.base_price ? `بيع ${formatDzd(form.base_price)}` : 'السعر غير محدد'}>
+                <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="mb-1 block text-xs text-neutral-400">سعر البيع</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.base_price}
+                    onChange={(e) => setForm({ ...form, base_price: e.target.value })}
+                    className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-neutral-400">سعر التكلفة</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.cost_price}
+                    onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
+                    className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
+                  />
+                </label>
+                </div>
+              </ProductSection>
+
+              <ProductSection id="barcode" title="الباركود" open={sections.barcode} onToggle={() => toggleSection('barcode')}
+                summary={form.barcode.trim() || 'توليد تلقائي عند الحفظ'}>
+                <div className="space-y-3">
+                  <div>
+                    <label htmlFor="product-barcode" className="mb-2 block text-xs text-neutral-400">باركود الموديل العام · اختياري</label>
+                    <div className="flex gap-2">
+                      <input id="product-barcode" data-barcode-input="product-barcode" dir="ltr" maxLength={64} value={form.barcode} disabled={saving || generating}
+                        placeholder={generating ? 'جاري التوليد…' : 'الباركود'}
+                        onChange={e => setForm(prev => ({ ...prev, barcode: e.target.value }))}
+                        className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm outline-none focus:border-gold disabled:opacity-50" />
+                      <button type="button" disabled={saving || generating} onClick={() => setScanning('entry')} title="مسح الباركود بالكاميرا" aria-label="مسح الباركود بالكاميرا"
+                        className="rounded-lg border border-gold/30 bg-gold/10 px-3 text-gold disabled:opacity-50">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 8v8M10 8v8M14 8v8M17 8v8" /></svg>
+                      </button>
+                    </div>
+                    <div className="mt-2 flex items-start justify-between gap-3">
+                      <p className="text-[11px] text-neutral-500">هذا الرمز يفتح اختيار اللون والمقاس في الكاشير. اتركه فارغاً إن لم تحتج باركود موديل. رموز التركيبات الفارغة تُولّد عند الحفظ.</p>
+                      <button type="button" disabled={saving || generating} onClick={regenerateBarcode} className="shrink-0 text-xs text-gold disabled:opacity-50">توليد جديد</button>
+                    </div>
+                  </div>
+                  <fieldset className="space-y-3 rounded-xl border border-gold/20 bg-[#171717] p-3">
+                    <legend className="px-2 text-sm text-gold">باركودات التركيبات · اختيارية</legend>
+                    <p className="text-xs text-neutral-400">أدخل رمزاً لكل لون/مقاس ذي كمية، أو اتركه فارغاً للتوليد الذري عند الحفظ. الرموز المحفوظة ثابتة لحماية الملصقات.</p>
+                    {colorRows.flatMap(color => sizes.filter(size => Number(matrix[color]?.[size]) > 0).map(size => {
+                      const key = barcodeCellKey(color, size)
+                      return <div key={key} className="flex items-center gap-2">
+                        <label className="flex-1 text-xs text-neutral-300">{color} / {sizeLabel(size)}
+                          <input data-barcode-input="variant-code" data-variant-barcode-key={key} dir="ltr" aria-label={`باركود ${color} ${size}`} maxLength={64} disabled={saving} value={variantBarcodes[key] || ''} onChange={e => setVariantBarcodes(prev => ({ ...prev, [key]: e.target.value }))} placeholder="توليد تلقائي عند الحفظ" className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm" />
+                        </label>
+                        <button type="button" disabled={saving} onClick={() => setScanning(`variant:${key}`)} aria-label={`مسح باركود ${color} ${size}`} className="rounded-lg border border-gold/30 px-3 py-2 text-xs text-gold">مسح</button>
+                      </div>
+                    }))}
+                  </fieldset>
+                </div>
+              </ProductSection>
+
+              <ProductSection id="media" title="الصور ومحتوى المتجر الإلكتروني" open={sections.media} onToggle={() => toggleSection('media')}
+                summary={form.imagePreview || form.imageFile ? 'تم اختيار صورة' : 'الصورة إلزامية'}>
+                <div className="space-y-3">
+                  <div>
+                    <button type="button" onClick={() => cameraInput.current?.click()} className="rounded-lg border border-gold/30 px-3 py-2 text-sm text-gold">التقاط صورة</button>
+                    <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                      const file = e.target.files?.[0]
+                      if (file) setForm(prev => ({ ...prev, imageFile: file, imagePreview: URL.createObjectURL(file) }))
+                    }} />
+                    <label className="mt-3 block">
+                      <span className="mb-1 block text-xs text-neutral-400">صورة المنتج</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null
+                          setForm({
+                            ...form,
+                            imageFile: file,
+                            imagePreview: file ? URL.createObjectURL(file) : '',
+                          })
+                        }}
+                        className="w-full text-xs text-neutral-400"
+                      />
+                      {form.imagePreview && (
+                        <img src={form.imagePreview} alt="" className="mt-2 h-20 w-20 rounded-lg object-cover" />
+                      )}
+                    </label>
+                  </div>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-neutral-400">رابط فيديو المنتج (تيك توك / إنستغرام / فيسبوك)</span>
+                    <input
+                      type="url"
+                      dir="ltr"
+                      inputMode="url"
+                      value={form.external_video_url}
+                      onChange={(e) => setForm({ ...form, external_video_url: e.target.value })}
+                      placeholder="https://www.tiktok.com/@shop/video/..."
+                      className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-start text-sm outline-none focus:border-gold"
+                    />
+                    <span className="mt-1 block text-[11px] text-neutral-500">
+                      يظهر زر «شاهد الفيديو» في المتجر العام. اتركه فارغاً إن لم يكن هناك فيديو.
+                    </span>
+                  </label>
+                </div>
+              </ProductSection>
+            </div>
             {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
 
             <button

@@ -14,7 +14,9 @@ module.exports = {
         foreground: 'var(--foreground)',
         surface: 'var(--surface)',
         card: 'var(--card)',
-        gold: 'var(--gold)',
+        // RGB channels so opacity modifiers (bg-gold/15, border-gold/30, …)
+        // still generate. A bare var() colour cannot carry an alpha modifier.
+        gold: 'rgb(var(--gold-rgb) / <alpha-value>)',
         border: 'var(--border)',
       },
       fontFamily: {

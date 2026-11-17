@@ -141,3 +141,54 @@ test('re-running the migration cannot weaken a policy', () => {
   assert.ok(guardIdx > 0 && guardIdx < createIdx)
   assert.doesNotMatch(sql, /DROP POLICY/)
 })
+
+// ------------------------------------------------- sales / sale_items isolation
+// 202611170001 closes the tenant/branch hole on the two tables that carry no
+// tenant_id of their own. These are text guards only: the behavioural proof
+// lives in tests/sales-sale-items-isolation.acceptance.sql, which needs a real
+// database and therefore cannot run in CI.
+const salesRls = await read('../supabase/migrations/202611170001_sales_sale_items_rls.sql')
+
+test('the sales isolation migration drops the four wide policies', () => {
+  // PERMISSIVE policies are OR'd together, so a narrower policy added beside
+  // an old wide one changes nothing. All four have to go.
+  for (const name of ['sales_select', 'sales_insert', 'sale_items_select', 'sale_items_insert']) {
+    assert.match(salesRls, new RegExp(`DROP POLICY IF EXISTS ${name}\\s+ON public\\.`),
+      `${name} must be dropped`)
+  }
+})
+
+test('every policy the sales isolation migration creates is scoped to the staff identity', () => {
+  const created = [...salesRls.matchAll(/CREATE POLICY (\w+) ON public\.(\w+)/g)]
+  assert.equal(created.length, 4, 'expected exactly four policies')
+  for (const [, name, table] of created) {
+    const start = salesRls.indexOf(`CREATE POLICY ${name} ON public.${table}`)
+    const chunk = salesRls.slice(start, salesRls.indexOf(';', start))
+    assert.match(chunk, /current_staff\(\)/, `${name} must derive the actor from current_staff()`)
+  }
+})
+
+test('the sales isolation migration creates no UPDATE or DELETE policy', () => {
+  // No application path updates or deletes a sale directly, and RLS denies
+  // what no policy covers.
+  assert.doesNotMatch(salesRls, /CREATE POLICY[^;]*FOR (UPDATE|DELETE)/)
+})
+
+test('the sales isolation migration narrows the six direct privileges and keeps SELECT', () => {
+  const revoke = 'REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'
+  assert.match(salesRls, new RegExp(`${revoke} ON public\\.sales\\s+FROM authenticated;`))
+  assert.match(salesRls, new RegExp(`${revoke} ON public\\.sale_items FROM authenticated;`))
+  assert.match(salesRls, /GRANT SELECT ON public\.sales\s+TO authenticated;/)
+  assert.match(salesRls, /GRANT SELECT ON public\.sale_items TO authenticated;/)
+  assert.doesNotMatch(salesRls, /GRANT [^;]*TO anon/)
+})
+
+test('the sales isolation migration is idempotent', () => {
+  // Every CREATE follows a DROP of the same name, so a second run converges.
+  const created = [...salesRls.matchAll(/CREATE POLICY (\w+) ON public\.(\w+)/g)]
+  for (const [, name, table] of created) {
+    const drop = `DROP POLICY IF EXISTS ${name} ON public.${table};`
+    assert.ok(salesRls.indexOf(drop) < salesRls.indexOf(`CREATE POLICY ${name} ON public.${table}`),
+      `${name} must be dropped before it is created`)
+  }
+})
