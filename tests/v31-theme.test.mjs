@@ -9,16 +9,21 @@ const {
 } = await import('../lib/store-theme.js')
 
 // المرحلة 4: the public storefront theme follows the branch specialty.
-test('women = feminine, men = classic, mixed = merchant default', () => {
+test('women = feminine, men = masculine, mixed = merchant default', () => {
+  // Masculine is reached through the branch specialty, not through theme_key,
+  // so it is deliberately absent from the merchant-selectable options.
   assert.deepEqual(THEME_OPTIONS.map(o => o.value), ['classic', 'feminine'])
   assert.equal(resolveStoreTheme('womens', 'classic'), STORE_THEMES.FEMININE)
-  assert.equal(resolveStoreTheme('mens', 'feminine'), STORE_THEMES.CLASSIC)
+  assert.equal(resolveStoreTheme('mens', 'feminine'), STORE_THEMES.MASCULINE)
   assert.equal(resolveStoreTheme('mixed', 'classic'), STORE_THEMES.CLASSIC)
   assert.equal(resolveStoreTheme('mixed', 'feminine'), STORE_THEMES.FEMININE)
-  assert.equal(resolveStoreTheme('unknown', 'feminine'), STORE_THEMES.CLASSIC)
+  assert.equal(resolveStoreTheme('unknown', 'feminine'), STORE_THEMES.MASCULINE)
   assert.equal(normalizeStoreTheme('other'), STORE_THEMES.CLASSIC)
+  assert.equal(normalizeStoreTheme('masculine'), STORE_THEMES.MASCULINE)
   assert.equal(themeClass('feminine'), 'vetrina-theme-feminine')
+  assert.equal(themeClass('masculine'), 'vetrina-theme-masculine')
   assert.equal(themeColors('feminine').theme, THEME_COLORS.feminine.theme)
+  assert.equal(themeColors('masculine').theme, THEME_COLORS.masculine.theme)
 })
 
 test('the feminine theme is a real CSS engine with soft colours, hover and large images', async () => {
@@ -46,4 +51,18 @@ test('the feminine theme is a real CSS engine with soft colours, hover and large
   assert.match(settings, /THEME_OPTIONS/)
   assert.match(settings, /CustomSelect/)
   assert.doesNotMatch(settings, /<select\b/i)
+})
+
+test('the masculine theme is a real storefront design with its own palette', async () => {
+  const css = await read('app/globals.css')
+  assert.match(css, /\.vetrina-theme-masculine\s*\{/)
+  assert.match(css, /--background:\s*#17191D/)
+  assert.match(css, /--card:\s*#1C2533/)
+  assert.match(css, /--foreground:\s*#F4F2ED/)
+  assert.match(css, /--gold:\s*#A88B61/)
+  assert.match(css, /\.vetrina-theme-masculine \.sf-header/)
+  assert.match(css, /\.vetrina-theme-masculine \.sf-hero/)
+  assert.match(css, /\.vetrina-theme-masculine \.sf-card:hover/)
+  assert.match(css, /\.vetrina-theme-masculine \.sf-product-media/)
+  assert.match(css, /\.vetrina-theme-masculine \.sf-card-action/)
 })

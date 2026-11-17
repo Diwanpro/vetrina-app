@@ -352,6 +352,170 @@ select option:hover {
   }
 }
 
+/* ------------------------------------------- v3.2 masculine storefront theme */
+/* Reached from a men's branch through resolveStoreTheme(); scoped to the     */
+/* storefront so the dashboard, POS and cashier keep their own design.        */
+.vetrina-theme-masculine {
+  --background: #17191D; /* dark charcoal — page background */
+  --foreground: #F4F2ED; /* comfortable ivory white — text */
+  --surface: #1C2533;    /* dark navy — elevated surfaces */
+  --card: #1C2533;       /* dark navy — cards */
+  --gold: #A88B61;       /* luxurious bronze — accents */
+  --gold-rgb: 168 139 97;
+  --border: rgba(168, 139, 97, 0.28);
+
+  /* Strong, legible display face; Tajawal stays first so Arabic is unchanged. */
+  --font-masculine-display: var(--font-tajawal), 'Segoe UI', Arial, sans-serif;
+
+  background:
+    radial-gradient(1000px 520px at 85% -10%, rgba(168, 139, 97, 0.14), transparent 65%),
+    radial-gradient(760px 420px at -10% 25%, rgba(28, 37, 51, 0.55), transparent 70%),
+    linear-gradient(180deg, #1B1E23 0%, #17191D 55%, #121417 100%);
+  color: var(--foreground);
+}
+
+/* Bronze accents, deep enough to read on charcoal. */
+.vetrina-theme-masculine .text-gold { color: #C9A37A; }
+.vetrina-theme-masculine .bg-gold { background-color: #A88B61; }
+.vetrina-theme-masculine .sf-badge { color: #17191D; }
+.vetrina-theme-masculine .border-gold\/20,
+.vetrina-theme-masculine .border-gold\/30,
+.vetrina-theme-masculine .border-gold\/40,
+.vetrina-theme-masculine .border-gold\/45,
+.vetrina-theme-masculine .border-gold\/50 { border-color: rgba(168, 139, 97, 0.32); }
+.vetrina-theme-masculine .bg-gold\/10 { background-color: rgba(168, 139, 97, 0.12); }
+.vetrina-theme-masculine .bg-gold\/25 { background-color: rgba(168, 139, 97, 0.22); }
+
+/* Header: charcoal glass, bronze hairline, strong wordmark. */
+.vetrina-theme-masculine .sf-header {
+  background: rgba(23, 25, 29, 0.88);
+  border-color: rgba(168, 139, 97, 0.28);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.40);
+}
+.vetrina-theme-masculine .sf-header-inner { gap: 14px; }
+.vetrina-theme-masculine .sf-logo {
+  background: linear-gradient(135deg, #242B38, #17191D);
+  border-color: rgba(168, 139, 97, 0.50);
+  box-shadow: 0 0 0 1px rgba(168, 139, 97, 0.20), 0 10px 26px rgba(0, 0, 0, 0.45);
+  color: #C9A37A;
+}
+.vetrina-theme-masculine .sf-header-title {
+  color: #F4F2ED;
+  font-family: var(--font-masculine-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+}
+.vetrina-theme-masculine .sf-header-sub { color: #9AA3B2; }
+.vetrina-theme-masculine .sf-icon-btn {
+  border-color: rgba(168, 139, 97, 0.30);
+  background: rgba(28, 37, 51, 0.85);
+  color: #C9A37A;
+}
+.vetrina-theme-masculine .sf-icon-btn:hover {
+  border-color: #A88B61;
+  background: #1C2533;
+  color: #F4F2ED;
+}
+
+/* Hero: a calm navy panel, a bronze hairline and a strong title. */
+.vetrina-theme-masculine .sf-hero {
+  background: linear-gradient(135deg, #202836 0%, #1C2533 58%, #17191D 100%);
+  border-color: rgba(168, 139, 97, 0.32);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+  border-radius: 28px;
+  padding: 28px;
+}
+.vetrina-theme-masculine .sf-hero-kicker { color: #C9A37A; letter-spacing: 0.22em; }
+.vetrina-theme-masculine .sf-hero-title {
+  color: #F4F2ED;
+  font-family: var(--font-masculine-display);
+  font-weight: 700;
+  font-size: 1.75rem;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+}
+.vetrina-theme-masculine .sf-hero-copy { color: #B9C0CC; }
+.vetrina-theme-masculine .sf-hero-address { color: #8B94A3; }
+
+/* Product card: navy, crisply rounded, bronze action. Hover lifts and warms. */
+.vetrina-theme-masculine .sf-card {
+  padding: 8px 8px 0;
+  border-color: rgba(168, 139, 97, 0.22);
+  background: #1C2533;
+  border-radius: 22px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  transition: transform 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.38s ease;
+}
+.vetrina-theme-masculine .sf-card:hover {
+  transform: translateY(-5px);
+  border-color: rgba(168, 139, 97, 0.55);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.50);
+}
+.vetrina-theme-masculine .sf-card-body { padding: 14px 12px 18px; }
+.vetrina-theme-masculine .sf-card-title {
+  color: #F4F2ED;
+  font-family: var(--font-masculine-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+.vetrina-theme-masculine .sf-card-body span.text-gold {
+  color: #C9A37A;
+  font-family: var(--font-masculine-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.vetrina-theme-masculine .sf-card-ask { color: #C9A37A; }
+.vetrina-theme-masculine .sf-card-action {
+  border-radius: 12px;
+  background: #A88B61;
+  color: #17191D;
+  box-shadow: 0 6px 16px rgba(168, 139, 97, 0.30);
+}
+.vetrina-theme-masculine .sf-card-action:hover { background: #C9A37A; }
+.vetrina-theme-masculine .sf-product-media {
+  background: #242B38;
+  aspect-ratio: 4 / 5;
+  border-radius: 16px;
+}
+@media (min-width: 640px) {
+  .vetrina-theme-masculine .sf-product-media { aspect-ratio: 1 / 1.18; }
+}
+.vetrina-theme-masculine .sf-product-media img {
+  transition: transform 0.75s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.vetrina-theme-masculine .sf-card:hover .sf-product-media img { transform: scale(1.09); }
+.vetrina-theme-masculine .sf-grid { gap: 18px; padding-top: 14px; padding-bottom: 14px; }
+@media (min-width: 640px) {
+  .vetrina-theme-masculine .sf-grid { gap: 22px; }
+}
+.vetrina-theme-masculine .sf-skeleton {
+  background-image: linear-gradient(90deg, #1C2533 25%, #242B38 50%, #1C2533 75%);
+}
+.vetrina-theme-masculine .sf-sheet {
+  background: rgba(23, 25, 29, 0.97);
+  border-color: rgba(168, 139, 97, 0.28);
+}
+
+/* Floating cart pill: navy glass with a bronze hairline. */
+.vetrina-theme-masculine .sf-cart-fab {
+  background: rgba(28, 37, 51, 0.95);
+  border-color: rgba(168, 139, 97, 0.40);
+  color: #F4F2ED;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.50);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vetrina-theme-masculine .sf-card,
+  .vetrina-theme-masculine .sf-product-media img {
+    transition: none;
+  }
+}
+
 /* v3.3: visible branch specialty inside the dashboard as well as storefront. */
 .dashboard-theme-feminine { background: #20131c; }
 .dashboard-theme-feminine .bg-surface, .dashboard-theme-feminine .bg-card { background-color: #2a1a25; }
