@@ -81,9 +81,9 @@ function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) 
         )}
       </div>
 
-      <div className="p-3">
-        <p className="line-clamp-2 min-h-[2.5rem] text-[13px] font-medium leading-snug text-neutral-100">{product.name}</p>
-        <div className="mt-2 flex items-center justify-between gap-2">
+      <div className="sf-card-body p-3">
+        <p className="sf-card-title line-clamp-2 min-h-[2.5rem] text-[13px] font-medium leading-snug text-neutral-100">{product.name}</p>
+        <div className="sf-card-actions mt-2 flex items-center justify-between gap-2">
           {showPrices ? (
             <span className="text-sm font-bold text-gold">{formatMoney(product.base_price)}</span>
           ) : (
@@ -91,7 +91,7 @@ function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) 
               href={askLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[11px] font-medium text-gold underline decoration-gold/30 underline-offset-4"
+              className="sf-card-ask text-[11px] font-medium text-gold underline decoration-gold/30 underline-offset-4"
             >
               اسأل عن السعر
             </a>
@@ -101,7 +101,7 @@ function ProductCard({ product, store, showPrices, index, onOpen, onQuickAdd }) 
             aria-label={demo ? `${product.name} قطعة تجريبية للعرض` : `أضف ${product.name} إلى السلة`}
             disabled={soldOut || demo}
             onClick={() => (single && single.available > 0 ? onQuickAdd(product, single) : onOpen())}
-            className="flex min-h-9 items-center gap-1 rounded-xl bg-gold px-3 text-[11px] font-bold text-[#121212] shadow-[0_4px_14px_rgba(212,175,55,0.3)] transition active:scale-95 disabled:opacity-30"
+            className="sf-card-action flex min-h-9 items-center gap-1 rounded-xl bg-gold px-3 text-[11px] font-bold text-[#121212] shadow-[0_4px_14px_rgba(212,175,55,0.3)] transition active:scale-95 disabled:opacity-30"
           >
             <span aria-hidden="true" className="text-sm leading-none">{demo ? '◉' : '+'}</span>
             {demo ? 'عرض' : 'أضف'}
@@ -444,7 +444,7 @@ export default function Storefront({ slug }) {
           ) : (
             /* 2 columns on a phone, 3 on a tablet, 4 on a desktop. The padding
                now lives on <main>, so the grid only owns the gap. */
-            <div className="grid grid-cols-2 gap-3 py-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4">
+            <div className="sf-grid grid grid-cols-2 gap-3 py-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4">
               {visible.map((product, index) => (
                 <ProductCard
                   key={product.id}
@@ -476,7 +476,7 @@ export default function Storefront({ slug }) {
           <button
             type="button"
             onClick={() => setCartOpen(true)}
-            className="sf-fade-up mx-auto flex min-h-14 w-full max-w-lg items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-[#1a1a1a]/90 px-4 shadow-[0_16px_40px_rgba(0,0,0,0.55)] backdrop-blur-xl active:scale-[0.99] sm:max-w-2xl"
+            className="sf-cart-fab sf-fade-up mx-auto flex min-h-14 w-full max-w-lg items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-[#1a1a1a]/90 px-4 shadow-[0_16px_40px_rgba(0,0,0,0.55)] backdrop-blur-xl active:scale-[0.99] sm:max-w-2xl"
           >
             <span className="flex items-center gap-2 text-sm font-medium text-neutral-100">
               <span className="sf-badge flex h-8 w-8 items-center justify-center rounded-full bg-gold text-xs font-bold text-[#121212]">{count}</span>
