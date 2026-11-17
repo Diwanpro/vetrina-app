@@ -3,15 +3,19 @@
 @tailwind utilities;
 
 :root {
-  --gold: #d4af37;
+  /* Phase 1 design tokens: the six core colours. Values are unchanged. */
+  --background: #121212;
+  --foreground: #e5e5e5;
   --surface: #121212;
   --card: #1a1a1a;
+  --gold: #d4af37;
+  --border: rgba(255, 255, 255, 0.1);
 }
 
 html,
 body {
-  background-color: #121212;
-  color: #e5e5e5;
+  background-color: var(--background);
+  color: var(--foreground);
   min-height: 100%;
 }
 
