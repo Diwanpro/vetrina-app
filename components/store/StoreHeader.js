@@ -25,7 +25,7 @@ export default function StoreHeader({ store, cartCount = 0, onCart }) {
       </div>
 
       <header className="sf-header sticky top-0 z-30 border-b border-white/5 bg-[#121212]/80 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-7xl items-center gap-3 px-3 py-3 sm:px-6">
+        <div className="sf-header-inner mx-auto flex w-full max-w-7xl items-center gap-3 px-3 py-3 sm:px-6">
           <div className="sf-logo flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-gold/30 bg-gradient-to-br from-[#232014] to-[#141414] text-sm font-bold text-gold shadow-[0_0_24px_rgba(212,175,55,0.15)]">
             {store.logo_url
               // The owner uploads this; a broken link must not take the page down.
@@ -34,8 +34,8 @@ export default function StoreHeader({ store, cartCount = 0, onCart }) {
           </div>
 
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-base font-bold text-neutral-50">{store.name}</h1>
-            <p className="truncate text-[11px] text-neutral-400">
+            <h1 className="sf-header-title truncate text-base font-bold text-neutral-50">{store.name}</h1>
+            <p className="sf-header-sub truncate text-[11px] text-neutral-400">
               {store.accepts_orders === false ? 'الطلبات متوقفة مؤقتاً' : 'متجر إلكتروني · دفع عند الاستلام'}
             </p>
           </div>
@@ -45,7 +45,7 @@ export default function StoreHeader({ store, cartCount = 0, onCart }) {
               <a
                 href={`tel:${store.phone.replace(/\s/g, '')}`}
                 aria-label="اتصل بالمتجر"
-                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-gold active:scale-95"
+                className="sf-icon-btn flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-gold active:scale-95"
               >
                 <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
                   <path d="M6.5 3.5h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A17 17 0 0 1 4.5 5.7 2 2 0 0 1 6.5 3.5Z" strokeLinecap="round" strokeLinejoin="round" />
@@ -58,7 +58,7 @@ export default function StoreHeader({ store, cartCount = 0, onCart }) {
                 target="_blank"
                 rel="noreferrer"
                 aria-label="موقع المتجر على الخريطة"
-                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-gold active:scale-95"
+                className="sf-icon-btn flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-gold active:scale-95"
               >
                 <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
                   <path d="M12 21s7-6.1 7-11a7 7 0 1 0-14 0c0 4.9 7 11 7 11Z" strokeLinejoin="round" />
@@ -70,7 +70,7 @@ export default function StoreHeader({ store, cartCount = 0, onCart }) {
               type="button"
               onClick={onCart}
               aria-label={`السلة، ${cartCount} قطعة`}
-              className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-gold/40 bg-gold/10 text-gold active:scale-95"
+              className="sf-icon-btn relative flex h-11 w-11 items-center justify-center rounded-2xl border border-gold/40 bg-gold/10 text-gold active:scale-95"
             >
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
                 <path d="M4 5h2l2.2 10.2a2 2 0 0 0 2 1.6h7.4a2 2 0 0 0 2-1.6L21 8H7" strokeLinecap="round" strokeLinejoin="round" />
@@ -95,16 +95,16 @@ export function StoreHero({ store }) {
       <div className="sf-hero relative overflow-hidden rounded-3xl border border-gold/20 bg-gradient-to-br from-[#1d1a12] via-[#161616] to-[#121212] p-5">
         <div aria-hidden="true" className="absolute -end-10 -top-10 h-32 w-32 rounded-full bg-gold/10 blur-2xl" />
         <p className="sf-hero-kicker text-[11px] uppercase tracking-[0.2em] text-gold/70">اختيار أنيق</p>
-        <h2 className="mt-2 text-2xl font-bold leading-snug text-neutral-50">
+        <h2 className="sf-hero-title mt-2 text-2xl font-bold leading-snug text-neutral-50">
           تسوّق من {store.name}
         </h2>
-        <p className="mt-2 max-w-[60ch] text-sm leading-relaxed text-neutral-400">
+        <p className="sf-hero-copy mt-2 max-w-[60ch] text-sm leading-relaxed text-neutral-400">
           {store.accepts_orders === false
             ? 'المتجر يعرض منتجاته حالياً، والطلبات ستُستأنف قريباً.'
             : 'اطلب من هاتفك، والدفع عند الاستلام. نجمع لك الطلب ونؤكده عبر الهاتف.'}
         </p>
         {store.address && (
-          <p className="mt-3 flex items-center gap-1.5 text-xs text-neutral-500">
+          <p className="sf-hero-address mt-3 flex items-center gap-1.5 text-xs text-neutral-500">
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-gold/70" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="M12 21s7-6.1 7-11a7 7 0 1 0-14 0c0 4.9 7 11 7 11Z" strokeLinejoin="round" />
             </svg>
