@@ -10,9 +10,9 @@ const {
 
 // المرحلة 4: the public storefront theme follows the branch specialty.
 test('women = feminine, men = masculine, mixed = merchant default', () => {
-  // Masculine is reached through the branch specialty, not through theme_key,
-  // so it is deliberately absent from the merchant-selectable options.
-  assert.deepEqual(THEME_OPTIONS.map(o => o.value), ['classic', 'feminine'])
+  // All three themes are merchant-selectable since the masculine theme_key
+  // migration (202611170003) widened the check constraint and the RPCs.
+  assert.deepEqual(THEME_OPTIONS.map(o => o.value), ['classic', 'feminine', 'masculine'])
   assert.equal(resolveStoreTheme('womens', 'classic'), STORE_THEMES.FEMININE)
   assert.equal(resolveStoreTheme('mens', 'feminine'), STORE_THEMES.MASCULINE)
   assert.equal(resolveStoreTheme('mixed', 'classic'), STORE_THEMES.CLASSIC)
@@ -65,4 +65,19 @@ test('the masculine theme is a real storefront design with its own palette', asy
   assert.match(css, /\.vetrina-theme-masculine \.sf-card:hover/)
   assert.match(css, /\.vetrina-theme-masculine \.sf-product-media/)
   assert.match(css, /\.vetrina-theme-masculine \.sf-card-action/)
+})
+
+test('the masculine theme_key is accepted by the database and every writer RPC', async () => {
+  const migration = await read('supabase/migrations/202611170003_masculine_theme_key.sql')
+  assert.match(migration, /CHECK \(theme_key IN \('classic', 'feminine', 'masculine'\)\)/)
+  assert.match(migration, /p_theme_key NOT IN \('classic', 'feminine', 'masculine'\)/)
+  assert.match(migration, /p_theme_key NOT IN \('classic','feminine','masculine'\)/)
+  // all three writers that validate the theme were updated
+  assert.equal((migration.match(/p_theme_key NOT IN/g) || []).length, 3)
+  assert.match(migration, /engine_update_store_settings/)
+  assert.match(migration, /engine_set_branch_profile/)
+  assert.match(migration, /engine_set_branch_specialty/)
+  // the old two-value rule must not come back
+  assert.doesNotMatch(migration, /theme_key IN \('classic', 'feminine'\)/)
+  assert.doesNotMatch(migration, /theme_key NOT IN \('classic','feminine'\)/)
 })
