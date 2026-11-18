@@ -1,37 +1,105 @@
 'use client'
 
-import { usePathname } from 'next/navigation'
+import { useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 import { useDashboardSession } from './SessionProvider'
 import { routeAllowed } from '@/lib/access'
-import { NAV_ITEMS, activeGroup } from './navItems'
+import { MOBILE_NAV_ITEMS, MORE_NAV_ITEMS, activeGroup } from './navItems'
 import OrdersBadge from './OrdersBadge'
+import BottomSheet from './BottomSheet'
 
+// The phone bar is a short list: the destinations a cashier reaches for all
+// day. Everything else is one tap away in the «المزيد» sheet, which is the same
+// item list the sidebar draws, filtered by the same rule. The sidebar is
+// untouched and stays the full menu on a wide screen.
 export default function BottomNav({ active = '/dashboard' }) {
   const ctx = useDashboardSession()
   const pathname = usePathname()
+  const router = useRouter()
+  const [moreOpen, setMoreOpen] = useState(false)
   const group = activeGroup(pathname || active)
+
+  if (!ctx) return null
+
+  const allowed = MOBILE_NAV_ITEMS.filter(item => routeAllowed(ctx.role, item.href))
+  const moreItems = MORE_NAV_ITEMS.filter(item => routeAllowed(ctx.role, item.href))
+
+  const go = href => {
+    setMoreOpen(false)
+    router.push(href)
+  }
+
   return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/5 bg-[#161616]/95 backdrop-blur">
-      <div className="flex overflow-x-auto">
-        {NAV_ITEMS.filter(item => ctx && routeAllowed(ctx.role, item.href)).map((item) => {
-          const Icon = item.icon
-          const isActive = item.href === group
-          return (
-            <a
-              key={item.href}
-              href={item.href}
-              aria-current={isActive ? 'page' : undefined}
-              className={`relative flex min-w-[72px] flex-1 flex-col items-center py-2 px-1 ${
-                isActive ? 'text-gold' : 'text-neutral-500'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              {item.badge === 'orders' && <OrdersBadge className="end-3 top-0" />}
-              <span className="mt-1 text-[9px] leading-tight whitespace-nowrap">{item.label}</span>
-            </a>
-          )
-        })}
-      </div>
-    </nav>
+    <>
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/5 bg-[#161616]/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
+        <div className="flex">
+          {allowed.map(item => {
+            const Icon = item.icon
+            const isActive = item.href === group
+            return (
+              <a
+                key={item.href}
+                href={item.href}
+                aria-current={isActive ? 'page' : undefined}
+                className={`relative flex min-w-0 flex-1 flex-col items-center py-2 px-1 ${
+                  isActive ? 'text-gold' : 'text-neutral-500'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {item.badge === 'orders' && <OrdersBadge className="end-3 top-0" />}
+                <span className="mt-1 text-[9px] leading-tight text-center">{item.label}</span>
+              </a>
+            )
+          })}
+          <button
+            type="button"
+            onClick={() => setMoreOpen(true)}
+            aria-haspopup="dialog"
+            aria-expanded={moreOpen}
+            className={`relative flex min-w-0 flex-1 flex-col items-center py-2 px-1 ${
+              moreItems.some(item => item.href === group) ? 'text-gold' : 'text-neutral-500'
+            }`}
+          >
+            <span aria-hidden="true" className="flex h-4 w-4 items-center justify-center text-base leading-none">⋯</span>
+            <span className="mt-1 text-[9px] leading-tight text-center">المزيد</span>
+          </button>
+        </div>
+      </nav>
+
+      <BottomSheet
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        title="كل الوجهات"
+        labelledBy="more-nav-title"
+        closeLabel="إغلاق"
+      >
+        <ul className="space-y-1">
+          {moreItems.length === 0 && (
+            <li className="px-3 py-2 text-xs text-neutral-500">لا توجد وجهات أخرى متاحة لحسابك.</li>
+          )}
+          {moreItems.map(item => {
+            const Icon = item.icon
+            const isActive = item.href === group
+            return (
+              <li key={item.href}>
+                <button
+                  type="button"
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={() => go(item.href)}
+                  className={`flex w-full items-center gap-3 rounded-lg border px-3 py-3 text-start text-sm transition-colors ${
+                    isActive
+                      ? 'border-gold/40 bg-gold/10 text-gold'
+                      : 'border-white/10 bg-black/20 text-neutral-200 hover:bg-white/5'
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </BottomSheet>
+    </>
   )
 }

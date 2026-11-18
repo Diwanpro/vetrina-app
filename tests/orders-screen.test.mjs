@@ -139,7 +139,8 @@ test('the orders page exists and is reachable from the sidebar', async () => {
   assert.match(page, /active="\/dashboard\/orders"/)
 
   const nav = await read('../components/dashboard/navItems.js')
-  assert.match(nav, /\{ href: '\/dashboard\/orders', label: 'الطلبات', icon: IconOrders, badge: 'orders' \}/)
+  // `mobile: true` marks the item for the phone bar; the sidebar shows it either way.
+  assert.match(nav, /\{ href: '\/dashboard\/orders', label: 'الطلبات', icon: IconOrders, badge: 'orders', mobile: true \}/)
   assert.match(nav, /'\/dashboard\/orders': '\/dashboard\/orders'/)
 
   // Owner browsing "all branches" is allowed on this page; the screen scopes.
