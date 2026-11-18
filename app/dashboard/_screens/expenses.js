@@ -1,20 +1,54 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { Modal, Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
 import { formatDzd } from '@/lib/app-context'
 import { fetchAllRows } from '@/lib/cash'
+import { RECEIPT_TYPES, validateReceipt } from '@/lib/commercial'
 
 const BUCKET = 'receipts'
+const STAFF_BUCKET = 'expense-receipts'
 const MAX_BYTES = 5 * 1024 * 1024
 const CATEGORIES = ['إيجار', 'كهرباء وماء', 'رواتب إضافية', 'نقل', 'تسويق', 'صيانة', 'قرطاسية', 'أخرى']
+const EMPTY_FORM = { amount: '', category: CATEGORIES[0], description: '', storeId: '' }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-function newRequestId() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+function receiptBucket(path) {
+  // A viewer can see rows from either flow. Only the staff writer adds an auth-user folder.
+  const parts = path.split('/')
+  return parts.length === 4 && UUID.test(parts[2]) ? STAFF_BUCKET : BUCKET
+}
+
+async function uploadReceipt(ctx, file, request) {
+  if (!file) return null
+  const staff = ctx.role === 'employee'
+  if (staff) validateReceipt(file)
+  else {
+    if (file.size > MAX_BYTES) throw new Error('حجم الصورة أكبر من 5 ميغابايت')
+    if (!Object.hasOwn(RECEIPT_TYPES, file.type)) throw new Error('الصيغة يجب أن تكون JPG أو PNG أو WebP أو PDF')
+  }
+
+  let upload = request.upload
+  if (!upload || upload.file !== file || upload.storeId !== ctx.storeId) {
+    // An edited attachment gets a fresh object, not a second financial request.
+    const id = upload ? crypto.randomUUID() : request.id
+    const name = staff ? `${ctx.user.id}/${id}` : `${Date.now()}-${id}`
+    const path = `${ctx.tenantId}/${ctx.storeId}/${name}.${RECEIPT_TYPES[file.type]}`
+    upload = { file, storeId: ctx.storeId, path, attempted: false, done: false }
+    request.upload = upload
+  }
+  if (!upload.done) {
+    const retry = upload.attempted
+    upload.attempted = true
+    const { error } = await supabase.storage.from(staff ? STAFF_BUCKET : BUCKET)
+      .upload(upload.path, file, { upsert: false, contentType: file.type })
+    if (error && !(retry && String(error.statusCode) === '409')) throw new Error(`تعذر رفع الإيصال: ${error.message}`)
+    upload.done = true
+  }
+  return upload.path
 }
 
 function formatDate(value) {
@@ -30,11 +64,12 @@ export default function ExpensesPage() {
   const [notice, setNotice] = useState('')
   const [adding, setAdding] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
-  const [form, setForm] = useState({ amount: '', category: CATEGORIES[0], description: '' })
+  const [form, setForm] = useState(EMPTY_FORM)
   const [file, setFile] = useState(null)
-  const [requestId, setRequestId] = useState(newRequestId)
+  const pending = useRef(null)
 
-  const canDelete = ['owner', 'manager'].includes(ctx.role)
+  const isEmployee = ctx.role === 'employee'
+  const canManage = ['owner', 'manager'].includes(ctx.role)
 
   const load = useCallback(async () => {
     if (!ctx?.tenantId) return
@@ -56,41 +91,37 @@ export default function ExpensesPage() {
   useEffect(() => { load() }, [load])
 
   function resetForm() {
-    setForm({ amount: '', category: CATEGORIES[0], description: '' })
+    setForm(EMPTY_FORM)
     setFile(null)
-    setRequestId(newRequestId())
+    pending.current = null
   }
 
   async function submit(event) {
     event.preventDefault()
-    const amount = Number(String(form.amount).replace(/[^0-9]/g, ''))
-    if (!amount || amount <= 0) { setError('أدخل مبلغاً موجباً'); return }
+    if (busy) return
+    if ((!isEmployee && !canManage) || !ctx.staffId || !ctx.user?.id) { setError('لا يوجد حساب موظف صالح'); return }
+    const amount = Number(form.amount)
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 2147483647) { setError('أدخل مبلغاً صحيحاً موجباً ضمن الحد المسموح'); return }
     if (!form.description.trim()) { setError('أدخل وصفاً للمصروف'); return }
-    if (!ctx.storeId) { setError('لا يوجد فرع محدد لتسجيل المصروف'); return }
+    const storeId = ctx.storeId || (ctx.role === 'owner' && form.storeId)
+    if (!ctx.stores?.some(s => s.id === storeId) || (ctx.role !== 'owner' && storeId !== ctx.assignedStoreId)) {
+      setError('اختر فرعاً صالحاً لتسجيل المصروف'); return
+    }
     setBusy(true); setError('')
     try {
-      let receiptPath = null
-      if (file) {
-        if (file.size > MAX_BYTES) throw new Error('حجم الصورة أكبر من 5 ميغابايت')
-        if (!/^image\/(jpeg|png|webp)$|^application\/pdf$/.test(file.type)) {
-          throw new Error('الصيغة يجب أن تكون JPG أو PNG أو WebP أو PDF')
-        }
-        const extension = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')
-        // Path is <tenant>/<store>/<file> so storage policies can scope it.
-        const path = `${ctx.tenantId}/${ctx.storeId}/${Date.now()}-${newRequestId()}.${extension}`
-        const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false, contentType: file.type })
-        if (uploadError) throw new Error(`تعذر رفع الإيصال: ${uploadError.message}`)
-        receiptPath = path
-      }
-
-      const { error: rpcError } = await supabase.rpc('engine_record_expense_v2', {
-        p_store: ctx.storeId,
+      pending.current ??= { id: crypto.randomUUID() }
+      const request = pending.current
+      const args = {
+        p_store: storeId,
         p_amount: amount,
         p_description: form.description.trim(),
         p_category: form.category || null,
-        p_receipt: receiptPath,
-        p_request: requestId,
-      })
+        p_receipt: await uploadReceipt({ ...ctx, storeId }, file, request),
+        p_request: request.id,
+      }
+      const { error: rpcError } = isEmployee
+        ? await supabase.rpc('engine_record_expense_for_staff', { ...args, p_staff: ctx.staffId })
+        : await supabase.rpc('engine_record_expense_v2', args)
       if (rpcError) throw rpcError
 
       window.dispatchEvent(new Event('vetrina:finance'))
@@ -113,7 +144,7 @@ export default function ExpensesPage() {
   async function openReceipt(path) {
     setError('')
     try {
-      const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60)
+      const { data, error } = await supabase.storage.from(receiptBucket(path)).createSignedUrl(path, 60)
       if (error) throw error
       window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
     } catch (err) { setError(err.message) }
@@ -129,7 +160,7 @@ export default function ExpensesPage() {
         <button className={primaryClass} onClick={() => { setError(''); setNotice(''); resetForm(); setAdding(true) }}>إضافة مصروف</button>
       </header>
 
-      <Notice error={error} success={notice} />
+      <Notice error={adding ? '' : error} success={notice} />
 
       <section className="rounded-2xl border border-white/10 bg-card p-5">
         <div className="mb-4 flex items-center justify-between">
@@ -151,7 +182,7 @@ export default function ExpensesPage() {
                   <td className="p-3">{row.receipt_url
                     ? <button className="text-gold underline" onClick={() => openReceipt(row.receipt_url)}>عرض</button>
                     : <span className="text-neutral-600">—</span>}</td>
-                  <td className="p-3">{canDelete
+                  <td className="p-3">{canManage
                     ? <button disabled={busy} className="text-xs text-red-300 underline hover:text-red-200" onClick={() => setConfirmDelete(row)}>حذف</button>
                     : <span className="text-xs text-neutral-600">—</span>}</td>
                 </tr>)}
@@ -163,7 +194,13 @@ export default function ExpensesPage() {
     </div>
 
     {adding && <Modal title="إضافة مصروف" onClose={() => setAdding(false)} busy={busy}>
+      <Notice error={error} />
       <form onSubmit={submit} className="space-y-4">
+        {ctx.role === 'owner' && !ctx.storeId && <div className="block text-sm text-neutral-300">الفرع
+          <CustomSelect aria-label="الفرع" placeholder="اختر الفرع" disabled={busy} value={form.storeId}
+            onChange={storeId => setForm({ ...form, storeId })} options={ctx.stores.map(s => ({ value: s.id, label: s.name }))}
+            className={`${fieldClass} mt-1`} />
+        </div>}
         <label className="block text-sm text-neutral-300">المبلغ
           <input inputMode="numeric" required autoFocus disabled={busy} value={form.amount}
             onChange={e => setForm({ ...form, amount: e.target.value.replace(/[^0-9]/g, '') })}
@@ -171,6 +208,7 @@ export default function ExpensesPage() {
         </label>
         <div className="block text-sm text-neutral-300">التصنيف
           <CustomSelect
+            aria-label="التصنيف"
             disabled={busy}
             value={form.category}
             onChange={e => setForm({ ...form, category: e })}
