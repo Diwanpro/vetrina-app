@@ -1,32 +1,46 @@
 'use client'
 
 import { useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { useDashboardSession } from './SessionProvider'
-import { routeAllowed } from '@/lib/access'
-import { MOBILE_NAV_ITEMS, MORE_NAV_ITEMS, activeGroup } from './navItems'
+import { MOBILE_NAV_ITEMS, MORE_NAV_ITEMS, visibleNavItems, isNavItemActive } from './navItems'
+import NavGroup from './NavGroup'
 import OrdersBadge from './OrdersBadge'
 import BottomSheet from './BottomSheet'
 
-// The phone bar is a short list: the destinations a cashier reaches for all
-// day. Everything else is one tap away in the «المزيد» sheet, which is the same
-// item list the sidebar draws, filtered by the same rule. The sidebar is
-// untouched and stays the full menu on a wide screen.
-export default function BottomNav({ active = '/dashboard' }) {
+// Keep the primary bar short; the rest of the same menu lives in «المزيد».
+export default function BottomNav({ active }) {
   const ctx = useDashboardSession()
-  const pathname = usePathname()
   const router = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
-  const group = activeGroup(pathname || active)
 
   if (!ctx) return null
 
-  const allowed = MOBILE_NAV_ITEMS.filter(item => routeAllowed(ctx.role, item.href))
-  const moreItems = MORE_NAV_ITEMS.filter(item => routeAllowed(ctx.role, item.href))
+  const allowed = visibleNavItems(MOBILE_NAV_ITEMS, ctx.role)
+  const moreItems = visibleNavItems(MORE_NAV_ITEMS, ctx.role)
 
   const go = href => {
     setMoreOpen(false)
     router.push(href)
+  }
+
+  const choice = item => {
+    const Icon = item.icon
+    const isActive = isNavItemActive(item, active)
+    return (
+      <button
+        key={item.href}
+        type="button"
+        aria-current={isActive ? 'page' : undefined}
+        onClick={() => go(item.href)}
+        className={`flex w-full items-center gap-3 rounded-lg border px-3 py-3 text-start text-sm transition-colors ${
+          isActive ? 'border-gold/40 bg-gold/10 text-gold' : 'border-white/10 bg-black/20 text-neutral-200 hover:bg-white/5'
+        }`}
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      </button>
+    )
   }
 
   return (
@@ -35,7 +49,7 @@ export default function BottomNav({ active = '/dashboard' }) {
         <div className="flex">
           {allowed.map(item => {
             const Icon = item.icon
-            const isActive = item.href === group
+            const isActive = isNavItemActive(item, active)
             return (
               <a
                 key={item.href}
@@ -57,7 +71,7 @@ export default function BottomNav({ active = '/dashboard' }) {
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
             className={`relative flex min-w-0 flex-1 flex-col items-center py-2 px-1 ${
-              moreItems.some(item => item.href === group) ? 'text-gold' : 'text-neutral-500'
+              moreItems.some(item => isNavItemActive(item, active)) ? 'text-gold' : 'text-neutral-500'
             }`}
           >
             <span aria-hidden="true" className="flex h-4 w-4 items-center justify-center text-base leading-none">⋯</span>
@@ -77,27 +91,13 @@ export default function BottomNav({ active = '/dashboard' }) {
           {moreItems.length === 0 && (
             <li className="px-3 py-2 text-xs text-neutral-500">لا توجد وجهات أخرى متاحة لحسابك.</li>
           )}
-          {moreItems.map(item => {
-            const Icon = item.icon
-            const isActive = item.href === group
-            return (
-              <li key={item.href}>
-                <button
-                  type="button"
-                  aria-current={isActive ? 'page' : undefined}
-                  onClick={() => go(item.href)}
-                  className={`flex w-full items-center gap-3 rounded-lg border px-3 py-3 text-start text-sm transition-colors ${
-                    isActive
-                      ? 'border-gold/40 bg-gold/10 text-gold'
-                      : 'border-white/10 bg-black/20 text-neutral-200 hover:bg-white/5'
-                  }`}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                </button>
-              </li>
-            )
-          })}
+          {moreItems.map(item => (
+            <li key={item.href || item.label}>
+              {item.children
+                ? <NavGroup label={item.label}>{item.children.map(choice)}</NavGroup>
+                : choice(item)}
+            </li>
+          ))}
         </ul>
       </BottomSheet>
     </>

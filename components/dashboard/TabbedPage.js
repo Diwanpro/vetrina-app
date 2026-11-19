@@ -46,7 +46,7 @@ function TabbedContent({ tabs, group, initialTab }) {
   if (!tab) return <DashboardShell active={group}><p className="text-sm text-neutral-400">لا توجد أقسام متاحة لحسابك.</p></DashboardShell>
 
   const Component = tab.component
-  return <DashboardShell active={group}>
+  return <DashboardShell active={group} tabHref={tab.href}>
     <TabStrip tabs={allowed} value={tab.key} onChange={change} />
     {/* Keyed so switching tabs remounts and refetches, never showing stale rows. */}
     <div key={tab.key} role="tabpanel"><Component /></div>
