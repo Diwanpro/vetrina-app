@@ -39,9 +39,10 @@ function TabbedContent({ tabs, group, initialTab }) {
 
   const change = useCallback((key) => {
     const next = new URLSearchParams(searchParams.toString())
+    if (group === '/dashboard/stock' && key !== 'purchases') next.delete('supplierId')
     next.set('tab', key)
     router.replace(`${pathname}?${next.toString()}`, { scroll: false })
-  }, [pathname, router, searchParams])
+  }, [group, pathname, router, searchParams])
 
   if (!tab) return <DashboardShell active={group}><p className="text-sm text-neutral-400">لا توجد أقسام متاحة لحسابك.</p></DashboardShell>
 

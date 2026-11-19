@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { routeAllowed } from '@/lib/access'
 import VoiceInput from '@/components/VoiceInput'
 import { Modal, Notice, fieldClass, primaryClass, secondaryClass } from '@/components/dashboard/EngineUI'
 import CustomSelect from '@/components/ui/CustomSelect'
@@ -10,7 +12,71 @@ import { fetchAllRows } from '@/lib/cash'
 import { purchasePayload, purchaseTotal } from '@/lib/engine'
 import { matrixAxes, matrixItems, replaceProductSeries } from '@/lib/purchase-matrix'
 
+// Filter the branch-authorized RPC result on the server, never a local slice
+// of the latest twenty. Only the ordinary purchase tab omits supplier_id.
+function recentPurchases(ctx, supplierId = null) {
+  let query = supabase.rpc('engine_purchases', { p_store: ctx.storeId, p_tenant: ctx.tenantId })
+    .select('id, supplier_name, description, total_amount, created_at').eq('store_id', ctx.storeId).eq('tenant_id', ctx.tenantId)
+  if (supplierId !== null) query = query.eq('supplier_id', supplierId)
+  return query.order('created_at', { ascending: false }).limit(20)
+}
+
+function PurchaseHistory({ history, filtered = false }) {
+  return (
+    <section className="mt-6 rounded-2xl border border-white/10 bg-card p-5">
+      <h2 className="mb-4 text-sm text-neutral-200">{filtered ? 'آخر 20 فاتورة لهذا المورد' : 'آخر 20 فاتورة شراء'}</h2>
+      {!history.length ? <p className="text-sm text-neutral-500">{filtered ? 'لا توجد فواتير لهذا المورد في الفرع الحالي.' : 'لا توجد فواتير بعد.'}</p> : <div className="overflow-x-auto"><table className="w-full text-right text-sm">
+        <thead className="text-neutral-500"><tr><th className="p-2">المورد</th><th className="p-2">وصف المنتج</th><th className="p-2">التاريخ</th><th className="p-2">الإجمالي</th></tr></thead>
+        <tbody>{history.map(row => <tr key={row.id} className="border-t border-white/5 text-neutral-300"><td className="p-2">{row.supplier_name}</td><td className="max-w-sm whitespace-pre-wrap p-2 text-xs text-neutral-400">{row.description || '—'}</td><td className="whitespace-nowrap p-2">{new Date(row.created_at).toLocaleString('ar-DZ')}</td><td className="whitespace-nowrap p-2 text-gold">{formatDzd(row.total_amount)}</td></tr>)}</tbody>
+      </table></div>}
+    </section>
+  )
+}
+
+function SupplierPurchases({ supplierId }) {
+  const [result, setResult] = useState(null)
+  useEffect(() => {
+    let live = true
+    async function read() {
+      try {
+        if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(supplierId)) throw new Error('معرّف المورد غير صالح.')
+        const ctx = await getAppContext()
+        if (!routeAllowed(ctx.role, '/dashboard/purchases') || !ctx.storeId || !ctx.tenantId) throw new Error('لا يمكن عرض مشتريات المورد في هذا الفرع.')
+        // Resolve the actual supplier in this session's branch, not a name or
+        // tenant/store supplied by the URL. Unknown IDs never show all invoices.
+        const party = await supabase.rpc('engine_suppliers', { p_store: ctx.storeId, p_tenant: ctx.tenantId })
+          .select('id, name').eq('store_id', ctx.storeId).eq('tenant_id', ctx.tenantId).eq('id', supplierId).maybeSingle()
+        if (party.error) throw party.error
+        if (!party.data) throw new Error('المورد غير متاح في هذا الفرع.')
+        if (!live) return
+        const { data, error } = await recentPurchases(ctx, party.data.id)
+        if (error) throw error
+        if (live) setResult({ name: party.data.name, rows: data || [] })
+      } catch (err) { if (live) setResult({ error: err.message || 'تعذر تحميل مشتريات المورد.' }) }
+    }
+    read()
+    return () => { live = false }
+  }, [supplierId])
+
+  return <>
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <h1 className="text-lg text-neutral-100">مشتريات المورد{result?.name && ` · ${result.name}`}</h1>
+      <a href="/dashboard/stock?tab=purchases" className={secondaryClass}>العودة إلى المشتريات</a>
+    </div>
+    {!result ? <p role="status" className="text-sm text-neutral-400">جاري تحميل مشتريات المورد...</p>
+      : result.error ? <Notice error={result.error} /> : <PurchaseHistory history={result.rows} filtered />}
+  </>
+}
+
 export default function PurchasesPage() {
+  const ids = useSearchParams().getAll('supplierId')
+  if (!ids.length) return <PurchaseEntry />
+  // Remount on query-only navigation so pending/previous supplier rows never flash.
+  const id = ids.length === 1 ? ids[0] : ''
+  return <SupplierPurchases key={id} supplierId={id} />
+}
+
+function PurchaseEntry() {
   const [suppliers, setSuppliers] = useState([])
   const [variants, setVariants] = useState([])
   const [history, setHistory] = useState([])
@@ -54,7 +120,7 @@ export default function PurchasesPage() {
         fetchAllRows(supabase.rpc('engine_suppliers', { p_store: ctx.storeId, p_tenant: ctx.tenantId }).select('id, name').eq('tenant_id', ctx.tenantId).eq('store_id', ctx.storeId).order('name').order('id')),
         fetchAllRows(supabase.from('product_variants').select('id, product_id, color, size, barcode, cost_price_avg, inventory!inner(store_id), products!inner(id, name, tenant_id, is_active)')
           .eq('products.tenant_id', ctx.tenantId).eq('inventory.store_id', ctx.storeId).eq('products.is_active', true).order('id')),
-        supabase.rpc('engine_purchases', { p_store: ctx.storeId, p_tenant: ctx.tenantId }).select('id, supplier_name, description, total_amount, created_at').eq('store_id', ctx.storeId).eq('tenant_id', ctx.tenantId).order('created_at', { ascending: false }).limit(20),
+        recentPurchases(ctx),
       ])
       if (purchaseResult.error) throw purchaseResult.error
       setSuppliers(supplierRows); setVariants(variantRows); setHistory(purchaseResult.data || [])
@@ -184,12 +250,6 @@ export default function PurchasesPage() {
         <div className="flex gap-3 border-t border-white/10 pt-4"><button disabled={!productId} className={`${primaryClass} flex-1`}>تأكيد السلسلة</button><button type="button" onClick={() => setAdding(false)} className={secondaryClass}>إلغاء</button></div>
       </form>
     </Modal>}
-    <section className="mt-6 rounded-2xl border border-white/10 bg-card p-5">
-      <h2 className="mb-4 text-sm text-neutral-200">آخر 20 فاتورة شراء</h2>
-      {!history.length ? <p className="text-sm text-neutral-500">لا توجد فواتير بعد.</p> : <div className="overflow-x-auto"><table className="w-full text-right text-sm">
-        <thead className="text-neutral-500"><tr><th className="p-2">المورد</th><th className="p-2">وصف المنتج</th><th className="p-2">التاريخ</th><th className="p-2">الإجمالي</th></tr></thead>
-        <tbody>{history.map(row => <tr key={row.id} className="border-t border-white/5 text-neutral-300"><td className="p-2">{row.supplier_name}</td><td className="max-w-sm whitespace-pre-wrap p-2 text-xs text-neutral-400">{row.description || '—'}</td><td className="whitespace-nowrap p-2">{new Date(row.created_at).toLocaleString('ar-DZ')}</td><td className="whitespace-nowrap p-2 text-gold">{formatDzd(row.total_amount)}</td></tr>)}</tbody>
-      </table></div>}
-    </section>
+    <PurchaseHistory history={history} />
   </>
 }

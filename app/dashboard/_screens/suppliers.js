@@ -92,7 +92,10 @@ export default function SuppliersPage() {
           <p className="mb-2 text-sm text-neutral-400">الهاتف: <span dir="ltr">{supplier.phone || '—'}</span></p>
           <p className="mb-3 whitespace-pre-wrap text-sm text-neutral-400">السلع الموردة: {supplier.supplied_goods || '—'}</p>
           <p className="mb-4 text-gold">الدين المتبقي: {formatDzd(supplier.total_debt)}</p>
-          <button disabled={Number(supplier.total_debt || 0) <= 0} onClick={() => openPayment(supplier)} className={secondaryClass}>تسجيل دفعة</button>
+          <div className="flex flex-wrap gap-2">
+            <a href={`/dashboard/stock?tab=purchases&supplierId=${encodeURIComponent(supplier.id)}`} className={secondaryClass}>عرض مشتريات المورد</a>
+            <button disabled={Number(supplier.total_debt || 0) <= 0} onClick={() => openPayment(supplier)} className={secondaryClass}>تسجيل دفعة</button>
+          </div>
         </article>)}</div>}
       <button onClick={() => { setError(''); load() }} className={`${secondaryClass} mt-4`}>تحديث</button>
     </>}
