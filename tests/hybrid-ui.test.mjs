@@ -103,8 +103,10 @@ test('printing real screen switches model/variant/both using CustomSelect and ne
 async function fillProduct() {
  fireEvent.click(screen.getByRole('button',{name:'إضافة منتج'}))
  const form=document.querySelector('form')
- fireEvent.change(form.querySelector('input[type="file"]'),{target:{files:[new window.File(['img'],'image.jpg',{type:'image/jpeg'})]}})
+ fireEvent.change(screen.getByLabelText('اختيار صورة من الجهاز'),{target:{files:[new window.File(['img'],'image.jpg',{type:'image/jpeg'})]}})
  fireEvent.change(screen.getByLabelText('كمية أبيض مقاس S'),{target:{value:'2'}})
+ fireEvent.click(screen.getByRole('button',{name:/^التفاصيل المتقدمة/}))
+ fireEvent.click(screen.getByRole('button',{name:/^الباركود/}))
  fireEvent.change(screen.getByLabelText('باركود الموديل العام · اختياري'),{target:{value:'MODELNEW'}})
  fireEvent.change(screen.getByLabelText('باركود أبيض S'),{target:{value:'0012345678'}})
  return form
@@ -115,6 +117,7 @@ test('product screen submits one atomic RPC with model and per-cell variant barc
  await waitFor(()=>assert.equal(state.rpcCalls.filter(c=>c.name==='engine_create_product_atomic').length,1))
  const call=state.rpcCalls.find(c=>c.name==='engine_create_product_atomic')
  assert.equal(call.args.p_tenant,'A');assert.equal(call.args.p_store,'branch')
+ assert.ok(call.args.p_product.name.trim());assert.equal(call.args.p_product.base_price,0)
  assert.equal(call.args.p_model_barcodes[0].barcode,'MODELNEW')
  assert.equal(call.args.p_variants[0].barcodes[0].barcode,'0012345678')
  assert.equal(call.args.p_variants[0].quantity,2)
@@ -201,7 +204,7 @@ test('Phase3 product submits structured composite ONE_SIZE through existing atom
  fireEvent.click(screen.getByRole('button',{name:'إضافة لون'}))
  fireEvent.change(screen.getByLabelText('كمية أبيض / أسود مقاس مقاس موحد'),{target:{value:'3'}})
  const form=document.querySelector('form')
- fireEvent.change(form.querySelector('input[type="file"]'),{target:{files:[new window.File(['img'],'bag.jpg',{type:'image/jpeg'})]}})
+ fireEvent.change(screen.getByLabelText('اختيار صورة من الجهاز'),{target:{files:[new window.File(['img'],'bag.jpg',{type:'image/jpeg'})]}})
  fireEvent.submit(form)
  await waitFor(()=>assert.equal(state.rpcCalls.filter(c=>c.name==='engine_create_product_atomic').length,1))
  const variants=state.rpcCalls.find(c=>c.name==='engine_create_product_atomic').args.p_variants
