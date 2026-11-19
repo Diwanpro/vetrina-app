@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import LookSheet from './LookSheet'
 import useStoreLooks from './useStoreLooks'
+import useStoreContent from './useStoreContent'
+import { StoreBanners, EditorialSections } from './StoreEditorialContent'
 import { supabase } from '@/lib/supabase'
 import {
   normalizeProducts, categoriesOf, priceCart, cartCount, cartTotal, formatMoney,
@@ -240,7 +242,7 @@ export default function Storefront({ slug }) {
   // One selected tab: 'all', 'offers', 'looks', or a category name. A single
   // value instead of two flags, because the three are mutually exclusive and
   // two booleans let the screen land in states that cannot be drawn.
-  const [tab, setTab] = useState('all')
+  const [selectedTab, setTab] = useState('all')
   const [activeLook, setActiveLook] = useState(null)
   // The look that priced the current cart, or null. Cleared as soon as the cart
   // stops being exactly that outfit, so a half-removed look is not charged the
@@ -296,6 +298,11 @@ export default function Storefront({ slug }) {
   // A look tab with nothing behind it is worse than no tab at all.
   const showLooks = looks.length > 0
 
+  const { banners, sections, dropImage } = useStoreContent(slug, store)
+  const hasEditorial = sections.length > 0
+  // Editorial destinations are links, not category names. If content arrives
+  // while a product category is selected, keep the visible rail and grid in sync.
+  const tab = hasEditorial && !['all', 'offers', 'looks'].includes(selectedTab) ? 'all' : selectedTab
   const categories = useMemo(() => categoriesOf(products), [products])
   const discounted = useMemo(() => offersOf(products), [products])
   // The grid for the selected tab. 'looks' is not a grid at all, so it is
@@ -420,7 +427,8 @@ export default function Storefront({ slug }) {
         </main>
       ) : (
         <main className="mx-auto w-full max-w-7xl px-3 sm:px-6">
-          <StoreHero store={store} />
+          {banners.length ? <StoreBanners items={banners} onImageError={dropImage} /> : <StoreHero store={store} />}
+          {hasEditorial && <EditorialSections items={sections} onImageError={dropImage} />}
 
           {/* One rail for everything: the two merchandising tabs, then the
               categories. Only tabs with something behind them are drawn, so a
@@ -428,7 +436,7 @@ export default function Storefront({ slug }) {
           <StoreTabs
             tab={tab}
             onTab={setTab}
-            categories={categories}
+            categories={hasEditorial ? [] : categories}
             offerCount={discounted.length}
             lookCount={looks.length}
             loadingLooks={looksLoading}
