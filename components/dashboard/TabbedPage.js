@@ -1,8 +1,9 @@
 'use client'
 
-import { Suspense, useCallback, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import DashboardShell from '@/components/dashboard/DashboardShell'
+import { Notice } from '@/components/dashboard/EngineUI'
 import { useDashboardSession } from '@/components/dashboard/SessionProvider'
 import { routeAllowed } from '@/lib/access'
 
@@ -37,17 +38,54 @@ function TabbedContent({ tabs, group, initialTab }) {
   const allowed = tabs.filter(tab => !ctx || routeAllowed(ctx.role, tab.href))
   const tab = allowed.find(entry => entry.key === requested) || allowed.find(entry => entry.key === initialTab) || allowed[0]
 
+  const query = searchParams.toString()
+  const href = `${pathname}?${query}`
+  const actual = tab?.key
+  const rejected = ctx && tab && requested !== null && requested !== actual
+  const message = !rejected ? '' : tabs.some(entry => entry.key === requested)
+    ? `لا تملك صلاحية الوصول إلى هذا التبويب. تم فتح تبويب ${tab.label}`
+    : 'التبويب المطلوب غير موجود'
+  const [notice, setNotice] = useState(null)
+  const handled = useRef(null)
+
+  useEffect(() => {
+    if (!message) {
+      handled.current = null
+      // Keep feedback on its corrected URL, not on subsequent valid visits.
+      setNotice(previous => previous?.href === href ? previous : null)
+      return
+    }
+    if (handled.current === href) return
+    const next = new URLSearchParams(query)
+    next.set('tab', actual)
+    const target = `${pathname}?${next}`
+    setNotice(previous => previous?.href === target && previous.message === message
+      ? previous : { href: target, message })
+    // The notice is committed before navigating; discard superseded attempts
+    // (including Strict Mode effect replays) and only replace once per visit.
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      handled.current = href
+      router.replace(target + window.location.hash, { scroll: false })
+    })
+    return () => { cancelled = true }
+  }, [href, query, pathname, actual, message, router])
+
   const change = useCallback((key) => {
-    const next = new URLSearchParams(searchParams.toString())
+    setNotice(null)
+    const next = new URLSearchParams(query)
     if (group === '/dashboard/stock' && key !== 'purchases') next.delete('supplierId')
     next.set('tab', key)
     router.replace(`${pathname}?${next.toString()}`, { scroll: false })
-  }, [group, pathname, router, searchParams])
+  }, [group, pathname, router, query])
 
   if (!tab) return <DashboardShell active={group}><p className="text-sm text-neutral-400">لا توجد أقسام متاحة لحسابك.</p></DashboardShell>
 
   const Component = tab.component
+  const visibleMessage = message || (notice?.href === href ? notice.message : '')
   return <DashboardShell active={group} tabHref={tab.href}>
+    {visibleMessage && <Notice error={visibleMessage} />}
     <TabStrip tabs={allowed} value={tab.key} onChange={change} />
     {/* Keyed so switching tabs remounts and refetches, never showing stale rows. */}
     <div key={tab.key} role="tabpanel"><Component /></div>
