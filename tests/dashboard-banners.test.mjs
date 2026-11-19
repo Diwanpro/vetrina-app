@@ -1,75 +1,8 @@
-// The real page, editor, PostgREST and Storage clients. Only HTTP, session and shell are fixtures.
-import test, { afterEach } from 'node:test'
+// Banner regression suite: real UI and authenticated client, isolated HTTP.
+import test from 'node:test'
 import assert from 'node:assert/strict'
-import path from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { build } from 'esbuild'
-import { createClient } from '@supabase/supabase-js'
-import { JSDOM } from 'jsdom'
-
-const route = '/dashboard/settings/banners'
-const dom = new JSDOM('<html dir="rtl"><body></body></html>', { url: `https://local.test${route}?storeId=untrusted`, pretendToBeVisual: true })
-for (const k of ['window', 'document', 'HTMLElement', 'Node', 'Event', 'MutationObserver']) globalThis[k] = dom.window[k]
-Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator })
-globalThis.IS_REACT_ACT_ENVIRONMENT = true
-const { createElement } = await import('react')
-const { act, render, screen, within, waitFor, fireEvent, cleanup } = await import('@testing-library/react')
-const stubs = {
-  '@/components/dashboard/DashboardShell': 'export default ({children})=>children',
-  '@/components/dashboard/SessionProvider': 'export const useDashboardSession=()=>globalThis.bannerFixture.ctx',
-  '@/lib/supabase': 'export const supabase={from:(...args)=>globalThis.bannerFixture.client.from(...args),get storage(){return globalThis.bannerFixture.client.storage}}',
-}
-const outfile = path.resolve('.cache/dashboard-banners/page.mjs')
-await build({ stdin: { contents: `export {default as Page} from './app/dashboard/settings/banners/page'; export {routeAllowed} from './lib/access'`, resolveDir: process.cwd() },
-  outfile, bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', loader: { '.js': 'jsx' }, external: ['react', 'react/*', 'react-dom', 'react-dom/*'],
-  plugins: [{ name: 'page-fixture', setup(b) {
-    b.onResolve({ filter: /^@\// }, ({ path }) => Object.hasOwn(stubs, path) ? { path, namespace: 'stub' } : undefined)
-    b.onLoad({ filter: /.*/, namespace: 'stub' }, ({ path }) => ({ contents: stubs[path] }))
-  } }],
-})
-const { Page, routeAllowed } = await import(pathToFileURL(outfile))
-const id = n => `00000000-0000-4000-b000-${String(n).padStart(12, '0')}`
-const tenant = id(1), branch = id(2), sibling = id(3), foreign = id(4)
-const dir = `${tenant}/${branch}/`, table = '/rest/v1/storefront_banners', bucket = '/storage/v1/object/storefront-assets', sign = '/storage/v1/object/sign/storefront-assets'
-const stores = [{ id: branch, name: 'فرع بسكرة' }, { id: sibling, name: 'الفرع الثاني' }]
-const row = (n, overrides = {}) => ({ id: id(n), tenant_id: tenant, store_id: branch, title: `بانر ${n}`, image_url: `${dir}${n}.png`, link_url: null, sort_order: n, status: 'draft', ...overrides })
-const seeds = () => [row(11), row(10, { status: 'published' }), row(12, { store_id: sibling, image_url: `${tenant}/${sibling}/12.png` }), row(13, { tenant_id: foreign })]
-const errorReply = (status, code) => Response.json({ code, message: 'fixture error' }, { status })
-function deferred() { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
-function mount({ role = 'manager', ctx = {}, banners = seeds(), intercept } = {}) {
-  const f = { calls: [], unexpected: [], ctx: { role, user: { id: id(8) }, tenantId: tenant, storeId: branch, assignedStoreId: branch, stores, ...ctx } }
-  let gen = 0
-  f.client = createClient('https://fixture.test', 'local-only', { accessToken: async () => 'fixture', global: { fetch: async (input, init) => {
-    const { pathname, searchParams: params } = new URL(input), method = init.method
-    const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body
-    const c = { method, pathname, params, body, headers: new Headers(init.headers) }; f.calls.push(c)
-    const reply = await intercept?.(c); if (reply) return reply
-    if (pathname === table) {
-      const matching = banners.filter(r => ['tenant_id', 'store_id', 'id'].every(k => !params.has(k) || params.get(k) === `eq.${r[k]}`))
-      if (method === 'GET') {
-        const start = Number(params.get('offset') || 0)
-        return Response.json(matching.sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id)).slice(start, start + Number(params.get('limit') || 1000)))
-      }
-      if (method === 'POST') { const id = crypto.randomUUID(); banners.push({ ...body, id }); return Response.json([{ id }], { status: 201 }) }
-      if (method === 'PATCH') { for (const r of matching) Object.assign(r, body); return Response.json(matching.map(({ id }) => ({ id }))) }
-    }
-    if (pathname === sign && method === 'POST') {
-      gen++; return Response.json(body.paths.map(key => ({ path: key, error: null, signedURL: `/object/sign/storefront-assets/${key}?token=fixture-${gen}` })))
-    }
-    if (pathname.startsWith(bucket + '/') && method === 'POST') return Response.json({ Id: id(99), Key: pathname })
-    if (pathname === bucket && method === 'DELETE') return Response.json([])
-    f.unexpected.push(`${method} ${pathname}`); return errorReply(400, 'unexpected')
-  } } })
-  globalThis.bannerFixture = f
-  const view = render(createElement(Page))
-  f.switchContext = patch => { f.ctx = { ...f.ctx, ...patch }; view.rerender(createElement(Page)) }
-  f.reads = () => f.calls.filter(c => c.pathname === table && c.method === 'GET')
-  f.writes = () => f.calls.filter(c => c.pathname === table && c.method !== 'GET')
-  f.uploads = () => f.calls.filter(c => c.pathname.startsWith(bucket + '/'))
-  f.signs = () => f.calls.filter(c => c.pathname === sign)
-  return f
-}
-afterEach(() => { cleanup(); assert.deepEqual(globalThis.bannerFixture?.unexpected || [], []); delete globalThis.bannerFixture })
+import { dashboardContentFixture, act, screen, within, fireEvent, waitFor, id, tenant, branch, sibling, dir, bucket, sign, deferred, errorReply } from './fixtures/dashboard-content-ui.mjs'
+const { route, table, row, mount, routeAllowed } = await dashboardContentFixture('banners', 'storefront_banners', 'بانر')
 const btn = name => screen.getByRole('button', { name })
 const openNew = () => fireEvent.click(btn('إضافة بانر جديد'))
 const editFirst = async () => fireEvent.click(await screen.findByRole('button', { name: 'تعديل بانر بانر 10' }))
@@ -101,7 +34,7 @@ for (const [name, role, ctx] of [['employee', 'employee', {}], ['visitor', 'gues
 }
 
 test('new banner: upload on save only, generated branch key, persisted draft and no signed/public URL in row', async () => {
-  const f = mount({ banners: [] }); await screen.findByText('لا توجد بانرات لهذا الفرع بعد.'); openNew()
+  const f = mount({ rows: [] }); await screen.findByText('لا توجد بانرات لهذا الفرع بعد.'); openNew()
   assert.ok(screen.getByRole('radio', { name: 'مسودة' }).checked)
   change('عنوان البانر', ' عرض جديد '); change('الترتيب', '3'); upload(image())
   assert.ok(screen.getByAltText('معاينة صورة البانر').src.startsWith('blob:')); assert.equal(f.uploads().length, 0); save()
@@ -151,7 +84,7 @@ test('a definite DB rejection cleans up only the newly uploaded key; zero matche
   empty = true; save(); await screen.findByText(/لم يعد البانر متاحاً/); assert.ok(!screen.queryByText('تم تحديث البانر.'))
 })
 test('unconfirmed insert blocks repeat submit, retains the potentially committed object, and refreshes on close', async () => {
-  const gate = deferred(), f = mount({ banners: [], intercept: c => c.pathname === table && c.method === 'POST' && gate.promise })
+  const gate = deferred(), f = mount({ rows: [], intercept: c => c.pathname === table && c.method === 'POST' && gate.promise })
   await screen.findByText(/لا توجد بانرات لهذا الفرع/); openNew(); change('عنوان البانر', 'جديد'); upload(image()); save()
   assert.ok(btn('جاري الحفظ…').disabled); fireEvent.keyDown(window, { key: 'Escape' }); screen.getByRole('dialog')
   await act(async () => gate.resolve(errorReply(503, 'unconfirmed'))); await screen.findByText(/تعذر تأكيد الحفظ/); assert.ok(btn('حفظ البانر').disabled)
@@ -163,11 +96,11 @@ test('changing branch during an upload unmounts the draft and does not issue a s
   await act(async () => gate.resolve(Response.json({ Id: id(99), Key: 'fixture' }))); assert.equal(f.writes().length, 0); assert.ok(!screen.queryByText('بانر 10')); assert.equal(f.reads().at(-1).params.get('store_id'), `eq.${sibling}`)
 })
 test('never signs an external URL or foreign branch key; missing previews do not prevent editing metadata', async () => {
-  const f = mount({ banners: [row(10, { image_url: 'https://example.test/photo.jpg' }), row(11, { image_url: `${tenant}/${sibling}/wrong.png` }), row(12)], intercept: c => c.pathname === sign && errorReply(403, 'denied') })
+  const f = mount({ rows: [row(10, { image_url: 'https://example.test/photo.jpg' }), row(11, { image_url: `${tenant}/${sibling}/wrong.png` }), row(12)], intercept: c => c.pathname === sign && errorReply(403, 'denied') })
   await screen.findByText('بانر 10'); await waitFor(() => assert.deepEqual(paths(f), [`${dir}12.png`])); assert.ok(!screen.queryByRole('img')); fireEvent.click(btn('تعديل بانر بانر 12')); change('عنوان البانر', 'عنوان'); save(); await screen.findByText('تم تحديث البانر.')
 })
 test('scoped pagination signs only visible rows, not the lookahead row', async () => {
-  const f = mount({ banners: Array.from({ length: 21 }, (_, i) => row(100 + i)) }); await screen.findByAltText('صورة بانر 100'); assert.equal(f.signs()[0].body.paths.length, 20); assert.ok(!screen.queryByText('بانر 120'))
+  const f = mount({ rows: Array.from({ length: 21 }, (_, i) => row(100 + i)) }); await screen.findByAltText('صورة بانر 100'); assert.equal(f.signs()[0].body.paths.length, 20); assert.ok(!screen.queryByText('بانر 120'))
   fireEvent.click(btn('التالي')); await screen.findByAltText('صورة بانر 120'); assert.deepEqual(f.signs()[1].body.paths, [`${dir}120.png`]); assert.ok(btn('التالي').disabled)
   f.reads().forEach(scope); assert.equal(f.reads()[1].params.get('offset'), '20'); fireEvent.click(btn('السابق')); await screen.findByText('بانر 100')
 })
