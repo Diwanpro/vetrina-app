@@ -33,10 +33,10 @@ test('grouped routes and nested routes resolve to their own gold navigation item
  const activeGroup=new Function(`${logic};return activeGroup`)()
  for (const path of ['stock','operations','management','customers-credit','pos','settings','orders']) assert.equal(activeGroup(`/dashboard/${path}`),`/dashboard/${path}`)
  assert.equal(activeGroup('/dashboard/products/barcodes'),'/dashboard/stock')
- for (const file of ['Sidebar','BottomNav']) {
-  const source=await read(`components/dashboard/${file}.js`)
-  assert.match(source,/usePathname/); assert.match(source,/activeGroup\(pathname \|\| active\)/)
- }
+ // The shell supplies the same resolved destination to both surfaces; rendered
+ // highlights (including tab changes and role fallbacks) are in mobile-nav.
+ const shell=await read('components/dashboard/DashboardShell.js')
+ assert.match(shell,/usePathname/); assert.match(shell,/activeGroup\(tabHref \|\| pathname \|\| active\)/)
 })
 test('product form begins type then category then searchable CustomSelect brand and persists it', async () => {
  const source=await read('app/dashboard/_screens/products.js')

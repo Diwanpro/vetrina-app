@@ -9,9 +9,11 @@ const loadNav = async () => {
   const source = (await read('../components/dashboard/navItems.js'))
     .replace(/^import \{[\s\S]*?\} from '\.\/icons'\n/, '')
     .replace(/icon: Icon\w+/g, "icon: 'x'")
+    .replace("'@/lib/access'", JSON.stringify(new URL('../lib/access.js', import.meta.url).href))
   return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 }
-const nav = await read('../components/dashboard/navItems.js')
+const { NAV_ITEMS, activeGroup, isNavItemActive } = await loadNav()
+const links = NAV_ITEMS.flatMap(item => item.children || [item])
 const sql = await read('../supabase/migrations/202611100026_close_shift_expenses.sql')
 // Static import: a dynamic `await import` inside a non-async arrow in the test
 // body below is a syntax error, so load it once up here.
@@ -24,19 +26,17 @@ const fn = (source, name) => {
   return body.slice(0, body.indexOf('$$;'))
 }
 
-test('the sidebar holds exactly the nine grouped destinations', async () => {
-  const entries = [...nav.matchAll(/\{ href: '([^']+)', label: '([^']+)'/g)].map(m => [m[1], m[2]])
-  assert.equal(entries.length, 9)
-  assert.deepEqual(entries.map(e => e[1]), [
+test('the sidebar keeps its other destinations and groups only the three procurement links', () => {
+  assert.deepEqual(NAV_ITEMS.map(item => item.label), [
     'لوحة التحكم', 'نقطة البيع', 'الطلبات', 'العمليات اليومية', 'الزبائن والكريدي',
-    'المخزون والموردون', 'رحلات الشراء', 'الإدارة والمحاسبة', 'الإعدادات',
+    'المخزون', 'نقل المخزون', 'التوريد والمشتريات', 'الإدارة والمحاسبة', 'الإعدادات',
   ])
-  // Orders is the only entry with a live counter.
-  assert.equal((nav.match(/badge: 'orders'/g) || []).length, 1)
+  assert.deepEqual(NAV_ITEMS.filter(item => item.children).map(item => item.children.map(child => child.label)),
+    [['الموردون', 'المشتريات', 'رحلات الشراء']])
+  assert.deepEqual(links.filter(item => item.badge).map(item => item.href), ['/dashboard/orders'])
 })
 
-test('every legacy route still resolves to a sidebar entry', async () => {
-  const { activeGroup } = await loadNav()
+test('every legacy route still resolves to exactly one sidebar link', () => {
   const cases = {
     '/dashboard/sales': '/dashboard/operations',
     '/dashboard/collections': '/dashboard/operations',
@@ -45,18 +45,17 @@ test('every legacy route still resolves to a sidebar entry', async () => {
     '/dashboard/customers': '/dashboard/customers-credit',
     '/dashboard/products': '/dashboard/stock',
     '/dashboard/inventory': '/dashboard/stock',
-    '/dashboard/transfers': '/dashboard/stock',
-    '/dashboard/suppliers': '/dashboard/stock',
-    '/dashboard/purchases': '/dashboard/stock',
+    '/dashboard/transfers': '/dashboard/transfers',
+    '/dashboard/suppliers': '/dashboard/suppliers',
+    '/dashboard/purchases': '/dashboard/purchases',
     '/dashboard/accounting': '/dashboard/management',
     '/dashboard/users': '/dashboard/management',
     '/dashboard/pos': '/dashboard/pos',
     '/dashboard/settings': '/dashboard/settings',
   }
-  const hrefs = new Set([...nav.matchAll(/href: '([^']+)'/g)].map(m => m[1]))
   for (const [route, group] of Object.entries(cases)) {
     assert.equal(activeGroup(route), group, `${route} -> ${group}`)
-    assert.ok(hrefs.has(group), `${group} must exist in the sidebar`)
+    assert.equal(links.filter(item => isNavItemActive(item, group)).length, 1, `one active destination for ${route}`)
   }
 })
 
