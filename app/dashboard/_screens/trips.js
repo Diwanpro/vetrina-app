@@ -5,6 +5,8 @@ import { Notice, fieldClass, primaryClass, secondaryClass } from '@/components/d
 import CustomSelect from '@/components/ui/CustomSelect'
 import { supabase } from '@/lib/supabase'
 import { formatDzd, getAppContext } from '@/lib/app-context'
+import TripPurchaseInvoice from '@/components/dashboard/TripPurchaseInvoice'
+import { routeAllowed } from '@/lib/access'
 import { tripTotals } from '@/lib/trips'
 
 // A journey to the supplier. The goods cost what they cost; getting there costs
@@ -29,6 +31,8 @@ export default function TripsPage() {
   const [products, setProducts] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [trips, setTrips] = useState([])
+  const [invoiceId, setInvoiceId] = useState(null)
+  const canViewInvoice = ctx?.storeId && ctx.tenantId && routeAllowed(ctx.role, '/dashboard/purchases')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -66,8 +70,8 @@ export default function TripsPage() {
       if (context.storeId) {
         const { data: tripRows, error: tErr } = await supabase
           .from('shopping_trips')
-          .select('id, trip_date, supplier_name, goods_cost, trip_expenses, total_units, cost_per_unit, created_at, shopping_trip_expenses(label, amount)')
-          .eq('store_id', context.storeId).order('trip_date', { ascending: false }).limit(20)
+          .select('id, purchase_id, trip_date, supplier_name, goods_cost, trip_expenses, total_units, cost_per_unit, created_at, shopping_trip_expenses(label, amount)')
+          .eq('store_id', context.storeId).eq('tenant_id', context.tenantId).order('trip_date', { ascending: false }).limit(20)
         if (tErr) throw tErr
         setTrips(tripRows || [])
       }
@@ -338,6 +342,7 @@ export default function TripsPage() {
                   <th className="p-2 text-right font-normal">البضاعة</th>
                   <th className="p-2 text-right font-normal">مصاريف الرحلة</th>
                   <th className="p-2 text-right font-normal">نصيب القطعة</th>
+                  {canViewInvoice && <th className="p-2 text-right font-normal">الفاتورة</th>}
                 </tr>
               </thead>
               <tbody>
@@ -348,6 +353,9 @@ export default function TripsPage() {
                     <td className="p-2 tabular-nums text-neutral-300">{formatDzd(trip.goods_cost)}</td>
                     <td className="p-2 tabular-nums text-neutral-300">{formatDzd(trip.trip_expenses)}</td>
                     <td className="p-2 tabular-nums text-gold">{formatDzd(trip.cost_per_unit)}</td>
+                    {canViewInvoice && <td className="p-2">{trip.purchase_id
+                      ? <button type="button" className={`${secondaryClass} whitespace-nowrap`} onClick={() => setInvoiceId(trip.purchase_id)}>عرض فاتورة الرحلة</button>
+                      : <span className="text-xs text-neutral-400">لا توجد فاتورة مرتبطة بهذه الرحلة.</span>}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -355,6 +363,8 @@ export default function TripsPage() {
           </div>
         )}
       </section>
+      {canViewInvoice && invoiceId && <TripPurchaseInvoice key={invoiceId} purchaseId={invoiceId}
+        storeId={ctx.storeId} tenantId={ctx.tenantId} variants={variants} onClose={() => setInvoiceId(null)} />}
     </div>
   )
 }
