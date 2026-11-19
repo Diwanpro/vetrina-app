@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { normalizeColorComponents, colorLabel, sizeLabel } from '@/lib/product-attributes'
 import VoiceInput from '@/components/VoiceInput'
 import BarcodeScanner from '@/components/dashboard/BarcodeScanner'
+import BottomSheet from '@/components/dashboard/BottomSheet'
 import { fetchAllRows } from '@/lib/cash'
 import { SIZE_TYPES, sizesForType, emptySizeRow, emptySizeMatrix, filledSizeCells } from '@/lib/product-sizes'
 import { MAIN_CATEGORIES, subcategoriesFor, storeTypeLabel } from '@/lib/categories'
@@ -23,7 +24,14 @@ import { brandsFor, cleanBrand } from '@/lib/brand-catalog'
 import { FABRIC_OPTIONS, STYLE_OPTIONS, generateDescription, generateProductName, smartSpecsFromForm, validateSmartEntry } from '@/lib/product-entry'
 
 const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
-const INITIAL_SECTIONS = { basics: true, variants: true, advanced: false, barcode: false }
+const INITIAL_SECTIONS = { basics: true, advanced: false, barcode: false }
+const VARIANTS_TITLE = 'الألوان والمقاسات والكميات'
+const arabicPlurals = new Intl.PluralRules('ar')
+
+function countLabel(count, singular, dual, plural) {
+  if (count === 2) return dual
+  return `${count} ${arabicPlurals.select(count) === 'few' ? plural : singular}`
+}
 
 function firstImage(product) {
   if (Array.isArray(product.images) && product.images.length) return product.images[0]
@@ -67,6 +75,8 @@ export default function ProductsPage() {
   const [open, setOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
   const cameraInput = useRef(null)
+  const photoCard = useRef(null)
+  const [photoError, setPhotoError] = useState('')
   const [generating, setGenerating] = useState(false)
   const barcodeTask = useRef(0)
   const productSaving = useRef(false)
@@ -102,6 +112,17 @@ export default function ProductsPage() {
   const [colorMetadata, setColorMetadata] = useState({})
   const [customSubs, setCustomSubs] = useState({})
   const [sections, setSections] = useState(INITIAL_SECTIONS)
+  const [variantsOpen, setVariantsOpen] = useState(false)
+  const [variantsError, setVariantsError] = useState('')
+  const variantsTrigger = useRef(null)
+
+  // On dismissal the form is no longer inert. Return keyboard focus to the
+  // summary without delaying it until after the user's next interaction.
+  useEffect(() => {
+    if (!variantsOpen) return
+    const trigger = variantsTrigger.current
+    return () => trigger?.focus()
+  }, [variantsOpen])
 
   function openVideoEditor(product) {
     setVideoTarget(product)
@@ -227,8 +248,7 @@ export default function ProductsPage() {
     setSections(previous => ({ ...previous, [key]: !previous[key] }))
   }
   function revealSection(key) {
-    // Save reports both photo and video errors as 'media'. The photo is now
-    // always visible; only an invalid video needs the advanced panel opened.
+    // The photo is always visible; only an invalid video is inside Advanced.
     if (key === 'media') {
       if ((!form.imageFile && !form.imagePreview) || !form.external_video_url.trim() || safeVideoUrl(form.external_video_url)) return
       key = 'advanced'
@@ -237,10 +257,18 @@ export default function ProductsPage() {
       ? { ...previous, advanced: true, barcode: true }
       : { ...previous, [key]: true })
   }
+  function openVariants(message = '') {
+    setVariantsError(message)
+    setVariantsOpen(true)
+  }
+  function closeVariants() {
+    setVariantsOpen(false)
+  }
   function openProductForm() {
-    setOpen(true); setError('')
+    setOpen(true); setError(''); setPhotoError('')
     setSaveUncertain(false)
     setSections(INITIAL_SECTIONS)
+    setVariantsOpen(false)
   }
   function closeProductForm() {
     if (saving) return
@@ -248,10 +276,20 @@ export default function ProductsPage() {
   }
 
   const colorRows = Object.keys(matrix)
-  const filledCellCount = Object.values(matrix).reduce(
-    (sum, row) => sum + Object.values(row).filter(qty => Number(qty) > 0).length,
-    0,
-  )
+  const variantSummary = useMemo(() => {
+    // Summarise only usable cells of the active size type. An unfinished or
+    // invalid cell must neither inflate the totals nor hide other valid cells.
+    let combinations = 0, units = 0, invalid = false
+    for (const row of Object.values(matrix)) {
+      for (const size of sizes) {
+        const qty = Number(row[size] ?? '')
+        if (!Number.isSafeInteger(qty) || qty < 0) invalid = true
+        else if (qty > 0) { combinations += 1; units += qty }
+      }
+    }
+    const totals = `${countLabel(combinations, 'تركيبة', 'تركيبتان', 'تركيبات')} · ${countLabel(units, 'قطعة', 'قطعتان', 'قطع')}`
+    return invalid ? `${totals} · راجع الكميات المدخلة` : totals
+  }, [matrix, sizes])
 
   function changeSizeType(type) {
     if (type === sizeType) return
@@ -261,7 +299,7 @@ export default function ProductsPage() {
     // Reset all quantities, including overlapping numeric sizes, so shoe stock
     // can never silently become pants stock (or vice versa).
     setMatrix(prev => emptySizeMatrix(Object.keys(prev), sizesForType(type)))
-    setError('')
+    setVariantsError('')
   }
 
   function addCustomColor() {
@@ -272,8 +310,8 @@ export default function ProductsPage() {
       if (Object.hasOwn(matrix, color)) throw new Error('هذا اللون موجود مسبقاً')
       setColorMetadata(prev => ({ ...prev, [color]: parts }))
       setMatrix(prev => ({ ...prev, [color]: emptySizeRow(sizes) }))
-      setNewColor(''); setComponents([]); setError('')
-    } catch (err) { setError(err.message) }
+      setNewColor(''); setComponents([]); setVariantsError('')
+    } catch (err) { setVariantsError(err.message) }
   }
 
   async function handleSave(e) {
@@ -283,14 +321,20 @@ export default function ProductsPage() {
     let filledCells, payload
     try {
       filledCells = filledSizeCells(matrix, sizes).map(cell => ({ ...cell, color_components: colorMetadata[cell.color] || [cell.color] }))
-    } catch (err) { setError(err.message); revealSection('variants'); return }
+    } catch (err) { openVariants(err.message); return }
     try {
       payload = productBarcodePayload(filledCells, form.barcode, variantBarcodes)
     } catch (err) { setError(err.message); revealSection('barcode'); return }
     const validation = validateSmartEntry({ ...form, cells: filledCells })
     // Same first check the validator performs: no image at all. Anything else
     // it reports comes from the colour/size/quantity cells.
-    if (validation) { setError(validation); revealSection(!form.imageFile && !form.imagePreview ? 'media' : 'variants'); return }
+    if (validation) {
+      if (!form.imageFile && !form.imagePreview) {
+        setPhotoError(validation)
+        photoCard.current?.focus()
+      } else openVariants(validation)
+      return
+    }
     const specs = smartSpecsFromForm(form, filledCells, ctx)
     const productName = form.name.trim() || [cleanBrand(form.brand), generateProductName(specs)].filter(Boolean).join(' · ')
     const videoUrl = form.external_video_url.trim() ? safeVideoUrl(form.external_video_url) : ''
@@ -485,7 +529,11 @@ export default function ProductsPage() {
       )}
 
       {open && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-end md:items-center justify-center p-0 md:p-4">
+        <div
+          inert={variantsOpen}
+          aria-hidden={variantsOpen || undefined}
+          className="fixed inset-0 z-50 bg-black/70 flex items-end md:items-center justify-center p-0 md:p-4"
+        >
           <form
             onSubmit={handleSave}
             onInvalid={event => {
@@ -501,7 +549,8 @@ export default function ProductsPage() {
               </button>
             </div>
 
-            <fieldset className="mb-3 min-w-0 rounded-xl border border-gold/40 bg-gold/5 p-3">
+            <fieldset ref={photoCard} tabIndex={-1} aria-describedby={photoError ? 'product-photo-error' : undefined}
+              className="mb-3 min-w-0 rounded-xl border border-gold/40 bg-gold/5 p-3 focus-visible:outline-gold">
               <legend className="px-1 text-base font-medium text-neutral-100">صورة المنتج <span className="text-xs text-gold">· إلزامية</span></legend>
               <div className="flex items-center gap-3">
                 <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gold/30 bg-[#141414] text-gold">
@@ -519,16 +568,21 @@ export default function ProductsPage() {
                 <button type="button" onClick={() => cameraInput.current?.click()} className="min-h-11 rounded-lg bg-gold px-3 py-2 text-sm font-medium text-[#121212]">التقاط صورة</button>
                 <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
                   const file = e.target.files?.[0]
-                  if (file) setForm(prev => ({ ...prev, imageFile: file, imagePreview: URL.createObjectURL(file) }))
+                  if (file) {
+                    setForm(prev => ({ ...prev, imageFile: file, imagePreview: URL.createObjectURL(file) }))
+                    setPhotoError('')
+                  }
                 }} />
                 <label className="relative flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-gold/40 px-2 py-2 text-center text-sm text-neutral-100 focus-within:ring-2 focus-within:ring-gold">
                   اختيار صورة من الجهاز
                   <input type="file" accept="image/*" className="sr-only" onChange={e => {
                     const file = e.target.files?.[0] || null
                     setForm({ ...form, imageFile: file, imagePreview: file ? URL.createObjectURL(file) : '' })
+                    if (file) setPhotoError('')
                   }} />
                 </label>
               </div>
+              {photoError && <p id="product-photo-error" role="alert" className="mt-2 text-xs text-red-300">{photoError}</p>}
             </fieldset>
 
             <div className="space-y-3">
@@ -571,84 +625,23 @@ export default function ProductsPage() {
                 </div>
               </ProductSection>
 
-              <ProductSection id="variants" title="الألوان والمقاسات والكميات" open={sections.variants} onToggle={() => toggleSection('variants')}
-                summary={`${colorRows.length} لون · ${filledCellCount} خلية بالكمية`}>
-                <div className="space-y-3">
-              <div className="block">
-                <span className="mb-1 block text-xs text-neutral-400">نوع المقاس</span>
-                <CustomSelect
-                  value={sizeType}
-                  disabled={saving}
-                  onChange={e => changeSizeType(e)}
-                  options={SIZE_TYPES.map(option => ({ label: `${option.label} (${option.sizes.map(sizeLabel).join(', ')})`, value: option.value }))}
-                  className={`${selectClass} mt-1`}
-                />
-                <span id="size-type-help" className="mt-1 block text-[11px] text-neutral-500">تغيير نوع المقاس يمسح كميات الجدول. أدخل الكميات بعد اختيار النوع.</span>
-              </div>
-              <div>
-                <p className="mb-1.5 text-xs text-neutral-400">المخزون حسب اللون والمقاس</p>
-                <CustomSelect aria-label="نوع اللون" value={colorMode} options={[{value:'single',label:'لون مفرد'},{value:'composite',label:'لون مركب'}]} onChange={setColorMode} disabled={saving} />
-                {colorMode === 'composite' && <div className="my-2 space-y-2">
-                  <CustomSelect aria-label="مكونات اللون المركب" value="" placeholder="أضف مكوّن لون" disabled={saving} options={[...new Set([...DEFAULT_COLORS, ...Object.keys(matrix), newColor.trim()].filter(Boolean))].filter(c => !components.includes(c) && (colorMetadata[c]?.length || 1) === 1).map(c => ({value:c,label:c}))} onChange={c => { if (components.length < 6) setComponents(prev => [...prev,c]) }} />
-                  <p className="text-xs text-neutral-400">{components.join(' / ') || 'اختر لونين على الأقل — يمكنك كتابة اسم جديد أدناه ثم اختياره'}</p>
-                  {components.map(c => <button type="button" key={c} onClick={() => setComponents(prev => prev.filter(x => x !== c))} className="m-1 rounded border border-neutral-600 p-2 text-xs">إزالة {c}</button>)}
-                </div>}
-                <div className="mb-2 flex gap-2">
-                  <input
-                    value={newColor}
-                    onChange={(e) => setNewColor(e.target.value)}
-                    placeholder="لون جديد"
-                    className="flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                  />
-                  <button
-                    type="button"
-                    onClick={addCustomColor}
-                    className="shrink-0 rounded-lg border border-gold/40 px-3 py-2 text-xs text-gold"
-                  >
-                    إضافة لون
-                  </button>
-                </div>
-                <div className="overflow-x-auto rounded-lg border border-white/10">
-                  <table className="w-full text-center text-xs">
-                    <thead className="bg-[#1f1f1f] text-neutral-400">
-                      <tr>
-                        <th className="p-2">اللون</th>
-                        {sizes.map((s) => (
-                          <th key={s} className="p-2">{sizeLabel(s)}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {colorRows.map((color) => (
-                        <tr key={color} className="border-t border-white/5">
-                          <td className="p-2 text-neutral-300 whitespace-nowrap">{color}</td>
-                          {sizes.map((size) => (
-                            <td key={size} className="p-1">
-                              <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                disabled={saving}
-                                aria-label={`كمية ${color} مقاس ${sizeLabel(size)}`}
-                                value={matrix[color][size] ?? ''}
-                                onChange={(e) =>
-                                  setMatrix((prev) => ({
-                                    ...prev,
-                                    [color]: { ...prev[color], [size]: e.target.value },
-                                  }))
-                                }
-                                className="w-12 rounded border border-neutral-700 bg-[#141414] py-1 text-center outline-none focus:border-gold"
-                              />
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-                </div>
-              </ProductSection>
+              <button
+                ref={variantsTrigger}
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded={variantsOpen}
+                aria-labelledby="product-variants-label"
+                aria-describedby="product-variants-summary"
+                disabled={saving}
+                onClick={() => openVariants()}
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold/5 px-3 py-3 text-start focus-visible:outline-gold disabled:opacity-50"
+              >
+                <span>
+                  <span id="product-variants-label" className="block text-sm font-medium text-gold">{VARIANTS_TITLE}</span>
+                  <span id="product-variants-summary" className="mt-1 block text-xs text-neutral-300">{variantSummary}</span>
+                </span>
+                <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-gold" fill="none" stroke="currentColor" strokeWidth="2"><path d="m14 6-6 6 6 6" /></svg>
+              </button>
 
               <ProductSection id="advanced" title="التفاصيل المتقدمة" open={sections.advanced} onToggle={() => toggleSection('advanced')}
                 summary="التصنيف والوصف والتكلفة والباركود والفيديو">
@@ -771,6 +764,89 @@ export default function ProductsPage() {
             </button>
           </form>
         </div>
+      )}
+      {open && variantsOpen && (
+        <BottomSheet open title={VARIANTS_TITLE} labelledBy="product-variants-title" onClose={closeVariants}>
+          <div className="space-y-3">
+            <p className="text-xs text-neutral-300">أدخل كمية لكل لون ومقاس متوفر، واترك باقي الخانات فارغة.</p>
+            {variantsError && <p role="alert" className="sticky top-0 z-10 rounded-lg bg-red-950 p-2 text-sm text-red-200">{variantsError}</p>}
+            <div className="block">
+              <span className="mb-1 block text-xs text-neutral-400">نوع المقاس</span>
+              <CustomSelect
+                aria-label="نوع المقاس"
+                value={sizeType}
+                disabled={saving}
+                onChange={changeSizeType}
+                options={SIZE_TYPES.map(option => ({ label: `${option.label} (${option.sizes.map(sizeLabel).join(', ')})`, value: option.value }))}
+                className={`${selectClass} mt-1`}
+              />
+              <span id="size-type-help" className="mt-1 block text-[11px] text-neutral-500">تغيير نوع المقاس يمسح كميات الجدول. أدخل الكميات بعد اختيار النوع.</span>
+            </div>
+            <div>
+              <p className="mb-1.5 text-xs text-neutral-400">المخزون حسب اللون والمقاس</p>
+              <CustomSelect aria-label="نوع اللون" value={colorMode} options={[{value:'single',label:'لون مفرد'},{value:'composite',label:'لون مركب'}]} onChange={setColorMode} disabled={saving} />
+              {colorMode === 'composite' && <div className="my-2 space-y-2">
+                <CustomSelect aria-label="مكونات اللون المركب" value="" placeholder="أضف مكوّن لون" disabled={saving} options={[...new Set([...DEFAULT_COLORS, ...Object.keys(matrix), newColor.trim()].filter(Boolean))].filter(c => !components.includes(c) && (colorMetadata[c]?.length || 1) === 1).map(c => ({value:c,label:c}))} onChange={c => { if (components.length < 6) setComponents(prev => [...prev,c]) }} />
+                <p className="text-xs text-neutral-400">{components.join(' / ') || 'اختر لونين على الأقل — يمكنك كتابة اسم جديد أدناه ثم اختياره'}</p>
+                {components.map(c => <button type="button" key={c} onClick={() => setComponents(prev => prev.filter(x => x !== c))} className="m-1 rounded border border-neutral-600 p-2 text-xs">إزالة {c}</button>)}
+              </div>}
+              <div className="mb-2 flex gap-2">
+                <input
+                  value={newColor}
+                  onChange={(e) => setNewColor(e.target.value)}
+                  aria-label="لون جديد"
+                  placeholder="لون جديد"
+                  className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
+                />
+                <button
+                  type="button"
+                  onClick={addCustomColor}
+                  className="shrink-0 rounded-lg border border-gold/40 px-3 py-2 text-xs text-gold"
+                >
+                  إضافة لون
+                </button>
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-white/10">
+                <table className="w-full text-center text-xs">
+                  <thead className="bg-[#1f1f1f] text-neutral-400">
+                    <tr>
+                      <th className="p-2">اللون</th>
+                      {sizes.map((s) => (
+                        <th key={s} className="p-2">{sizeLabel(s)}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {colorRows.map((color) => (
+                      <tr key={color} className="border-t border-white/5">
+                        <td className="p-2 text-neutral-300 whitespace-nowrap">{color}</td>
+                        {sizes.map((size) => (
+                          <td key={size} className="p-1">
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              disabled={saving}
+                              aria-label={`كمية ${color} مقاس ${sizeLabel(size)}`}
+                              value={matrix[color][size] ?? ''}
+                              onChange={(e) => {
+                                const value = e.target.value
+                                setMatrix(prev => ({ ...prev, [color]: { ...prev[color], [size]: value } }))
+                                setVariantsError('')
+                              }}
+                              className="w-12 rounded border border-neutral-700 bg-[#141414] py-1 text-center outline-none focus:border-gold"
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <button type="button" onClick={closeVariants} className="sticky bottom-0 min-h-11 w-full rounded-lg bg-gold px-4 py-2 text-sm font-medium text-[#121212]">تم</button>
+          </div>
+        </BottomSheet>
       )}
       {scanning && <BarcodeScanner confirmLabel="استخدام الباركود" onClose={() => setScanning(false)} onScan={code => {
         validateBarcode(code)
