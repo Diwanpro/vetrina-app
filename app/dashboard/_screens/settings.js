@@ -22,7 +22,12 @@ import { formatDzd } from '@/lib/app-context'
 import { WILAYAS } from '@/lib/wilayas'
 import ShippingSettings from '@/components/dashboard/ShippingSettings'
 
-// --- STORE SETTINGS TAB CONSTANTS ---
+const SETTINGS_TABS = [
+  { key: 'branch', label: 'إعدادات المحل' },
+  { key: 'delivery', label: 'المتجر والتوصيل' },
+  { key: 'general', label: 'عام' },
+]
+
 const RETURN_POLICY_OPTIONS = [
   { label: '7 أيام', value: '7' },
   { label: '14 يوماً', value: '14' },
@@ -316,7 +321,7 @@ export default function SettingsPage() {
   }
 
   // --- TABS ---
-  const [activeTab, setActiveTab] = useState('identity') // identity, delivery, carriers, receipt, policies, system, general
+  const [activeTab, setActiveTab] = useState('branch')
 
   useEffect(() => {
     if (ctx?.storeId) loadStoreSettings()
@@ -340,255 +345,271 @@ export default function SettingsPage() {
   const mapUrl = toMapUrl(storeSettings.google_maps_url)
 
   return (
-    <>
-      <div className="mx-auto max-w-4xl space-y-5">
-        <h1 className="text-xl text-neutral-100">الإعدادات</h1>
-        <Notice error={error || settingsError} success={settingsSuccess} />
-        
-        {/* TABS NAVIGATION */}
-        <div className="flex flex-wrap gap-2 border-b border-white/10 pb-3">
-          {['identity', 'delivery', 'carriers', 'receipt', 'policies', 'system', 'general'].map(tab => (
-            <button key={tab} type="button" onClick={() => setActiveTab(tab)}
-              className={`px-3 py-2 text-sm rounded-lg ${activeTab === tab ? 'bg-gold text-[#121212]' : 'text-neutral-400 hover:bg-white/5'}`}>
-              {tab === 'identity' && 'إعدادات المحل'}
-              {tab === 'delivery' && 'أسعار التوصيل'}
-              {tab === 'carriers' && 'ربط شركات التوصيل'}
-              {tab === 'receipt' && 'تخصيص الإيصال'}
-              {tab === 'policies' && 'سياسات التشغيل'}
-              {tab === 'system' && 'تفضيلات النظام'}
-              {tab === 'general' && 'عام'}
-            </button>
-          ))}
-        </div>
+    <div className="mx-auto max-w-4xl space-y-5">
+      <h1 className="text-xl text-neutral-100">الإعدادات</h1>
+      <Notice error={error || settingsError} success={settingsSuccess} />
 
-        {/* TAB 1: STORE IDENTITY */}
-        {activeTab === 'identity' && (
-          <section className="rounded-2xl border border-gold/20 bg-card p-5">
-            <h2 className="mb-3 text-gold">إعدادات المحل · الهوية</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block text-sm text-neutral-300">اسم المحل
-                <input required value={storeSettings.name} onChange={e => setStoreSettings({ ...storeSettings, name: e.target.value })} className={`${fieldClass} mt-1`} />
-              </label>
-              <div className="block text-sm text-neutral-300">
-                <span className="mb-1.5 block">تخصص الفرع <span className="text-gold">*</span></span>
-                <CustomSelect
-                  value={storeSettings.store_type}
-                  disabled={settingsBusy}
-                  onChange={value => saveSpecialty({ store_type: value })}
-                  options={STORE_TYPE_OPTIONS}
-                  aria-label="تخصص الفرع"
-                  className={`${fieldClass} mt-1`}
-                />
-                <span className="mt-1 block text-[11px] text-neutral-500">إلزامي لكل فرع على حدة: يحدد التصنيفات الذكية والبيانات التجريبية والقالب العام. القالب الفعلي: {THEME_LABELS[resolvedStoreTheme]}.</span>
-              </div>
-              {storeSettings.store_type === STORE_TYPES.MIXED && (
+      <div role="tablist" aria-label="أقسام الإعدادات" className="flex flex-wrap gap-1 rounded-xl border border-white/10 bg-card p-1">
+        {SETTINGS_TABS.map(({ key, label }, index) => (
+          <button
+            key={key}
+            id={`settings-tab-${key}`}
+            type="button"
+            role="tab"
+            aria-controls="settings-panel"
+            aria-selected={activeTab === key}
+            tabIndex={activeTab === key ? 0 : -1}
+            onClick={() => setActiveTab(key)}
+            onKeyDown={event => {
+              // In this RTL tab strip the next tab is to the left.
+              const count = SETTINGS_TABS.length
+              const next = {
+                ArrowLeft: (index + 1) % count,
+                ArrowRight: (index + count - 1) % count,
+                Home: 0,
+                End: count - 1,
+              }[event.key]
+              if (next === undefined) return
+              event.preventDefault()
+              document.getElementById(`settings-tab-${SETTINGS_TABS[next].key}`)?.focus()
+              setActiveTab(SETTINGS_TABS[next].key)
+            }}
+            className={`min-h-11 flex-1 rounded-lg px-2 py-2 text-sm focus-visible:outline-gold sm:flex-none sm:px-4 ${activeTab === key ? 'bg-gold font-medium text-[#121212]' : 'text-neutral-300 hover:bg-white/5'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div id="settings-panel" role="tabpanel" aria-labelledby={`settings-tab-${activeTab}`} className="space-y-5">
+        {activeTab === 'branch' && (
+          <>
+            <section className="rounded-2xl border border-gold/20 bg-card p-5">
+              <h2 className="mb-3 text-gold">إعدادات المحل · الهوية</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-sm text-neutral-300">اسم المحل
+                  <input required value={storeSettings.name} onChange={e => setStoreSettings({ ...storeSettings, name: e.target.value })} className={`${fieldClass} mt-1`} />
+                </label>
                 <div className="block text-sm text-neutral-300">
-                  <span className="mb-1.5 block">قالب المتجر الافتراضي</span>
+                  <span className="mb-1.5 block">
+                    تخصص الفرع <span className="text-gold">*</span>
+                    <small className="ms-2 rounded-full bg-gold/10 px-2 py-0.5 text-[11px] text-gold">يُحفظ فوراً</small>
+                  </span>
                   <CustomSelect
-                    value={storeSettings.theme_key}
+                    value={storeSettings.store_type}
                     disabled={settingsBusy}
-                    onChange={value => saveSpecialty({ theme_key: value })}
-                    options={THEME_OPTIONS}
-                    aria-label="قالب المتجر الافتراضي"
+                    onChange={value => saveSpecialty({ store_type: value })}
+                    options={STORE_TYPE_OPTIONS}
+                    aria-label="تخصص الفرع"
+                    title="يُحفظ فوراً"
                     className={`${fieldClass} mt-1`}
                   />
-                  <span className="mt-1 block text-[11px] text-neutral-500">للفروع «متعدد» فقط. النسائي يستخدم القالب الأنثوي تلقائياً والرجالي يستخدم القالب الحالي.</span>
+                  <span className="mt-1 block text-[11px] text-neutral-500">إلزامي لكل فرع على حدة: يحدد التصنيفات الذكية والبيانات التجريبية والقالب العام. القالب الفعلي: {THEME_LABELS[resolvedStoreTheme]}.</span>
                 </div>
-              )}
-              <label className="block text-sm text-neutral-300">العنوان
-                <input value={storeSettings.address} onChange={e => setStoreSettings({ ...storeSettings, address: e.target.value })} className={`${fieldClass} mt-1`} />
-              </label>
-              <label className="block text-sm text-neutral-300">رقم الهاتف
-                <input value={storeSettings.phone} onChange={e => setStoreSettings({ ...storeSettings, phone: e.target.value })} className={`${fieldClass} mt-1`} />
-              </label>
-              <div className="block text-sm text-neutral-300 sm:col-span-2">
-                <label htmlFor="store-maps-url" className="block">رابط الموقع (Google Maps)</label>
-                <div className="mt-1 flex gap-2">
-                  <input
-                    id="store-maps-url"
-                    dir="ltr"
-                    inputMode="url"
-                    placeholder="https://maps.app.goo.gl/..."
-                    value={storeSettings.google_maps_url}
-                    onChange={e => setStoreSettings({ ...storeSettings, google_maps_url: e.target.value })}
-                    className={fieldClass}
-                  />
-                  <button
-                    type="button"
-                    disabled={!mapUrl}
-                    onClick={() => window.open(mapUrl, '_blank', 'noopener,noreferrer')}
-                    className={`${secondaryClass} shrink-0 disabled:opacity-40`}
-                  >
-                    فتح الخريطة
-                  </button>
+                {storeSettings.store_type === STORE_TYPES.MIXED && (
+                  <div className="block text-sm text-neutral-300">
+                    <span className="mb-1.5 block">
+                      قالب المتجر الافتراضي
+                      <small className="ms-2 rounded-full bg-gold/10 px-2 py-0.5 text-[11px] text-gold">يُحفظ فوراً</small>
+                    </span>
+                    <CustomSelect
+                      value={storeSettings.theme_key}
+                      disabled={settingsBusy}
+                      onChange={value => saveSpecialty({ theme_key: value })}
+                      options={THEME_OPTIONS}
+                      aria-label="قالب المتجر الافتراضي"
+                      title="يُحفظ فوراً"
+                      className={`${fieldClass} mt-1`}
+                    />
+                    <span className="mt-1 block text-[11px] text-neutral-500">للفروع «متعدد» فقط. النسائي يستخدم القالب الأنثوي تلقائياً والرجالي يستخدم القالب الحالي.</span>
+                  </div>
+                )}
+                <label className="block text-sm text-neutral-300">العنوان
+                  <input value={storeSettings.address} onChange={e => setStoreSettings({ ...storeSettings, address: e.target.value })} className={`${fieldClass} mt-1`} />
+                </label>
+                <label className="block text-sm text-neutral-300">رقم الهاتف
+                  <input value={storeSettings.phone} onChange={e => setStoreSettings({ ...storeSettings, phone: e.target.value })} className={`${fieldClass} mt-1`} />
+                </label>
+                <div className="block text-sm text-neutral-300 sm:col-span-2">
+                  <label htmlFor="store-maps-url" className="block">رابط الموقع (Google Maps)</label>
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      id="store-maps-url"
+                      dir="ltr"
+                      inputMode="url"
+                      placeholder="https://maps.app.goo.gl/..."
+                      value={storeSettings.google_maps_url}
+                      onChange={e => setStoreSettings({ ...storeSettings, google_maps_url: e.target.value })}
+                      className={fieldClass}
+                    />
+                    <button
+                      type="button"
+                      disabled={!mapUrl}
+                      onClick={() => window.open(mapUrl, '_blank', 'noopener,noreferrer')}
+                      className={`${secondaryClass} shrink-0 disabled:opacity-40`}
+                    >
+                      فتح الخريطة
+                    </button>
+                  </div>
+                  {storeSettings.google_maps_url.trim() && !mapUrl && (
+                    <span className="mt-1 block text-[11px] text-amber-300">رابط غير صالح — استخدم رابطاً يبدأ بـ https://</span>
+                  )}
                 </div>
-                {storeSettings.google_maps_url.trim() && !mapUrl && (
-                  <span className="mt-1 block text-[11px] text-amber-300">رابط غير صالح — استخدم رابطاً يبدأ بـ https://</span>
+                <label className="block text-sm text-neutral-300">شعار المحل (صورة)
+                  <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => {
+                    const file = e.target.files?.[0] || null
+                    const invalid = file ? validateStoreLogo(file) : null
+                    setSettingsError(invalid || '')
+                    setLogoFile(invalid ? null : file)
+                  }} className={`${fieldClass} mt-1`} />
+                  {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="شعار المحل" className="mt-2 h-20 w-20 rounded-lg object-cover" />}
+                </label>
+              </div>
+
+              <div className="mt-5 border-t border-white/10 pt-4">
+                <h3 className="mb-1 text-sm font-medium text-neutral-200">رابط المتجر والـ QR</h3>
+                <p className="mb-4 text-xs leading-relaxed text-neutral-500">
+                  هذا الرابط يفتح متجرك للزبائن. اطبعه على واجهة المحل أو الفاتورة، أو أرسله في واتساب.
+                </p>
+
+                {!slug ? (
+                  <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                    لم يتم تعيين رابط (slug) لهذا المحل بعد. تواصل معنا لتفعيل المتجر العام.
+                  </p>
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
+                    <div>
+                      <p dir="ltr" className="select-all break-all rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-start text-sm text-neutral-200">
+                        {storeUrl}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button type="button" onClick={copyStoreLink} className={secondaryClass}>
+                          {copied ? 'تم النسخ ✓' : 'نسخ الرابط'}
+                        </button>
+                        <button type="button" onClick={printQrCode} className={secondaryClass}>
+                          طباعة الـ QR
+                        </button>
+                        <a
+                          href={storeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`${secondaryClass} inline-flex items-center`}
+                        >
+                          فتح المتجر
+                        </a>
+                      </div>
+                    </div>
+
+                    <div ref={qrRef} className="mx-auto rounded-xl border border-gold/30 bg-white p-3">
+                      <QRCodeSVG value={storeUrl} size={140} level="M" marginSize={0} />
+                    </div>
+                  </div>
                 )}
               </div>
-              <label className="block text-sm text-neutral-300">شعار المحل (صورة)
-                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => {
-                  const file = e.target.files?.[0] || null
-                  const invalid = file ? validateStoreLogo(file) : null
-                  setSettingsError(invalid || '')
-                  setLogoFile(invalid ? null : file)
-                }} className={`${fieldClass} mt-1`} />
-                {storeSettings.logo_url && <img src={storeSettings.logo_url} alt="شعار المحل" className="mt-2 h-20 w-20 rounded-lg object-cover" />}
+            </section>
+
+            <section className="rounded-2xl border border-white/10 bg-card p-5">
+              <h2 className="mb-3 text-gold">تخصيص الإيصال</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block text-sm text-neutral-300">ملاحظة التذييل
+                  <input value={storeSettings.receipt_footer} onChange={e => setStoreSettings({ ...storeSettings, receipt_footer: e.target.value })} className={`${fieldClass} mt-1`} />
+                </label>
+                <label className="block text-sm text-neutral-300">رقم الضريبة / RC
+                  <input value={storeSettings.tax_rc} onChange={e => setStoreSettings({ ...storeSettings, tax_rc: e.target.value })} className={`${fieldClass} mt-1`} />
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={storeSettings.logo_on_receipt} onChange={e => setStoreSettings({ ...storeSettings, logo_on_receipt: e.target.checked })} className="w-4 h-4 rounded border-white/10 bg-[#1A1A1A]" />
+                  <span className="text-sm text-neutral-300">شعار المحل على الإيصال</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={storeSettings.prices_on_receipt} onChange={e => setStoreSettings({ ...storeSettings, prices_on_receipt: e.target.checked })} className="w-4 h-4 rounded border-white/10 bg-[#1A1A1A]" />
+                  <span className="text-sm text-neutral-300">أسعار الوحدات على الإيصال</span>
+                </label>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-white/10 bg-card p-5">
+              <h2 className="mb-3 text-gold">سياسات التشغيل</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="block text-sm text-neutral-300">مدة سياسة الإرجاع
+                  <CustomSelect aria-label="مدة سياسة الإرجاع" value={storeSettings.return_policy_days} onChange={e => setStoreSettings({ ...storeSettings, return_policy_days: e })} options={RETURN_POLICY_OPTIONS} className={`${fieldClass} mt-1`} />
+                </div>
+                <label className="block text-sm text-neutral-300">عتبة تنبيه المخزون المنخفض
+                  <input type="number" min="0" value={storeSettings.low_stock_alert} onChange={e => setStoreSettings({ ...storeSettings, low_stock_alert: Number(e.target.value) })} className={`${fieldClass} mt-1`} />
+                </label>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-white/10 bg-card p-5">
+              <h2 className="mb-3 text-gold">تفضيلات النظام</h2>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={storeSettings.enable_barcode} onChange={e => setStoreSettings({ ...storeSettings, enable_barcode: e.target.checked })} className="w-4 h-4 rounded border-white/10 bg-[#1A1A1A]" />
+                <span className="text-sm text-neutral-300">تفعيل الباركود في نقطة البيع</span>
               </label>
-            </div>
-            <button disabled={settingsBusy} onClick={saveStoreSettings} className={primaryClass}>{settingsBusy ? 'جاري الحفظ...' : 'حفظ الهوية'}</button>
-          </section>
-        )}
+            </section>
 
-        {/* TAB 1b: PUBLIC LINK AND QR */}
-        {activeTab === 'identity' && (
-          <section className="mt-4 rounded-2xl border border-gold/20 bg-card p-5">
-            <h2 className="mb-1 text-gold">رابط المتجر والـ QR</h2>
-            <p className="mb-4 text-xs leading-relaxed text-neutral-500">
-              هذا الرابط يفتح متجرك للزبائن. اطبعه على واجهة المحل أو الفاتورة، أو أرسله في واتساب.
-            </p>
-
-            {!slug ? (
-              <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-                لم يتم تعيين رابط (slug) لهذا المحل بعد. تواصل معنا لتفعيل المتجر العام.
-              </p>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
-                <div>
-                  <p dir="ltr" className="select-all break-all rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-start text-sm text-neutral-200">
-                    {storeUrl}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" onClick={copyStoreLink} className={secondaryClass}>
-                      {copied ? 'تم النسخ ✓' : 'نسخ الرابط'}
-                    </button>
-                    <button type="button" onClick={printQrCode} className={secondaryClass}>
-                      طباعة الـ QR
-                    </button>
-                    <a
-                      href={storeUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`${secondaryClass} inline-flex items-center`}
-                    >
-                      فتح المتجر
-                    </a>
-                  </div>
-                </div>
-
-                <div ref={qrRef} className="mx-auto rounded-xl border border-gold/30 bg-white p-3">
-                  <QRCodeSVG value={storeUrl} size={140} level="M" marginSize={0} />
-                </div>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* TAB 2: RECEIPT CUSTOMIZATION */}
-        {/* DELIVERY RATES TAB */}
-        {activeTab === 'delivery' && (
-          <section className="rounded-2xl border border-gold/20 bg-card p-5">
-            <h2 className="mb-1 text-gold">أسعار التوصيل حسب الولاية</h2>
-            <p className="mb-4 text-xs leading-relaxed text-neutral-500">
-              اترك الحقل فارغاً للولايات التي لا توصّل إليها. السعر يُضاف إلى إجمالي طلب الزبون،
-              ولا يُحتسب من مبيعات المحل عند التسليم.
-            </p>
-
-            <div className="max-h-[30rem] overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2">
-              <div className="grid gap-1.5 sm:grid-cols-2">
-                {WILAYAS.map(wilaya => (
-                  <label key={wilaya.code} className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-white/[0.03]">
-                    <span className="w-6 shrink-0 text-[11px] tabular-nums text-neutral-500">{wilaya.code}</span>
-                    <span className="min-w-0 flex-1 truncate text-sm text-neutral-300">{wilaya.name}</span>
-                    <input
-                      inputMode="numeric"
-                      aria-label={`سعر التوصيل إلى ${wilaya.name}`}
-                      value={deliveryRates[wilaya.code] ?? ''}
-                      onChange={event => {
-                        const digits = event.target.value.replace(/[^0-9]/g, '')
-                        setDeliveryRates(previous => ({ ...previous, [wilaya.code]: digits }))
-                      }}
-                      placeholder="—"
-                      className="w-20 rounded-lg border border-white/10 bg-[#1A1A1A] px-2 py-1.5 text-center text-sm tabular-nums text-neutral-100 focus:border-gold/60 focus:outline-none"
-                    />
-                    <span className="w-6 shrink-0 text-[11px] text-neutral-500">دج</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-[11px] text-neutral-500">
-                {Object.values(deliveryRates).filter(value => String(value).trim() !== '').length} ولاية مفعّلة من {WILAYAS.length}
-              </p>
-              <button disabled={ratesBusy} onClick={saveDeliveryRates} className={primaryClass}>
-                {ratesBusy ? 'جاري الحفظ...' : 'حفظ أسعار التوصيل'}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
+              <p className="text-xs text-neutral-400">يشمل الحفظ هوية الفرع والإيصال وسياسات التشغيل وتفضيلات النظام.</p>
+              <button type="button" disabled={settingsBusy} onClick={saveStoreSettings} className={`${primaryClass} min-h-11 w-full sm:w-auto`}>
+                {settingsBusy ? 'جاري الحفظ...' : 'حفظ إعدادات الفرع'}
               </button>
             </div>
-          </section>
+          </>
         )}
 
-        {/* CARRIERS TAB: API keys are encrypted on the server, never stored on stores */}
-        {activeTab === 'carriers' && (
-          <section className="rounded-2xl border border-gold/20 bg-card p-5">
-            <h2 className="mb-1 text-gold">ربط شركات التوصيل</h2>
-            <p className="mb-4 text-xs leading-relaxed text-neutral-500">
-              الاستراتيجية المزدوجة (الخيار ج): ربط مباشر عبر API للتجار الذين يملكون مفاتيح، وتصدير CSV بالجملة لمن يرفع الطلبات يدوياً.
-              تبويب «أسعار التوصيل» يبقى مسؤولاً عن التسعير فقط.
-            </p>
-            <ShippingSettings />
-          </section>
-        )}
+        {activeTab === 'delivery' && (
+          <>
+            <section className="rounded-2xl border border-gold/20 bg-card p-5">
+              <h2 className="mb-1 text-gold">أسعار التوصيل حسب الولاية</h2>
+              <p className="mb-4 text-xs leading-relaxed text-neutral-500">
+                اترك الحقل فارغاً للولايات التي لا توصّل إليها. السعر يُضاف إلى إجمالي طلب الزبون،
+                ولا يُحتسب من مبيعات المحل عند التسليم.
+              </p>
 
-        {activeTab === 'receipt' && (
-          <section className="rounded-2xl border border-white/10 bg-card p-5">
-            <h2 className="mb-3 text-gold">تخصيص الإيصال</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block text-sm text-neutral-300">ملاحظة التذييل
-                <input value={storeSettings.receipt_footer} onChange={e => setStoreSettings({ ...storeSettings, receipt_footer: e.target.value })} className={`${fieldClass} mt-1`} />
-              </label>
-              <label className="block text-sm text-neutral-300">رقم الضريبة / RC
-                <input value={storeSettings.tax_rc} onChange={e => setStoreSettings({ ...storeSettings, tax_rc: e.target.value })} className={`${fieldClass} mt-1`} />
-              </label>
-              <div className="flex items-center gap-2">
-                <input type="checkbox" checked={storeSettings.logo_on_receipt} onChange={e => setStoreSettings({ ...storeSettings, logo_on_receipt: e.target.checked })} className="w-4 h-4 rounded border-white/10 bg-[#1A1A1A]" />
-                <span className="text-sm text-neutral-300">شعار المحل على الإيصال</span>
+              <details className="rounded-xl border border-white/10 bg-black/20">
+                <summary className="cursor-pointer rounded-xl px-3 py-2.5 text-sm text-neutral-200 focus-visible:outline-gold">عرض أسعار الولايات وتعديلها</summary>
+                <div className="max-h-80 overflow-y-auto border-t border-white/10 p-2">
+                  <div className="grid gap-1.5 sm:grid-cols-2">
+                    {WILAYAS.map(wilaya => (
+                      <label key={wilaya.code} className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-white/[0.03]">
+                        <span className="w-6 shrink-0 text-[11px] tabular-nums text-neutral-500">{wilaya.code}</span>
+                        <span className="min-w-0 flex-1 truncate text-sm text-neutral-300">{wilaya.name}</span>
+                        <input
+                          inputMode="numeric"
+                          aria-label={`سعر التوصيل إلى ${wilaya.name}`}
+                          value={deliveryRates[wilaya.code] ?? ''}
+                          onChange={event => {
+                            const digits = event.target.value.replace(/[^0-9]/g, '')
+                            setDeliveryRates(previous => ({ ...previous, [wilaya.code]: digits }))
+                          }}
+                          placeholder="—"
+                          className="w-20 rounded-lg border border-white/10 bg-[#1A1A1A] px-2 py-1.5 text-center text-sm tabular-nums text-neutral-100 focus:border-gold/60 focus:outline-none"
+                        />
+                        <span className="w-6 shrink-0 text-[11px] text-neutral-500">دج</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </details>
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[11px] text-neutral-500">
+                  {Object.values(deliveryRates).filter(value => String(value).trim() !== '').length} ولاية مفعّلة من {WILAYAS.length}
+                </p>
+                <button type="button" disabled={ratesBusy} onClick={saveDeliveryRates} className={primaryClass}>
+                  {ratesBusy ? 'جاري الحفظ...' : 'حفظ أسعار التوصيل'}
+                </button>
               </div>
-              <div className="flex items-center gap-2">
-                <input type="checkbox" checked={storeSettings.prices_on_receipt} onChange={e => setStoreSettings({ ...storeSettings, prices_on_receipt: e.target.checked })} className="w-4 h-4 rounded border-white/10 bg-[#1A1A1A]" />
-                <span className="text-sm text-neutral-300">أسعار الوحدات على الإيصال</span>
-              </div>
-            </div>
-            <button disabled={settingsBusy} onClick={saveStoreSettings} className={primaryClass}>{settingsBusy ? 'جاري الحفظ...' : 'حفظ التخصيص'}</button>
-          </section>
-        )}
+            </section>
 
-        {/* TAB 3: OPERATIONAL POLICIES */}
-        {activeTab === 'policies' && (
-          <section className="rounded-2xl border border-white/10 bg-card p-5">
-            <h2 className="mb-3 text-gold">سياسات التشغيل</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="block text-sm text-neutral-300">مدة سياسة الإرجاع
-                <CustomSelect value={storeSettings.return_policy_days} onChange={e => setStoreSettings({ ...storeSettings, return_policy_days: e })} options={RETURN_POLICY_OPTIONS} className={`${fieldClass} mt-1`} />
-              </div>
-              <label className="block text-sm text-neutral-300">عتبة تنبيه المخزون المنخفض
-                <input type="number" min="0" value={storeSettings.low_stock_alert} onChange={e => setStoreSettings({ ...storeSettings, low_stock_alert: Number(e.target.value) })} className={`${fieldClass} mt-1`} />
-              </label>
-            </div>
-            <button disabled={settingsBusy} onClick={saveStoreSettings} className={primaryClass}>{settingsBusy ? 'جاري الحفظ...' : 'حفظ السياسات'}</button>
-          </section>
-        )}
-
-        {/* TAB 4: SYSTEM PREFERENCES */}
-        {activeTab === 'system' && (
-          <section className="rounded-2xl border border-white/10 bg-card p-5">
-            <h2 className="mb-3 text-gold">تفضيلات النظام</h2>
-            <div className="flex items-center gap-2">
-              <input type="checkbox" checked={storeSettings.enable_barcode} onChange={e => setStoreSettings({ ...storeSettings, enable_barcode: e.target.checked })} className="w-4 h-4 rounded border-white/10 bg-[#1A1A1A]" />
-              <span className="text-sm text-neutral-300">تفعيل الباركود في نقطة البيع</span>
-            </div>
-            <button disabled={settingsBusy} onClick={saveStoreSettings} className={primaryClass}>{settingsBusy ? 'جاري الحفظ...' : 'حفظ التفضيلات'}</button>
-          </section>
+            <section className="rounded-2xl border border-gold/20 bg-card p-5">
+              <h2 className="mb-1 text-gold">ربط شركات التوصيل</h2>
+              <p className="mb-4 text-xs leading-relaxed text-neutral-500">
+                اختر الربط المباشر عبر API أو التصدير بالجملة عبر CSV أو كليهما. احفظ إعدادات كل شركة على حدة؛ ولا يغيّر ذلك أسعار الولايات.
+              </p>
+              <ShippingSettings />
+            </section>
+          </>
         )}
 
         {/* TAB 5: GENERAL (Existing) */}
@@ -777,6 +798,6 @@ export default function SettingsPage() {
           </>
         )}
       </div>
-    </>
+    </div>
   )
 }
