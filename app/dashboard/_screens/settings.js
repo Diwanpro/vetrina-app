@@ -12,7 +12,7 @@ import { validateStoreLogo, logoUploadError } from '@/lib/store-logo'
 import BranchProfileEditor from '@/components/dashboard/BranchProfileEditor'
 import { supabase } from '@/lib/supabase'
 import { canAddBranch } from '@/lib/commercial'
-import { scopeQuery, csvText, bannerBranch, BANNERS_ROUTE } from '@/lib/access'
+import { scopeQuery, csvText, storefrontContentBranch, BANNERS_ROUTE, SECTIONS_ROUTE } from '@/lib/access'
 import { describeDevice } from '@/lib/device'
 import { deactivateCurrentDevice, deactivateSession, listSessions, sortSessions } from '@/lib/sessions'
 import { fetchAllRows } from '@/lib/cash'
@@ -559,11 +559,14 @@ export default function SettingsPage() {
 
         {activeTab === 'delivery' && (
           <>
-            {bannerBranch(ctx) && <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-gold/20 bg-card p-5">
-              <div><h2 className="mb-1 text-gold">بانرات المتجر الإلكتروني</h2>
-                <p className="text-xs text-neutral-400">نظّم صور البانرات وروابطها لهذا الفرع.</p></div>
-              <a href={BANNERS_ROUTE} className={`${secondaryClass} inline-flex min-h-11 items-center`}>إدارة البانرات</a>
-            </section>}
+            {storefrontContentBranch(ctx) && [
+              { href: BANNERS_ROUTE, title: 'بانرات المتجر الإلكتروني', description: 'نظّم صور البانرات وروابطها لهذا الفرع.', action: 'إدارة البانرات' },
+              { href: SECTIONS_ROUTE, title: 'أقسام المتجر التحريرية', description: 'أضف أقساماً بصور وروابط ورتّبها لهذا الفرع.', action: 'الأقسام التحريرية' },
+            ].map(({ href, title, description, action }) => <section key={href} className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-gold/20 bg-card p-5">
+              <div><h2 className="mb-1 text-gold">{title}</h2>
+                <p className="text-xs text-neutral-400">{description}</p></div>
+              <a href={href} className={`${secondaryClass} inline-flex min-h-11 items-center`}>{action}</a>
+            </section>)}
             <section className="rounded-2xl border border-gold/20 bg-card p-5">
               <h2 className="mb-1 text-gold">أسعار التوصيل حسب الولاية</h2>
               <p className="mb-4 text-xs leading-relaxed text-neutral-500">
