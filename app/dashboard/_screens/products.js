@@ -501,26 +501,37 @@ export default function ProductsPage() {
               </button>
             </div>
 
-            <div className="space-y-3">
-              <fieldset className="rounded-xl border border-gold/30 bg-[#1a1a1a] px-3 pb-3">
-                <legend className="px-1 text-sm font-medium text-neutral-100">صورة المنتج <span className="text-xs text-gold">· إلزامية</span></legend>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <button type="button" onClick={() => cameraInput.current?.click()} className="rounded-lg border border-gold/40 px-3 py-2 text-sm text-gold">التقاط صورة</button>
-                  <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
-                    const file = e.target.files?.[0]
-                    if (file) setForm(prev => ({ ...prev, imageFile: file, imagePreview: URL.createObjectURL(file) }))
-                  }} />
-                  <label className="cursor-pointer rounded-lg border border-white/15 px-3 py-2 text-sm text-neutral-200 focus-within:ring-2 focus-within:ring-gold">
-                    اختيار صورة من الجهاز
-                    <input type="file" accept="image/*" className="sr-only" onChange={e => {
-                      const file = e.target.files?.[0] || null
-                      setForm({ ...form, imageFile: file, imagePreview: file ? URL.createObjectURL(file) : '' })
-                    }} />
-                  </label>
-                  {form.imagePreview && <img src={form.imagePreview} alt="معاينة صورة المنتج" className="h-16 w-16 rounded-lg object-cover" />}
+            <fieldset className="mb-3 min-w-0 rounded-xl border border-gold/40 bg-gold/5 p-3">
+              <legend className="px-1 text-base font-medium text-neutral-100">صورة المنتج <span className="text-xs text-gold">· إلزامية</span></legend>
+              <div className="flex items-center gap-3">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gold/30 bg-[#141414] text-gold">
+                  {form.imagePreview ? (
+                    <img src={form.imagePreview} alt="معاينة صورة المنتج" className="h-full w-full object-cover" />
+                  ) : (
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <rect x="3" y="4" width="18" height="16" rx="3" /><circle cx="8" cy="9" r="1.5" /><path d="m4 17 5-5 4 4 3-3 5 5" />
+                    </svg>
+                  )}
                 </div>
-              </fieldset>
+                <p aria-live="polite" className="text-sm text-neutral-300">{form.imagePreview ? 'يمكنك تغيير الصورة قبل الحفظ.' : 'ابدأ بصورة واضحة للمنتج.'}</p>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => cameraInput.current?.click()} className="min-h-11 rounded-lg bg-gold px-3 py-2 text-sm font-medium text-[#121212]">التقاط صورة</button>
+                <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                  const file = e.target.files?.[0]
+                  if (file) setForm(prev => ({ ...prev, imageFile: file, imagePreview: URL.createObjectURL(file) }))
+                }} />
+                <label className="relative flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-gold/40 px-2 py-2 text-center text-sm text-neutral-100 focus-within:ring-2 focus-within:ring-gold">
+                  اختيار صورة من الجهاز
+                  <input type="file" accept="image/*" className="sr-only" onChange={e => {
+                    const file = e.target.files?.[0] || null
+                    setForm({ ...form, imageFile: file, imagePreview: file ? URL.createObjectURL(file) : '' })
+                  }} />
+                </label>
+              </div>
+            </fieldset>
 
+            <div className="space-y-3">
               <ProductSection id="basics" title="المعلومات الأساسية" open={sections.basics} onToggle={() => toggleSection('basics')}
                 summary={[form.category, form.name.trim()].filter(Boolean).join(' · ')}>
                 <div className="space-y-3">

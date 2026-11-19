@@ -100,6 +100,12 @@ test('A. photo comes first, then type, optional name and price, inline variants,
   const photo=photoGroup(form)
   assert.ok(photo.contains(form.querySelector('input')), 'the first field belongs to the photo picker')
   assert.ok(!photo.closest('[data-product-section]'), 'photo is outside the disclosures')
+  const pickers=[...form.querySelectorAll('input[type="file"]')]
+  assert.equal(pickers.length,2, 'only the camera and gallery file inputs exist')
+  assert.ok(pickers.every(input=>photo.contains(input)), 'neither picker is duplicated in a later section')
+  const nextControl=[...form.querySelectorAll('button,input,textarea,select')].find(control=>
+    !photo.contains(control) && (photo.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING))
+  assert.ok(nextControl===toggle('basics'), 'basic information follows the photo without intervening controls')
   const capture=photo.querySelector('input[type="file"][accept="image/*"][capture="environment"]')
   assert.ok(capture, 'rear-camera file input is present')
   const requestCapture=t.mock.method(capture,'click')
