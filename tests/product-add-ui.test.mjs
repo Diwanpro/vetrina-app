@@ -85,7 +85,20 @@ function openBarcodeFields() {
 const photoGroup = form => within(form).getByRole('group',{name:/صورة المنتج/})
 const imageFile = () => new window.File(['img'],'product.jpg',{type:'image/jpeg'})
 const setImage = form => fireEvent.change(within(photoGroup(form)).getByLabelText('اختيار صورة من الجهاز'), {target:{files:[imageFile()]}})
-const setQty = (color,size,value) => fireEvent.change(screen.getByLabelText(`كمية ${color} مقاس ${size}`), {target:{value}})
+const variantsTitle = 'الألوان والمقاسات والكميات'
+const variantsButton = () => screen.getByRole('button',{name:variantsTitle})
+const variantsDialog = () => screen.getByRole('dialog',{name:variantsTitle})
+function openMatrix() {
+  fireEvent.click(variantsButton())
+  return variantsDialog()
+}
+const finishMatrix = () => fireEvent.click(within(variantsDialog()).getByRole('button',{name:'تم'}))
+const setQty = (color,size,value) => fireEvent.change(within(variantsDialog()).getByRole('spinbutton',{name:`كمية ${color} مقاس ${size}`}), {target:{value}})
+function enterQty(color,size,value) {
+  openMatrix()
+  setQty(color,size,value)
+  finishMatrix()
+}
 
 async function openForm() {
   render(React.createElement(Products))
@@ -94,7 +107,7 @@ async function openForm() {
   return document.querySelector('form')
 }
 
-test('A. photo comes first, then type, optional name and price, inline variants, Advanced and Save', async(t)=>{
+test('A. photo comes first, then type, optional name and price, the matrix trigger, Advanced and Save', async(t)=>{
   reset()
   const form=await openForm()
   const photo=photoGroup(form)
@@ -116,7 +129,7 @@ test('A. photo comes first, then type, optional name and price, inline variants,
   assert.equal(within(photo).getByLabelText('اختيار صورة من الجهاز').type,'file')
   assert.deepEqual(
     [...form.querySelectorAll('[data-product-section]')].map(section=>section.dataset.productSection),
-    ['basics','variants','advanced','barcode'],
+    ['basics','advanced','barcode'],
   )
   assert.ok(body('advanced').contains(toggle('barcode')), 'barcode is nested under Advanced')
   const basics=within(body('basics'))
@@ -126,7 +139,14 @@ test('A. photo comes first, then type, optional name and price, inline variants,
   assert.equal(name.required,false)
   assert.equal(price.required,false)
   const save=within(form).getByRole('button',{name:'حفظ المنتج'})
-  const order=[photo,type,name,price,within(body('variants')).getByRole('table'),toggle('advanced'),save]
+  const trigger=variantsButton()
+  assert.ok(toggle('basics').closest('section').nextElementSibling===trigger, 'the matrix trigger is directly below Basics')
+  assert.equal(trigger.type,'button')
+  assert.equal(trigger.getAttribute('aria-haspopup'),'dialog')
+  assert.equal(trigger.getAttribute('aria-expanded'),'false')
+  assert.ok(!form.querySelector('table'), 'no inline copy of the matrix')
+  assert.equal(form.querySelectorAll('button[type="submit"]').length,1)
+  const order=[photo,type,name,price,trigger,toggle('advanced'),save]
   for (let i=1;i<order.length;i++) {
     assert.ok(order[i-1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING, 'fields follow the merchant entry order')
   }
@@ -134,13 +154,13 @@ test('A. photo comes first, then type, optional name and price, inline variants,
   assert.ok(form.lastElementChild===save, 'save is outside the disclosures and last in the form')
 })
 
-test('B. basics and variants start open; secondary fields and manual barcodes are under folded Advanced', async()=>{
+test('B. basics start open; the matrix sheet and advanced fields are closed', async()=>{
   reset()
   await openForm()
-  for (const id of ['basics','variants']) {
-    assert.equal(isOpen(id),true)
-    assert.equal(isHidden(id),false)
-  }
+  assert.equal(isOpen('basics'),true)
+  assert.equal(isHidden('basics'),false)
+  assert.ok(!screen.queryByRole('dialog',{name:variantsTitle}))
+  assert.match(variantsButton().textContent,/0 تركيبة · 0 قطعة/)
   for (const id of ['advanced','barcode']) {
     assert.equal(isOpen(id),false,`${id} folded`)
     assert.equal(isHidden(id),true,`${id} body hidden`)
@@ -155,62 +175,152 @@ test('B. basics and variants start open; secondary fields and manual barcodes ar
   assert.equal(isHidden('barcode'),true, 'manual codes still have their own disclosure')
 })
 
-test('C. folding and reopening keeps text, matrix, variant barcode and image preview', async()=>{
+test('C. Done dismisses without saving; the draft, manual barcode and real count/units survive reopening', async()=>{
   reset()
   const form=await openForm()
+  setImage(form)
   fireEvent.change(screen.getByLabelText('اسم المنتج'),{target:{value:'قميص صيفي'}})
+  const trigger=variantsButton()
+  const dialog=openMatrix()
+  assert.equal(trigger.getAttribute('aria-expanded'),'true')
+  assert.ok(dialog.contains(document.activeElement))
+  assert.ok(!form.contains(dialog), 'quantity inputs must not implicitly submit the product form')
+  assert.ok(form.closest('[inert]'), 'background form is not interactive')
+  assert.ok(!screen.queryByRole('button',{name:'حفظ المنتج'}))
+  assert.equal(within(dialog).getByRole('button',{name:'تم'}).form,null)
   setQty('أبيض','S','7')
+  setQty('أبيض','M','2')
+  setQty('أسود','L','3')
+  setQty('أحمر','XL','0')
+  finishMatrix()
+  assert.ok(!screen.queryByRole('dialog',{name:variantsTitle}))
+  assert.ok(!form.closest('[inert]'))
+  assert.match(trigger.textContent,/3 تركيبات · 12 قطعة/)
+  await waitFor(()=>assert.ok(document.activeElement===trigger))
+
   openBarcodeFields()
   fireEvent.change(screen.getByLabelText('وصف المنتج'),{target:{value:'وصف المسودة'}})
   fireEvent.change(screen.getByLabelText('باركود أبيض S'),{target:{value:'0012345678'}})
-  setImage(form)
-
-  for (const id of ['barcode','advanced','variants','basics']) {
+  for (const id of ['barcode','advanced','basics']) {
     toggleSection(id)
     assert.equal(isOpen(id),false)
   }
   const preview=() => within(photoGroup(form)).getByRole('img',{name:'معاينة صورة المنتج'})
-  assert.equal(preview().getAttribute('src'),'blob:test-image', 'preview is visible even with all sections folded')
-
-  for (const id of ['basics','variants','advanced','barcode']) {
+  assert.equal(preview().getAttribute('src'),'blob:test-image')
+  const reopened=within(openMatrix())
+  assert.equal(reopened.getByLabelText('كمية أبيض مقاس S').value,'7')
+  assert.equal(reopened.getByLabelText('كمية أحمر مقاس XL').value,'0')
+  setQty('أسود','L','')
+  setQty('أبيض','M','0')
+  finishMatrix()
+  assert.match(trigger.textContent,/1 تركيبة · 7 قطع/)
+  for (const id of ['basics','advanced','barcode']) {
     toggleSection(id)
     assert.equal(isHidden(id),false)
   }
   assert.equal(screen.getByLabelText('اسم المنتج').value,'قميص صيفي')
-  assert.equal(screen.getByLabelText('كمية أبيض مقاس S').value,'7')
   assert.equal(screen.getByLabelText('وصف المنتج').value,'وصف المسودة')
   assert.equal(screen.getByLabelText('باركود أبيض S').value,'0012345678')
   assert.equal(preview().getAttribute('src'),'blob:test-image')
+  assert.equal(state.storageUploads.length,0)
+  assert.equal(state.rpcCalls.length,0)
+  assert.equal(state.notifications.length,0)
 })
 
-test('D1. missing photo blocks save with its picker accessible and Advanced still folded', async()=>{
+test('Escape, Close and the scrim dismiss only the sheet and keep its quantities', async()=>{
   reset()
   const form=await openForm()
-  setQty('أبيض','S','2')
+  setImage(form)
+  openMatrix()
+  setQty('أبيض','S','5')
+  fireEvent.keyDown(window,{key:'Escape'})
+  assert.ok(!screen.queryByRole('dialog',{name:variantsTitle}))
+  fireEvent.click(within(openMatrix()).getByRole('button',{name:'إغلاق'}))
+  const dialog=openMatrix()
+  assert.equal(within(dialog).getByLabelText('كمية أبيض مقاس S').value,'5')
+  const scrim=screen.getAllByRole('button',{name:'إغلاق'}).find(button=>!dialog.contains(button))
+  fireEvent.click(scrim)
+  assert.ok(!screen.queryByRole('dialog',{name:variantsTitle}))
+  assert.match(variantsButton().textContent,/1 تركيبة · 5 قطع/)
+  assert.equal(state.storageUploads.length,0)
+  assert.equal(state.rpcCalls.length,0)
+})
+
+test('colour entry errors stay in the sheet and an empty custom row does not count', async()=>{
+  reset()
+  await openForm()
+  const sheet=within(openMatrix())
+  const input=sheet.getByRole('textbox',{name:'لون جديد'})
+  const add=sheet.getByRole('button',{name:'إضافة لون'})
+  fireEvent.change(input,{target:{value:'أبيض'}})
+  fireEvent.click(add)
+  assert.match(sheet.getByRole('alert').textContent,/هذا اللون موجود مسبقاً/)
+  fireEvent.change(input,{target:{value:'بنفسجي'}})
+  fireEvent.click(add)
+  assert.ok(!sheet.queryByRole('alert'))
+  finishMatrix()
+  assert.match(variantsButton().textContent,/0 تركيبة · 0 قطعة/)
+  assert.equal(within(openMatrix()).getByLabelText('كمية بنفسجي مقاس S').value,'')
+  assert.equal(state.storageUploads.length,0)
+  assert.equal(state.rpcCalls.length,0)
+})
+
+test('D1. missing photo focuses the photo card with an inline message and leaves the matrix closed', async()=>{
+  reset()
+  const form=await openForm()
+  enterQty('أبيض','S','2')
   fireEvent.click(screen.getByRole('button',{name:'حفظ المنتج'}))
-  await screen.findByText(/صورة المنتج إلزامية/)
-  assert.equal(isInaccessible(within(photoGroup(form)).getByLabelText('اختيار صورة من الجهاز')),false)
+  const photo=photoGroup(form)
+  assert.match(within(photo).getByRole('alert').textContent,/صورة المنتج إلزامية/)
+  assert.ok(document.activeElement===photo)
+  assert.ok(!screen.queryByRole('dialog',{name:variantsTitle}))
+  assert.equal(isInaccessible(within(photo).getByLabelText('اختيار صورة من الجهاز')),false)
+  setImage(form)
+  assert.ok(!within(photo).queryByRole('alert'))
   assert.equal(isOpen('advanced'),false)
   assert.equal(state.storageUploads.length,0)
   assert.equal(state.rpcCalls.length,0)
 })
 
-test('D2. an invalid quantity opens the variants section', async()=>{
+test('D2. invalid quantities reopen the sheet at save with a visible error and the entered value', async()=>{
   reset()
   const form=await openForm()
   setImage(form)
+  openMatrix()
   setQty('أبيض','S','1.5')
-  fireEvent.submit(form)
-  await screen.findByText(/أعداداً صحيحة غير سالبة/)
-  assert.equal(isOpen('variants'),true)
-  assert.equal(isHidden('variants'),false)
+  setQty('أبيض','M','4')
+  finishMatrix()
+  assert.match(variantsButton().textContent,/1 تركيبة · 4 قطع · راجع الكميات/)
+  fireEvent.click(screen.getByRole('button',{name:'حفظ المنتج'}))
+  const sheet=within(variantsDialog())
+  assert.match(sheet.getByRole('alert').textContent,/أعداداً صحيحة غير سالبة/)
+  assert.equal(sheet.getByLabelText('كمية أبيض مقاس S').value,'1.5')
+  assert.equal(state.storageUploads.length,0)
+  assert.equal(state.rpcCalls.length,0)
+})
+
+test('a photo alone cannot be saved: blank and zero-only matrices need a positive combination', async()=>{
+  reset()
+  const form=await openForm()
+  setImage(form)
+  const save=screen.getByRole('button',{name:'حفظ المنتج'})
+  fireEvent.click(save)
+  const emptyMessage=() => within(variantsDialog()).getByRole('alert').textContent
+  assert.match(emptyMessage(),/أدخل كمية واحدة على الأقل/)
+  setQty('أبيض','S','0')
+  finishMatrix()
+  assert.match(variantsButton().textContent,/0 تركيبة · 0 قطعة/)
+  fireEvent.click(save)
+  assert.match(emptyMessage(),/أدخل كمية واحدة على الأقل/)
+  assert.equal(state.storageUploads.length,0)
+  assert.equal(state.rpcCalls.length,0)
 })
 
 test('D3. a duplicate barcode opens the barcode section without calling the RPC', async()=>{
   reset()
   const form=await openForm()
   setImage(form)
-  setQty('أبيض','S','2')
+  enterQty('أبيض','S','2')
   openBarcodeFields()
   fireEvent.change(screen.getByLabelText('باركود الموديل العام · اختياري'),{target:{value:'DUP'}})
   fireEvent.change(screen.getByLabelText('باركود أبيض S'),{target:{value:'DUP'}})
@@ -228,7 +338,7 @@ test('D4. an invalid video link reopens Advanced and keeps the link reachable fo
   reset()
   const form=await openForm()
   setImage(form)
-  setQty('أبيض','S','2')
+  enterQty('أبيض','S','2')
   toggleSection('advanced')
   const video=() => within(body('advanced')).getByRole('textbox',{name:/^رابط فيديو المنتج/})
   // A syntactically valid URL reaches the product validator, not just the browser's URL check.
@@ -248,7 +358,7 @@ test('E. a save attempt stays inside the mocks: no real RPC, Storage upload, pus
   reset()
   const form=await openForm()
   setImage(form)
-  setQty('أبيض','S','2')
+  enterQty('أبيض','S','2')
   fireEvent.change(screen.getByRole('spinbutton',{name:/سعر البيع/}),{target:{value:'0'}})
   openBarcodeFields()
   fireEvent.change(screen.getByLabelText('باركود الموديل العام · اختياري'),{target:{value:'MODELNEW'}})
