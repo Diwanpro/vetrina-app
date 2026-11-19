@@ -23,6 +23,8 @@ import { brandsFor, cleanBrand } from '@/lib/brand-catalog'
 import { FABRIC_OPTIONS, STYLE_OPTIONS, generateDescription, generateProductName, smartSpecsFromForm, validateSmartEntry } from '@/lib/product-entry'
 
 const DEFAULT_COLORS = ['أبيض', 'أسود', 'أزرق', 'أحمر', 'بيج']
+const INITIAL_SECTIONS = { basics: true, variants: true, advanced: false, barcode: false }
+
 function firstImage(product) {
   if (Array.isArray(product.images) && product.images.length) return product.images[0]
   return product.image_url || ''
@@ -33,7 +35,7 @@ function firstImage(product) {
 function ProductSection({ id, title, open, onToggle, summary, children }) {
   const bodyId = `product-section-${id}`
   return (
-    <section className="rounded-xl border border-white/10 bg-[#1a1a1a]">
+    <section data-product-section={id} className="rounded-xl border border-white/10 bg-[#1a1a1a]">
       <h3 className="m-0">
         <button
           type="button"
@@ -99,9 +101,7 @@ export default function ProductsPage() {
   const [components, setComponents] = useState([])
   const [colorMetadata, setColorMetadata] = useState({})
   const [customSubs, setCustomSubs] = useState({})
-  // Collapsible add-form sections. Basics and variants start open, the rest
-  // start folded. This state only drives visibility: no draft value lives here.
-  const [sections, setSections] = useState(() => ({ basics: true, variants: true, pricing: false, barcode: false, media: false }))
+  const [sections, setSections] = useState(INITIAL_SECTIONS)
 
   function openVideoEditor(product) {
     setVideoTarget(product)
@@ -226,16 +226,21 @@ export default function ProductsPage() {
   function toggleSection(key) {
     setSections(previous => ({ ...previous, [key]: !previous[key] }))
   }
-  // A save error points at a field inside one section: fold that section back
-  // open so the message and the offending input are reachable. The checks
-  // themselves are untouched.
   function revealSection(key) {
-    setSections(previous => ({ ...previous, [key]: true }))
+    // Save reports both photo and video errors as 'media'. The photo is now
+    // always visible; only an invalid video needs the advanced panel opened.
+    if (key === 'media') {
+      if ((!form.imageFile && !form.imagePreview) || !form.external_video_url.trim() || safeVideoUrl(form.external_video_url)) return
+      key = 'advanced'
+    }
+    setSections(previous => key === 'barcode'
+      ? { ...previous, advanced: true, barcode: true }
+      : { ...previous, [key]: true })
   }
   function openProductForm() {
     setOpen(true); setError('')
     setSaveUncertain(false)
-    setSections({ basics: true, variants: true, pricing: false, barcode: false, media: false })
+    setSections(INITIAL_SECTIONS)
   }
   function closeProductForm() {
     if (saving) return
@@ -483,6 +488,10 @@ export default function ProductsPage() {
         <div className="fixed inset-0 z-50 bg-black/70 flex items-end md:items-center justify-center p-0 md:p-4">
           <form
             onSubmit={handleSave}
+            onInvalid={event => {
+              const section = event.target.closest('[data-product-section]')?.dataset.productSection
+              if (section) revealSection(section)
+            }}
             className="w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-t-2xl md:rounded-2xl bg-[#171717] border border-white/10 p-4"
           >
             <div className="mb-3 flex items-center justify-between">
@@ -493,68 +502,61 @@ export default function ProductsPage() {
             </div>
 
             <div className="space-y-3">
-              <ProductSection id="basics" title="المعلومات الأساسية" open={sections.basics} onToggle={() => toggleSection('basics')}
-                summary={[form.name.trim(), form.brand, form.subcategory].filter(Boolean).join(' · ') || form.category}>
-                <div className="space-y-3">
-              <div className="block">
-                <span className="mb-1 block text-xs text-neutral-400">نوع المنتج</span>
-                <CustomSelect
-                  value={form.category}
-                  onChange={e => setForm({ ...form, category: e, subcategory: '', brand: '' })}
-                  options={MAIN_CATEGORIES.map(c => ({ label: c, value: c }))}
-                  className={`${selectClass} mt-1`}
-                />
-                <span className="mt-1 block text-[11px] text-neutral-500">
-                  نوع المتجر الحالي: {storeTypeLabel(ctx.storeType)} · تتغير التصنيفات تلقائياً مع نوع المنتج.
-                </span>
-              </div>
-              <div className="block">
-                <span className="mb-1 block text-xs text-neutral-400">التصنيف (حسب نوع المتجر)</span>
-                <CustomSelect
-                  value={form.subcategory}
-                  onChange={next => setForm(previous => ({ ...previous, subcategory: next, brand: '' }))}
-                  options={subcategoryOptions}
-                  placeholder="اختر التصنيف"
-                  aria-label="التصنيف حسب نوع المتجر"
-                  className={`${selectClass} mt-1`}
-                />
-                <span className="mt-1 block text-[11px] text-neutral-500">
-                  مثال: متجر نسائي + أحذية ← كعب عالي، صنادل، أحذية رياضية نسائية.
-                </span>
-              </div>
-
-              <CustomSelect searchable allowCreate aria-label="الماركة / اسم المنتج" value={form.brand || ''}
-                options={[{ value: '', label: 'بدون ماركة · اختياري' }, ...brandsFor(form.category, form.subcategory, products.map(product => product.brand))]}
-                placeholder="الماركة / اسم المنتج · ابحث أو اكتب ماركة محلية"
-                onChange={brand => setForm(prev => ({ ...prev, brand: cleanBrand(brand) }))} />
-
-              <label className="block">
-                <span className="mb-1 block text-xs text-neutral-400">اسم المنتج</span>
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                />
-              </label>
-              <div>
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <label htmlFor="product-description" className="text-xs text-neutral-400">وصف المنتج</label>
-                  <VoiceInput value={form.description} onChange={text => setForm(prev => ({ ...prev, description: text }))} disabled={saving} />
+              <fieldset className="rounded-xl border border-gold/30 bg-[#1a1a1a] px-3 pb-3">
+                <legend className="px-1 text-sm font-medium text-neutral-100">صورة المنتج <span className="text-xs text-gold">· إلزامية</span></legend>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => cameraInput.current?.click()} className="rounded-lg border border-gold/40 px-3 py-2 text-sm text-gold">التقاط صورة</button>
+                  <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (file) setForm(prev => ({ ...prev, imageFile: file, imagePreview: URL.createObjectURL(file) }))
+                  }} />
+                  <label className="cursor-pointer rounded-lg border border-white/15 px-3 py-2 text-sm text-neutral-200 focus-within:ring-2 focus-within:ring-gold">
+                    اختيار صورة من الجهاز
+                    <input type="file" accept="image/*" className="sr-only" onChange={e => {
+                      const file = e.target.files?.[0] || null
+                      setForm({ ...form, imageFile: file, imagePreview: file ? URL.createObjectURL(file) : '' })
+                    }} />
+                  </label>
+                  {form.imagePreview && <img src={form.imagePreview} alt="معاينة صورة المنتج" className="h-16 w-16 rounded-lg object-cover" />}
                 </div>
-                <textarea id="product-description" value={form.description} disabled={saving} maxLength={4000}
-                  onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))} rows={3}
-                  placeholder="اكتب تفاصيل المنتج أو أمْلِها بالصوت…"
-                  className="w-full resize-y rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold" />
-              </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <CustomSelect aria-label="نوع القماش" value={form.fabric || ''} options={FABRIC_OPTIONS} onChange={fabric => setForm(prev => ({ ...prev, fabric }))} />
-                    <CustomSelect aria-label="الستايل" value={form.style || ''} options={STYLE_OPTIONS} onChange={style => setForm(prev => ({ ...prev, style }))} />
+              </fieldset>
+
+              <ProductSection id="basics" title="المعلومات الأساسية" open={sections.basics} onToggle={() => toggleSection('basics')}
+                summary={[form.category, form.name.trim()].filter(Boolean).join(' · ')}>
+                <div className="space-y-3">
+                  <div className="block">
+                    <span className="mb-1 block text-xs text-neutral-400">نوع المنتج</span>
+                    <CustomSelect
+                      aria-label="نوع المنتج"
+                      value={form.category}
+                      onChange={e => setForm({ ...form, category: e, subcategory: '', brand: '' })}
+                      options={MAIN_CATEGORIES.map(c => ({ label: c, value: c }))}
+                      className={`${selectClass} mt-1`}
+                    />
                   </div>
-                  <button type="button" className="text-sm text-gold" onClick={() => {
-                    try { setForm(prev => ({ ...prev, description: generateDescription(smartSpecsFromForm(prev, filledSizeCells(matrix, sizes), ctx)) })) }
-                    catch (err) { setError(err.message) }
-                  }}>توليد وصف عربي تلقائياً</button>
-                  <p className="text-xs text-neutral-400">الإلزامي فقط: الصورة واللون والمقاسات والكمية. الاسم والوصف يولدان تلقائياً. السعر اختياري (افتراضياً 0 دج، راجعه قبل البيع).</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-neutral-400">اسم المنتج</span>
+                      <input
+                        placeholder="اختياري · يُولّد تلقائياً"
+                        value={form.name}
+                        onChange={(e) => setForm({ ...form, name: e.target.value })}
+                        className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-neutral-400">سعر البيع · اختياري</span>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={form.base_price}
+                        onChange={(e) => setForm({ ...form, base_price: e.target.value })}
+                        className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
+                      />
+                    </label>
+                  </div>
+                  <p className="text-xs text-neutral-400">أدخل كمية موجبة للون ومقاس واحد على الأقل. إذا تركت السعر فارغاً يُحفظ بـ 0 دج؛ راجعه قبل البيع.</p>
                 </div>
               </ProductSection>
 
@@ -637,97 +639,97 @@ export default function ProductsPage() {
                 </div>
               </ProductSection>
 
-              <ProductSection id="pricing" title="الأسعار والتكلفة" open={sections.pricing} onToggle={() => toggleSection('pricing')}
-                summary={form.base_price ? `بيع ${formatDzd(form.base_price)}` : 'السعر غير محدد'}>
-                <div className="grid grid-cols-2 gap-2">
-                <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">سعر البيع</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.base_price}
-                    onChange={(e) => setForm({ ...form, base_price: e.target.value })}
-                    className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs text-neutral-400">سعر التكلفة</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.cost_price}
-                    onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
-                    className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
-                  />
-                </label>
-                </div>
-              </ProductSection>
-
-              <ProductSection id="barcode" title="الباركود" open={sections.barcode} onToggle={() => toggleSection('barcode')}
-                summary={form.barcode.trim() || 'توليد تلقائي عند الحفظ'}>
+              <ProductSection id="advanced" title="التفاصيل المتقدمة" open={sections.advanced} onToggle={() => toggleSection('advanced')}
+                summary="التصنيف والوصف والتكلفة والباركود والفيديو">
                 <div className="space-y-3">
-                  <div>
-                    <label htmlFor="product-barcode" className="mb-2 block text-xs text-neutral-400">باركود الموديل العام · اختياري</label>
-                    <div className="flex gap-2">
-                      <input id="product-barcode" data-barcode-input="product-barcode" dir="ltr" maxLength={64} value={form.barcode} disabled={saving || generating}
-                        placeholder={generating ? 'جاري التوليد…' : 'الباركود'}
-                        onChange={e => setForm(prev => ({ ...prev, barcode: e.target.value }))}
-                        className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm outline-none focus:border-gold disabled:opacity-50" />
-                      <button type="button" disabled={saving || generating} onClick={() => setScanning('entry')} title="مسح الباركود بالكاميرا" aria-label="مسح الباركود بالكاميرا"
-                        className="rounded-lg border border-gold/30 bg-gold/10 px-3 text-gold disabled:opacity-50">
-                        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 8v8M10 8v8M14 8v8M17 8v8" /></svg>
-                      </button>
-                    </div>
-                    <div className="mt-2 flex items-start justify-between gap-3">
-                      <p className="text-[11px] text-neutral-500">هذا الرمز يفتح اختيار اللون والمقاس في الكاشير. اتركه فارغاً إن لم تحتج باركود موديل. رموز التركيبات الفارغة تُولّد عند الحفظ.</p>
-                      <button type="button" disabled={saving || generating} onClick={regenerateBarcode} className="shrink-0 text-xs text-gold disabled:opacity-50">توليد جديد</button>
-                    </div>
+                  <div className="block">
+                    <span className="mb-1 block text-xs text-neutral-400">التصنيف (حسب نوع المتجر)</span>
+                    <CustomSelect
+                      value={form.subcategory}
+                      onChange={next => setForm(previous => ({ ...previous, subcategory: next, brand: '' }))}
+                      options={subcategoryOptions}
+                      placeholder="اختر التصنيف"
+                      aria-label="التصنيف حسب نوع المتجر"
+                      className={`${selectClass} mt-1`}
+                    />
+                    <span className="mt-1 block text-[11px] text-neutral-500">
+                      نوع المتجر الحالي: {storeTypeLabel(ctx.storeType)} · تتغير التصنيفات تلقائياً مع نوع المنتج.
+                    </span>
+                    <span className="mt-1 block text-[11px] text-neutral-500">
+                      مثال: متجر نسائي + أحذية ← كعب عالي، صنادل، أحذية رياضية نسائية.
+                    </span>
                   </div>
-                  <fieldset className="space-y-3 rounded-xl border border-gold/20 bg-[#171717] p-3">
-                    <legend className="px-2 text-sm text-gold">باركودات التركيبات · اختيارية</legend>
-                    <p className="text-xs text-neutral-400">أدخل رمزاً لكل لون/مقاس ذي كمية، أو اتركه فارغاً للتوليد الذري عند الحفظ. الرموز المحفوظة ثابتة لحماية الملصقات.</p>
-                    {colorRows.flatMap(color => sizes.filter(size => Number(matrix[color]?.[size]) > 0).map(size => {
-                      const key = barcodeCellKey(color, size)
-                      return <div key={key} className="flex items-center gap-2">
-                        <label className="flex-1 text-xs text-neutral-300">{color} / {sizeLabel(size)}
-                          <input data-barcode-input="variant-code" data-variant-barcode-key={key} dir="ltr" aria-label={`باركود ${color} ${size}`} maxLength={64} disabled={saving} value={variantBarcodes[key] || ''} onChange={e => setVariantBarcodes(prev => ({ ...prev, [key]: e.target.value }))} placeholder="توليد تلقائي عند الحفظ" className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm" />
-                        </label>
-                        <button type="button" disabled={saving} onClick={() => setScanning(`variant:${key}`)} aria-label={`مسح باركود ${color} ${size}`} className="rounded-lg border border-gold/30 px-3 py-2 text-xs text-gold">مسح</button>
+
+                  <CustomSelect searchable allowCreate aria-label="الماركة / اسم المنتج" value={form.brand || ''}
+                    options={[{ value: '', label: 'بدون ماركة · اختياري' }, ...brandsFor(form.category, form.subcategory, products.map(product => product.brand))]}
+                    placeholder="الماركة / اسم المنتج · ابحث أو اكتب ماركة محلية"
+                    onChange={brand => setForm(prev => ({ ...prev, brand: cleanBrand(brand) }))} />
+
+                  <div>
+                    <div className="mb-2 flex items-start justify-between gap-3">
+                      <label htmlFor="product-description" className="text-xs text-neutral-400">وصف المنتج</label>
+                      <VoiceInput value={form.description} onChange={text => setForm(prev => ({ ...prev, description: text }))} disabled={saving} />
+                    </div>
+                    <textarea id="product-description" value={form.description} disabled={saving} maxLength={4000}
+                      onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))} rows={3}
+                      placeholder="اكتب تفاصيل المنتج أو أمْلِها بالصوت…"
+                      className="w-full resize-y rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <CustomSelect aria-label="نوع القماش" value={form.fabric || ''} options={FABRIC_OPTIONS} onChange={fabric => setForm(prev => ({ ...prev, fabric }))} />
+                    <CustomSelect aria-label="الستايل" value={form.style || ''} options={STYLE_OPTIONS} onChange={style => setForm(prev => ({ ...prev, style }))} />
+                  </div>
+                  <button type="button" className="text-sm text-gold" onClick={() => {
+                    try { setForm(prev => ({ ...prev, description: generateDescription(smartSpecsFromForm(prev, filledSizeCells(matrix, sizes), ctx)) })) }
+                    catch (err) { setError(err.message) }
+                  }}>توليد وصف عربي تلقائياً</button>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-neutral-400">سعر التكلفة</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.cost_price}
+                      onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
+                      className="w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 text-sm outline-none focus:border-gold"
+                    />
+                  </label>
+
+                  <ProductSection id="barcode" title="الباركود" open={sections.barcode} onToggle={() => toggleSection('barcode')}
+                    summary={form.barcode.trim() || 'توليد تلقائي عند الحفظ'}>
+                    <div className="space-y-3">
+                      <div>
+                        <label htmlFor="product-barcode" className="mb-2 block text-xs text-neutral-400">باركود الموديل العام · اختياري</label>
+                        <div className="flex gap-2">
+                          <input id="product-barcode" data-barcode-input="product-barcode" dir="ltr" maxLength={64} value={form.barcode} disabled={saving || generating}
+                            placeholder={generating ? 'جاري التوليد…' : 'الباركود'}
+                            onChange={e => setForm(prev => ({ ...prev, barcode: e.target.value }))}
+                            className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm outline-none focus:border-gold disabled:opacity-50" />
+                          <button type="button" disabled={saving || generating} onClick={() => setScanning('entry')} title="مسح الباركود بالكاميرا" aria-label="مسح الباركود بالكاميرا"
+                            className="rounded-lg border border-gold/30 bg-gold/10 px-3 text-gold disabled:opacity-50">
+                            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 8v8M10 8v8M14 8v8M17 8v8" /></svg>
+                          </button>
+                        </div>
+                        <div className="mt-2 flex items-start justify-between gap-3">
+                          <p className="text-[11px] text-neutral-500">هذا الرمز يفتح اختيار اللون والمقاس في الكاشير. اتركه فارغاً إن لم تحتج باركود موديل. رموز التركيبات الفارغة تُولّد عند الحفظ.</p>
+                          <button type="button" disabled={saving || generating} onClick={regenerateBarcode} className="shrink-0 text-xs text-gold disabled:opacity-50">توليد جديد</button>
+                        </div>
                       </div>
-                    }))}
-                  </fieldset>
-                </div>
-              </ProductSection>
-
-              <ProductSection id="media" title="الصور ومحتوى المتجر الإلكتروني" open={sections.media} onToggle={() => toggleSection('media')}
-                summary={form.imagePreview || form.imageFile ? 'تم اختيار صورة' : 'الصورة إلزامية'}>
-                <div className="space-y-3">
-                  <div>
-                    <button type="button" onClick={() => cameraInput.current?.click()} className="rounded-lg border border-gold/30 px-3 py-2 text-sm text-gold">التقاط صورة</button>
-                    <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
-                      const file = e.target.files?.[0]
-                      if (file) setForm(prev => ({ ...prev, imageFile: file, imagePreview: URL.createObjectURL(file) }))
-                    }} />
-                    <label className="mt-3 block">
-                      <span className="mb-1 block text-xs text-neutral-400">صورة المنتج</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0] || null
-                          setForm({
-                            ...form,
-                            imageFile: file,
-                            imagePreview: file ? URL.createObjectURL(file) : '',
-                          })
-                        }}
-                        className="w-full text-xs text-neutral-400"
-                      />
-                      {form.imagePreview && (
-                        <img src={form.imagePreview} alt="" className="mt-2 h-20 w-20 rounded-lg object-cover" />
-                      )}
-                    </label>
-                  </div>
+                      <fieldset className="space-y-3 rounded-xl border border-gold/20 bg-[#171717] p-3">
+                        <legend className="px-2 text-sm text-gold">باركودات التركيبات · اختيارية</legend>
+                        <p className="text-xs text-neutral-400">أدخل رمزاً لكل لون/مقاس ذي كمية، أو اتركه فارغاً للتوليد الذري عند الحفظ. الرموز المحفوظة ثابتة لحماية الملصقات.</p>
+                        {colorRows.flatMap(color => sizes.filter(size => Number(matrix[color]?.[size]) > 0).map(size => {
+                          const key = barcodeCellKey(color, size)
+                          return <div key={key} className="flex items-center gap-2">
+                            <label className="flex-1 text-xs text-neutral-300">{color} / {sizeLabel(size)}
+                              <input data-barcode-input="variant-code" data-variant-barcode-key={key} dir="ltr" aria-label={`باركود ${color} ${size}`} maxLength={64} disabled={saving} value={variantBarcodes[key] || ''} onChange={e => setVariantBarcodes(prev => ({ ...prev, [key]: e.target.value }))} placeholder="توليد تلقائي عند الحفظ" className="mt-1 w-full rounded-lg border border-neutral-700 bg-[#141414] px-3 py-2 font-mono text-sm" />
+                            </label>
+                            <button type="button" disabled={saving} onClick={() => setScanning(`variant:${key}`)} aria-label={`مسح باركود ${color} ${size}`} className="rounded-lg border border-gold/30 px-3 py-2 text-xs text-gold">مسح</button>
+                          </div>
+                        }))}
+                      </fieldset>
+                    </div>
+                  </ProductSection>
 
                   <label className="block">
                     <span className="mb-1 block text-xs text-neutral-400">رابط فيديو المنتج (تيك توك / إنستغرام / فيسبوك)</span>
@@ -747,7 +749,7 @@ export default function ProductsPage() {
                 </div>
               </ProductSection>
             </div>
-            {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
+            {error && <p role="alert" className="mt-3 text-xs text-red-300">{error}</p>}
 
             <button
               type="submit"
