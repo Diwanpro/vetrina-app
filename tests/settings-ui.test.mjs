@@ -37,7 +37,7 @@ const Settings = (await import(pathToFileURL(outfile))).default
 
 async function mount(role = 'manager') {
   const store = { name: 'محل تجريبي', store_type: 'mens', theme_key: 'classic', slug: 'fixture', delivery_rates: { '07': 450, '16': 650 } }
-  const ctx = { role, user: { id: 'user-1' }, storeId: 'branch-1', tenantId: 'tenant-1', storeType: 'mens', themeKey: 'classic',
+  const ctx = { role, user: { id: 'user-1' }, storeId: 'branch-1', assignedStoreId: 'branch-1', tenantId: 'tenant-1', storeType: 'mens', themeKey: 'classic',
     stores: [{ id: 'branch-1', name: store.name }], tenant: { name: 'مؤسسة تجريبية', is_active: true, branches_limit: 2 } }
   const calls = [], uploads = [], requests = []
   const client = {
@@ -152,6 +152,7 @@ test('wilaya rates and each carrier have independent explicit saves on the same 
   const { calls, requests } = await mount()
   fireEvent.click(tab('المتجر والتوصيل'))
   await waitFor(() => assert.equal(button('تحديث').disabled, false))
+  assert.equal(screen.getByRole('link', { name: 'إدارة البانرات' }).getAttribute('href'), '/dashboard/settings/banners')
   assert.ok(!screen.queryByRole('button', { name: 'حفظ إعدادات الفرع' }))
   assert.equal(screen.getAllByRole('button', { name: 'حفظ الإعدادات' }).length, 3)
   const courier = within(screen.getByRole('heading', { name: 'ZR Express (Procolis)' }).closest('section'))
@@ -184,6 +185,7 @@ test('employees still see the carrier restriction and their original General act
   fireEvent.keyDown(tab('إعدادات المحل'), { key: 'ArrowLeft' })
   assert.equal(tab('المتجر والتوصيل').getAttribute('aria-selected'), 'true')
   screen.getByText(/إعدادات الربط متاحة للمالك أو المدير فقط/)
+  assert.ok(!screen.queryByRole('link', { name: 'إدارة البانرات' }))
   assert.ok(!screen.queryByRole('button', { name: 'حفظ الإعدادات' }))
   fireEvent.click(tab('عام'))
   screen.getByText('إدارة الاشتراك متاحة للمالك فقط.')
