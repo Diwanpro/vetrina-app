@@ -5,7 +5,7 @@ import {
   shipOrder, syncShipment, cancelShipment, handleShippingWebhook,
 } from '../lib/shipping/index.js'
 import { encryptCredentials, connectionAad } from '../lib/shipping/credentials.js'
-import { resetShippingMock, advanceMockParcel, getMockParcel } from '../lib/shipping/mock.js'
+import { resetShippingMock, advanceMockParcel, getMockParcel, mockFetch } from '../lib/shipping/mock.js'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const STORE_ID = '22222222-2222-4222-8222-222222222222'
@@ -134,10 +134,15 @@ function makeUserClient(state) {
 test('P3 gateway ships, syncs, verifies webhooks and cancels without touching orders', async (t) => {
   const originalMasterKey = process.env.SHIPPING_MASTER_KEY
   const originalMockMode = process.env.SHIPPING_MOCK_MODE
+  const originalFetch = globalThis.fetch
+  const originalBase = process.env.SHIPPING_YALIDINE_SANDBOX_BASE_URL
   const dummyKey = Buffer.alloc(32, 7).toString('base64')
   process.env.SHIPPING_MASTER_KEY = dummyKey
   process.env.SHIPPING_MOCK_MODE = 'true'
   t.after(() => {
+    globalThis.fetch = originalFetch
+    if (originalBase === undefined) delete process.env.SHIPPING_YALIDINE_SANDBOX_BASE_URL
+    else process.env.SHIPPING_YALIDINE_SANDBOX_BASE_URL = originalBase
     if (originalMasterKey === undefined) delete process.env.SHIPPING_MASTER_KEY
     else process.env.SHIPPING_MASTER_KEY = originalMasterKey
     if (originalMockMode === undefined) delete process.env.SHIPPING_MOCK_MODE
@@ -193,12 +198,54 @@ test('P3 gateway ships, syncs, verifies webhooks and cancels without touching or
     stores: [{ id: STORE_ID }],
   }
 
+  const args = { adminClient, userClient, ctx, storeId: STORE_ID,
+    input: { orderId: ORDER_ID, providerCode: 'yalidine', environment: 'sandbox' } }
+  let transportCalls = 0
+  // The live transport branch is exercised with HTTP fixtures, never a courier.
+  globalThis.fetch = async (url, init) => {
+    transportCalls++
+    return mockFetch(String(url).replace('https://courier.fixture.invalid/', 'https://mock.yalidine.local/'), init)
+  }
+  for (const setting of ['true', '1', 'mock', 'yes', 'unknown', undefined]) {
+    if (setting === undefined) delete process.env.SHIPPING_MOCK_MODE
+    else process.env.SHIPPING_MOCK_MODE = setting
+    delete process.env.SHIPPING_YALIDINE_SANDBOX_BASE_URL
+    await assert.rejects(() => shipOrder(args), error => error.code === 'CONFIG'
+      && error.message === 'وضع المحاكاة مفعل. لم يتم تسجيل شحنة.')
+    assert.equal(transportCalls, 0)
+    assert.equal(state.shipments.length + state.events.length, 0)
+    assert.equal(state.tablesUsed.size, 0, 'preflight rejects before DB access')
+  }
+  process.env.SHIPPING_MOCK_MODE = 'false'
+  process.env.SHIPPING_YALIDINE_SANDBOX_BASE_URL = 'https://courier.fixture.invalid/v1/'
+
+  // Stub only the adapter boundary to prove the defensive post-adapter guard.
+  const { build } = await import('esbuild')
+  const path = await import('node:path')
+  const { pathToFileURL } = await import('node:url')
+  const outfile = path.resolve('.cache/shipping-safety/index.mjs')
+  await build({ entryPoints: ['lib/shipping/index.js'], outfile, bundle: true, platform: 'node', format: 'esm',
+    external: ['@supabase/supabase-js'], plugins: [{ name: 'adapter-boundary', setup(b) {
+      b.onResolve({ filter: /^\.\/adapters\.js$/ }, () => ({ path: 'adapter', namespace: 'fixture' }))
+      b.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `export function getAdapter(){return {capabilities:{create:true},createShipment:async()=>globalThis.rejectedShipmentResult}}` }))
+    } }] })
+  const guarded = await import(pathToFileURL(outfile))
+  try {
+    for (const mode of ['mock', 'unknown', undefined]) {
+      globalThis.rejectedShipmentResult = { mode, trackingNumber: 'must-not-be-saved' }
+      await assert.rejects(() => guarded.shipOrder(args), error => error.code === 'CONFIG'
+        && error.message === 'وضع المحاكاة مفعل. لم يتم تسجيل شحنة.')
+      assert.equal(state.shipments.length + state.events.length, 0)
+    }
+  } finally { delete globalThis.rejectedShipmentResult }
+  state.rpcCalls.length = 0
+
   const created = await shipOrder({
     adminClient, userClient, ctx, storeId: STORE_ID,
     input: { orderId: ORDER_ID, providerCode: 'yalidine', environment: 'sandbox' },
   })
   assert.match(created.trackingNumber, /^YAL-MOCK-/)
-  assert.equal(created.mode, 'mock')
+  assert.equal(created.mode, 'live')
   assert.equal(created.shipment.status, 'created')
   assert.equal(created.shipment.order_id, ORDER_ID)
   assert.equal(state.shipments.length, 1)
