@@ -70,6 +70,9 @@ function ProductSection({ id, title, open, onToggle, summary, children }) {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState([])
+  const [activePending, setActivePending] = useState({})
+  const [activeErrors, setActiveErrors] = useState({})
+  const activeLocks = useRef(new Set())
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
@@ -156,6 +159,28 @@ export default function ProductsPage() {
     }
   }
 
+  async function toggleActive(product) {
+    if (!ctx.tenantId || !['owner', 'manager'].includes(ctx.role) || product.is_mock || activeLocks.current.has(product.id)) return
+    const tenantId = ctx.tenantId
+    activeLocks.current.add(product.id)
+    setActivePending(prev => ({ ...prev, [product.id]: true }))
+    setActiveErrors(prev => ({ ...prev, [product.id]: '' }))
+    try {
+      const { data, error: updateError } = await supabase.from('products')
+        .update({ is_active: product.is_active !== true })
+        .eq('tenant_id', tenantId).eq('id', product.id)
+        .select('id, is_active').single()
+      if (updateError) throw updateError
+      if (!data || data.id !== product.id || typeof data.is_active !== 'boolean') throw new Error('لم يصل تأكيد تحديث الحالة؛ حدّث الصفحة للتحقق قبل إعادة المحاولة')
+      setProducts(prev => prev.map(row => row.id === data.id ? { ...row, is_active: data.is_active } : row))
+    } catch (err) {
+      setActiveErrors(prev => ({ ...prev, [product.id]: err.message || 'تعذر تحديث حالة المنتج' }))
+    } finally {
+      activeLocks.current.delete(product.id)
+      setActivePending(prev => ({ ...prev, [product.id]: false }))
+    }
+  }
+
   async function loadProducts() {
     setLoading(true)
     try {
@@ -163,7 +188,7 @@ export default function ProductsPage() {
       if (!context.tenantId || !context.storeId) throw new Error('تعذر تحديد المتجر')
       setCtx(context)
       const rows = await fetchAllRows(supabase.from('products')
-        .select('id, name, brand, description, category, subcategory, base_price, images, image_url, external_video_url, product_barcodes(barcode), product_variants!inner(id, barcode, color, color_components, size, inventory!inner(quantity, store_id))')
+        .select('id, name, is_active, brand, description, category, subcategory, base_price, images, image_url, external_video_url, product_barcodes(barcode), product_variants!inner(id, barcode, color, color_components, size, inventory!inner(quantity, store_id))')
         .eq('tenant_id', context.tenantId).eq('product_variants.inventory.store_id', context.storeId).order('created_at', { ascending: false }).order('id'))
       setProducts(mergeMockProducts(rows, context.storeType, context.storeId, 'dashboard'))
     } catch (err) { setError(err.message) }
@@ -445,7 +470,22 @@ export default function ProductsPage() {
                   )}
                 </div>
                 <div className="p-2.5">
-                  <p className="text-sm text-neutral-100 truncate">{p.name}</p>
+                  <div className="flex flex-wrap items-center justify-between gap-1">
+                    <p className="min-w-0 flex-1 truncate text-sm text-neutral-100" title={p.name}>{p.name}</p>
+                    <button type="button" role="switch" aria-checked={p.is_active === true}
+                      aria-label={`نشط: ${p.name}`} aria-busy={Boolean(activePending[p.id])}
+                      disabled={Boolean(activePending[p.id]) || p.is_mock || !['owner', 'manager'].includes(ctx.role)}
+                      onClick={() => toggleActive(p)}
+                      className="flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-1 text-xs text-neutral-200 disabled:opacity-50">
+                      <span>نشط</span>
+                      <span aria-hidden="true" dir="ltr" className={`flex h-5 w-9 items-center rounded-full p-0.5 ${p.is_active === true ? 'justify-end bg-emerald-600' : 'justify-start bg-neutral-600'}`}>
+                        <span className="h-4 w-4 rounded-full bg-white" />
+                      </span>
+                    </button>
+                  </div>
+                  {activePending[p.id] && <p role="status" className="text-[11px] text-neutral-400">جاري حفظ الحالة...</p>}
+                  {activeErrors[p.id] && <p role="alert" className="text-xs text-red-300">{activeErrors[p.id]}</p>}
+                  {p.is_mock && <p className="text-[11px] text-neutral-500">منتج تجريبي — لا يمكن تغيير حالته</p>}
                   <p className="text-[11px] text-neutral-500">{p.category || '—'}{p.subcategory ? ` · ${p.subcategory}` : ''}</p>
                   <a href={`/dashboard/products/barcodes?product=${encodeURIComponent(p.id)}`} target="_blank" rel="noopener noreferrer"
                     className="mt-2 mb-2 block rounded-lg border border-gold/20 px-2 py-1.5 text-center text-xs text-gold">طباعة الباركود</a>
