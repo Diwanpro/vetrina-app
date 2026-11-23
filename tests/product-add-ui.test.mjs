@@ -35,15 +35,26 @@ const nativeFetch = globalThis.fetch
 let state
 
 function reset() {
-  state = {context:{...context},products:[structuredClone(product)],rpcCalls:[],storageUploads:[],notifications:[],fetchCalls:[],rpcError:null,uploadError:null}
+  state = {context:{...context},products:[structuredClone(product)],rpcCalls:[],storageUploads:[],notifications:[],fetchCalls:[],rpcError:null,uploadError:null,activeUpdates:[],activeError:null,activeWait:null,activeNoRow:false}
   // Any real network attempt is recorded and fails loudly.
   globalThis.fetch = (...args) => { state.fetchCalls.push(String(args[0])); return Promise.reject(new Error('real network blocked in test')) }
   function query(table) {
-    const q={ table,filters:{},select(){return this},eq(k,v){this.filters[k]=v;return this},order(){return this},range(){return this},limit(){return this},in(){return this},
+    const q={ table,filters:{},select(){return this},update(payload){this.payload=payload;return this},eq(k,v){this.filters[k]=v;return this},order(){return this},range(){return this},limit(){return this},in(){return this},
       result(single=false){
         const data=state.products.filter(row=>Object.entries(this.filters).every(([k,v])=>k.includes('.')||row[k]===v))
         return {data:single?(data[0]||null):data,error:null}
-      },single(){return Promise.resolve(this.result(true))},maybeSingle(){return Promise.resolve(this.result(true))},then(resolve,reject){return Promise.resolve(this.result()).then(resolve,reject)}}
+      },async single(){
+        if(this.payload){
+          state.activeUpdates.push({payload:this.payload,filters:{...this.filters}})
+          if(state.activeWait) await state.activeWait
+          if(state.activeError) return {data:null,error:state.activeError}
+          if(state.activeNoRow) return {data:null,error:null}
+          const row=this.result(true).data
+          if(row) Object.assign(row,this.payload)
+          return {data:row,error:null}
+        }
+        return this.result(true)
+      },maybeSingle(){return Promise.resolve(this.result(true))},then(resolve,reject){return Promise.resolve(this.result()).then(resolve,reject)}}
     return q
   }
   state.supabase={from:query,
@@ -376,4 +387,51 @@ test('E. a save attempt stays inside the mocks: no real RPC, Storage upload, pus
   assert.equal(state.notifications.length,1,'push notification captured by the mock only')
   assert.equal(state.fetchCalls.length,0,'no real network call happened')
   await waitFor(()=>assert.ok(!document.querySelector('form')))
+})
+
+
+test('active switch persists tenant-scoped state in both directions and survives reload', async () => {
+  reset(); state.products[0].is_active=false
+  const view=render(React.createElement(Products))
+  const sw=await screen.findByRole('switch',{name:'نشط: قميص الاختبار'})
+  assert.equal(sw.getAttribute('aria-checked'),'false')
+  fireEvent.click(sw)
+  await waitFor(()=>assert.equal(sw.getAttribute('aria-checked'),'true'))
+  assert.deepEqual(state.activeUpdates[0],{payload:{is_active:true},filters:{tenant_id:'A',id:'p'}})
+  view.unmount(); render(React.createElement(Products))
+  const again=await screen.findByRole('switch',{name:'نشط: قميص الاختبار'})
+  assert.equal(again.getAttribute('aria-checked'),'true')
+  fireEvent.click(again)
+  await waitFor(()=>assert.equal(again.getAttribute('aria-checked'),'false'))
+})
+
+test('active switch blocks duplicate requests and retains old state on backend failure', async () => {
+  reset(); let release; state.activeWait=new Promise(r=>{release=r}); state.activeError={message:'رفض التحديث'}
+  render(React.createElement(Products))
+  const sw=await screen.findByRole('switch',{name:'نشط: قميص الاختبار'})
+  fireEvent.click(sw); fireEvent.click(sw)
+  assert.equal(sw.disabled,true); assert.equal(state.activeUpdates.length,1)
+  release()
+  await screen.findByText('رفض التحديث')
+  assert.equal(sw.getAttribute('aria-checked'),'true'); assert.equal(sw.disabled,false)
+})
+
+test('active switch rejects unconfirmed updates and permits retry', async () => {
+  reset(); state.activeNoRow=true
+  render(React.createElement(Products))
+  const sw=await screen.findByRole('switch',{name:'نشط: قميص الاختبار'})
+  fireEvent.click(sw)
+  await screen.findByText(/لم يصل تأكيد تحديث الحالة/)
+  assert.equal(sw.getAttribute('aria-checked'),'true')
+  state.activeNoRow=false; fireEvent.click(sw)
+  await waitFor(()=>assert.equal(sw.getAttribute('aria-checked'),'false'))
+})
+
+for(const kind of ['employee','mock']) test(`active switch cannot write for ${kind}`,async()=>{
+  reset()
+  if(kind==='employee') state.context.role='employee'
+  else state.products[0].is_mock=true
+  render(React.createElement(Products))
+  const sw=await screen.findByRole('switch',{name:'نشط: قميص الاختبار'})
+  assert.equal(sw.disabled,true); fireEvent.click(sw); assert.equal(state.activeUpdates.length,0)
 })
