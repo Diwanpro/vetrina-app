@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vetrina — عرض تقديمي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0A0F1A;--iv:#F8F9FA;--g:#D4AF37;--br:#B89A68;--mu:#9AA3B5}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);overflow:hidden;font-family:Tajawal,sans-serif;color:var(--iv);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.stage{position:fixed;left:50%;top:50%;width:1122px;height:794px;transform:translate(-50%,-50%) scale(var(--k,1));background:var(--bg);overflow:hidden}
+.s{--p1:88% 8%;--p2:6% 100%;position:absolute;inset:0;padding:60px 64px 84px;display:flex;align-items:center;gap:44px;opacity:0;visibility:hidden;transition:opacity .7s,visibility .7s;overflow:hidden;background:radial-gradient(520px 380px at var(--p1),rgba(212,175,55,.16),transparent 70%),radial-gradient(560px 420px at var(--p2),rgba(70,100,190,.26),transparent 70%),var(--bg)}
+.s:nth-child(even){--p1:12% 8%;--p2:94% 100%}
+.s.on{opacity:1;visibility:visible}
+.s:before{content:"";position:absolute;inset:0;background:radial-gradient(rgba(255,255,255,.08) 1px,transparent 1.3px) 0 0/30px 30px;-webkit-mask:linear-gradient(180deg,#000,transparent 70%);mask:linear-gradient(180deg,#000,transparent 70%)}
+.s[data-n]:after{content:attr(data-n);position:absolute;bottom:-40px;left:36px;font-size:250px;font-weight:900;line-height:1;color:rgba(212,175,55,.055)}
+.s>*{position:relative}
+@keyframes up{from{opacity:0;transform:translateY(34px)}}
+.s.on .a{animation:up .9s cubic-bezier(.2,.7,.2,1) calc(var(--d,0)*.13s + .15s) both}
+.t{flex:0 0 320px}
+.k{color:var(--g);font-weight:700;font-size:17px;display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.k:before{content:"";width:34px;height:2px;background:var(--g)}
+h2{font-size:45px;line-height:1.3;font-weight:800;margin-bottom:18px}
+em{font-style:normal;background:linear-gradient(120deg,#F6E7AE,#D4AF37 50%,#B89A68);-webkit-background-clip:text;background-clip:text;color:transparent}
+.t p{font-size:18px;line-height:1.85;color:var(--mu);margin-bottom:24px}
+.cs{display:flex;flex-wrap:wrap;gap:10px}
+.c{padding:8px 16px;border-radius:99px;background:rgba(255,255,255,.06);border:1px solid rgba(212,175,55,.32);font-size:14.5px;font-weight:500;color:#EBDDB0;transition:.3s}
+.c:hover{background:rgba(212,175,55,.18);border-color:var(--g);transform:translateY(-2px)}
+.bf{flex:1;direction:ltr;display:flex;flex-direction:column;border-radius:16px;background:#121826;border:1px solid rgba(255,255,255,.13);box-shadow:0 50px 90px -25px #000,0 0 0 1px rgba(0,0,0,.5),0 0 90px -30px rgba(212,175,55,.45);overflow:hidden;transition:box-shadow .5s}
+.bf:hover{box-shadow:0 60px 100px -25px #000,0 0 0 1px rgba(0,0,0,.5),0 0 110px -18px rgba(212,175,55,.75)}
+.bar{height:34px;flex:none;background:#1B2232;display:flex;align-items:center;gap:7px;padding:0 14px}
+.bar i{width:10px;height:10px;border-radius:50%;background:#FF5F57}.bar i+i{background:#FEBC2E}.bar i+i+i{background:#28C840}
+.bar b{margin:0 auto;font:500 11px/1 sans-serif;color:#7C869B;background:#0E1420;padding:6px 44px;border-radius:7px}
+.vp{flex:1;min-height:0;overflow:hidden}
+.vp img,.ph img{width:100%;height:100%;display:block;object-fit:cover;object-position:50% 0;transition:transform .7s}
+.s.on .vp img{animation:pan 14s ease-in-out 1.2s infinite alternate}
+@keyframes pan{0%,10%{object-position:50% 0}90%,100%{object-position:50% 100%}}
+.bf:hover .vp img{transform:scale(1.035)}
+.pp{flex:1;display:flex;justify-content:center;align-items:flex-start;gap:24px;height:640px}
+.pw{display:flex;flex-direction:column;align-items:center;gap:16px}.pw+.pw{margin-top:50px}
+.ph{width:286px;height:540px;padding:8px;position:relative;border-radius:44px;background:#05070C;border:2px solid #2B3243;box-shadow:0 0 0 1px #000,0 50px 80px -20px #000,0 0 80px -25px rgba(212,175,55,.55);transition:transform .5s}
+.ph:before{content:"";position:absolute;top:16px;left:50%;width:76px;height:22px;margin-left:-38px;background:#000;border-radius:20px;z-index:2}
+.ph img{border-radius:36px}.ph:hover{transform:translateY(-10px) rotate(-1deg)}
+.cas{flex:1;height:620px;direction:ltr}.cas .bf{position:absolute}
+.lg{position:relative;margin-bottom:6px}
+.lg:before{content:"";position:absolute;inset:-70px -110px;background:radial-gradient(closest-side,rgba(212,175,55,.38),transparent);animation:pulse 4s ease-in-out infinite}
+.lg img{position:relative;height:270px;filter:drop-shadow(0 0 22px rgba(212,175,55,.6))}
+@keyframes pulse{50%{opacity:.45;transform:scale(1.1)}}
+.m{flex-direction:column;justify-content:center;text-align:center;gap:16px}
+.m h1{font-size:40px;line-height:1.45;font-weight:800;max-width:860px}
+.m .cs{justify-content:center}
+.ln{width:120px;height:2px;background:linear-gradient(90deg,transparent,var(--g),transparent)}
+.w{position:absolute;transform:rotate(var(--r,0deg));white-space:nowrap;font-weight:700;font-size:21px;color:rgba(248,249,250,.3)}
+.w.big{font-size:40px;font-weight:800;color:var(--iv);text-decoration:underline wavy #E5484D;text-underline-offset:10px}
+.w.rd{color:rgba(229,72,77,.6)}
+.s.on .w{animation:up .9s calc(var(--d,0)*.12s + .1s) both,drift 7s ease-in-out calc(var(--d,0)*.12s + 1s) infinite alternate}
+@keyframes drift{from{transform:rotate(var(--r,0deg))}to{transform:rotate(calc(var(--r,0deg) + 3deg)) translate(8px,-10px)}}
+.mid{position:absolute;left:271px;top:300px;width:580px;text-align:center}
+.mid .k{justify-content:center}.mid p{margin:0;font-size:19px;color:var(--mu)}
+.wm{font-size:46px;font-weight:900;letter-spacing:10px;direction:ltr;color:var(--iv)}.wm b{color:var(--g)}
+.wm small{display:block;font-size:15px;letter-spacing:18px;color:var(--br);font-weight:500;margin-top:2px}
+.btn{display:inline-block;padding:16px 52px;border-radius:99px;background:linear-gradient(120deg,#F3E2A0,#D4AF37 55%,#B89A68);color:#1A1405;font-weight:800;font-size:21px;text-decoration:none;box-shadow:0 14px 40px -10px rgba(212,175,55,.7);transition:.3s}
+.btn:hover{box-shadow:0 20px 56px -8px rgba(212,175,55,.95);filter:brightness(1.08)}
+.pb{position:fixed;top:0;left:0;right:0;height:3px;background:rgba(255,255,255,.08);z-index:9}
+.pb i{display:block;height:100%;width:10%;background:linear-gradient(270deg,#D4AF37,#F6E7AE);transition:width .6s}
+.nv{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:9;display:flex;align-items:center;gap:6px;padding:6px;border-radius:99px;background:rgba(20,26,40,.72);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid rgba(212,175,55,.3)}
+.nv button{background:none;border:0;color:var(--iv);font:500 15px Tajawal,sans-serif;padding:10px 22px;border-radius:99px;cursor:pointer;transition:.25s}
+.nv button:hover{background:var(--g);color:#1A1405}
+.nv span{min-width:64px;text-align:center;color:var(--br);font:700 14px Tajawal,sans-serif;direction:ltr}
+@page{size:297mm 210mm;margin:0}
+@media print{
+html,body{height:auto;overflow:visible;background:var(--bg)}
+*{animation:none!important;transition:none!important}
+.stage{position:static;transform:none;width:297mm;height:auto;overflow:visible}
+.s{position:relative;inset:auto;width:297mm;height:209.6mm;opacity:1;visibility:visible;break-after:page;page-break-after:always}
+.a,.w{opacity:1!important}.nv,.pb{display:none}}
+</style></head><body>
+<div class="pb"><i></i></div>
+<div class="stage">
+
+<section class="s m">
+<div class="lg a"><img src="assets/deck/logo.png" alt="Vetrina"></div>
+<div class="ln a"></div>
+<h1 class="a"><em>Vetrina</em> — نظامك المتكامل لإدارة محلك ومتجرك الإلكتروني</h1>
+<div class="cs a"><span class="c">كاشير</span><span class="c">مخزون</span><span class="c">ديون الزبائن</span><span class="c">متجر إلكتروني</span><span class="c">موظفون</span></div>
+</section>
+
+<section class="s" data-n="02">
+<div class="w big a" style="top:70px;right:80px;--r:-5deg">تشتت في المخزون؟</div>
+<div class="w big a" style="top:190px;left:60px;--r:4deg">صعوبة في حساب الديون؟</div>
+<div class="w big a" style="bottom:120px;right:110px;--r:-3deg">ضياع وقتك في الورقيات؟</div>
+<div class="w a" style="top:60px;left:110px;--r:-8deg">فواتير ضائعة</div>
+<div class="w rd a" style="top:150px;left:470px;--r:6deg">أرقام مبعثرة؟!</div>
+<div class="w rd a" style="top:260px;right:50px;--r:12deg;font-size:44px">؟؟؟</div>
+<div class="w a" style="top:540px;left:80px;--r:-5deg">دفتر الديون… أين؟</div>
+<div class="w a" style="bottom:70px;left:420px;--r:3deg">مقاسات ناقصة</div>
+<div class="w rd a" style="top:610px;left:120px;--r:7deg">حسابات خاطئة</div>
+<div class="w a" style="top:150px;right:420px;--r:-4deg">ورقة ضاعت</div>
+<div class="mid a"><div class="k">المشكلة</div><h2>هل يبدو هذا <em>مألوفاً</em>؟</h2><p>هذه الفوضى تستنزف وقتك وأرباحك كل يوم.</p></div>
+</section>
+
+<section class="s" data-n="03">
+<div class="t"><div class="k a">الحل</div><h2 class="a">السيطرة الكاملة من <em>لوحة واحدة</em></h2><p class="a">مبيعات اليوم، النقد في الصندوق، الأرباح، الديون والتنبيهات… كل شيء في شاشة واحدة.</p><div class="cs a"><span class="c">مبيعات اليوم</span><span class="c">الأرباح المحسوبة</span><span class="c">إجمالي الديون</span><span class="c">آخر 7 أيام</span></div></div>
+<div class="bf a" style="height:650px"><div class="bar"><i></i><i></i><i></i><b>vetrina-app-wheat.vercel.app</b></div><div class="vp"><img src="assets/deck/dashboard.jpg" alt=""></div></div>
+</section>
+
+<section class="s" data-n="04">
+<div class="t"><div class="k a">البيع السريع</div><h2 class="a">كاشير سريع <em>يليق بزبائنك</em></h2><p class="a">امسح الباركود أو ابحث بالاسم، اختر اللون والمقاس، وأنهِ الفاتورة في ثوانٍ.</p><div class="cs a"><span class="c">مسح الباركود</span><span class="c">اللون والمقاس</span><span class="c">العروض</span><span class="c">نقداً أو كريدي</span></div></div>
+<div class="bf a" style="height:650px"><div class="bar"><i></i><i></i><i></i><b>vetrina-app-wheat.vercel.app</b></div><div class="vp"><img src="assets/deck/pos.jpg" alt=""></div></div>
+</section>
+
+<section class="s" data-n="05">
+<div class="t"><div class="k a">المتجر المزدوج</div><h2 class="a">متجر إلكتروني يناسب <em>هوية محلك</em></h2><p class="a">قالب رجالي أو نسائي حسب تخصصك. زبائنك يطلبون من هواتفهم والدفع عند الاستلام.</p><div class="cs a"><span class="c">رابط ورمز QR</span><span class="c">الدفع عند الاستلام</span><span class="c">ربط شركات التوصيل</span></div></div>
+<div class="pp">
+<div class="pw a"><div class="ph"><img src="assets/deck/store-masc.jpg" alt=""></div><span class="c">رجالي</span></div>
+<div class="pw a"><div class="ph"><img src="assets/deck/store-fem.jpg" alt=""></div><span class="c">نسائي</span></div>
+</div>
+</section>
+
+<section class="s" data-n="06">
+<div class="t"><div class="k a">المخزون</div><h2 class="a">تتبع دقيق لكل <em>لون ومقاس</em></h2><p class="a">كل قطعة مسجلة بلونها ومقاسها، مع نقل المخزون بين الفروع وتنبيه عند اقتراب النفاد.</p><div class="cs a"><span class="c">لون ومقاس</span><span class="c">نقل بين الفروع</span><span class="c">تنبيه النفاد</span></div></div>
+<div class="bf a" style="height:568px"><div class="bar"><i></i><i></i><i></i><b>vetrina-app-wheat.vercel.app</b></div><div class="vp"><img src="assets/deck/inventory.jpg" alt=""></div></div>
+</section>
+
+<section class="s" data-n="07">
+<div class="t"><div class="k a">الديون والزبائن</div><h2 class="a">احفظ حقوقك وتابع <em>ديون زبائنك</em> بذكاء</h2><p class="a">سجل كل دين باسم الزبون ورقم هاتفه، واعرف المتبقي في لحظة وسجل الدفعات.</p><div class="cs a"><span class="c">كشف حساب لكل زبون</span><span class="c">تسجيل دفعة</span><span class="c">إجمالي المستحق</span></div></div>
+<div class="bf a" style="height:650px"><div class="bar"><i></i><i></i><i></i><b>vetrina-app-wheat.vercel.app</b></div><div class="vp"><img src="assets/deck/customers.jpg" alt=""></div></div>
+</section>
+
+<section class="s" data-n="08">
+<div class="t"><div class="k a">الموردون</div><h2 class="a">علاقتك بمورديك <em>تحت السيطرة</em></h2><p class="a">اعرف كم عليك لكل مورد وما السلع التي يوردها، وسجل الدفعات من مكان واحد.</p><div class="cs a"><span class="c">الدين المتبقي</span><span class="c">فواتير الشراء</span><span class="c">رحلات الشراء</span></div></div>
+<div class="bf a" style="height:591px"><div class="bar"><i></i><i></i><i></i><b>vetrina-app-wheat.vercel.app</b></div><div class="vp"><img src="assets/deck/suppliers.jpg" alt=""></div></div>
+</section>
+
+<section class="s" data-n="09">
+<div class="t"><div class="k a">الموظفون والصلاحيات</div><h2 class="a">فريقك يعمل بتنظيم، وأنت <em>تتحكم في كل شيء</em></h2><p class="a">أدوار وصلاحيات، أجور وعمولات، وطلبات المتجر الإلكتروني تصلك لتؤكدها أو ترفضها.</p><div class="cs a"><span class="c">أدوار وصلاحيات</span><span class="c">أجور وعمولات</span><span class="c">طلبات المتجر</span></div></div>
+<div class="cas">
+<div class="bf a" style="right:0;top:10px;width:420px;height:458px"><div class="bar"><i></i><i></i><i></i><b>employees</b></div><div class="vp"><img src="assets/deck/employees.jpg" alt=""></div></div>
+<div class="bf a" style="left:0;bottom:10px;width:400px;height:373px"><div class="bar"><i></i><i></i><i></i><b>orders</b></div><div class="vp"><img src="assets/deck/orders.jpg" alt=""></div></div>
+</div>
+</section>
+
+<section class="s m">
+<div class="wm a">ATTIA<b>WEB</b><small>SOLUTION</small></div>
+<div class="ln a" style="margin:12px 0"></div>
+<h2 class="a" style="font-size:64px;margin:0">ابدأ تجربتك <em>الآن</em></h2>
+<p class="a" style="font-size:20px;color:var(--mu)">محلك يستحق نظاماً بحجم طموحك.</p>
+<div class="a" style="margin-top:14px"><a class="btn" href="#">تواصل معنا</a></div>
+</section>
+
+</div>
+<nav class="nv"><button id="pv">→ السابق</button><span class="cn"></span><button id="nx">التالي ←</button></nav>
+<script>
+const S=[...document.querySelectorAll('.s')],N=S.length,pb=document.querySelector('.pb i'),cn=document.querySelector('.cn'),st=document.querySelector('.stage');
+let i=0;
+S.forEach(s=>s.querySelectorAll('.a').forEach((e,j)=>e.style.setProperty('--d',j)));
+const fit=()=>st.style.setProperty('--k',Math.min(innerWidth/1122,innerHeight/794));
+function go(n){i=Math.max(0,Math.min(N-1,n));S.forEach((s,j)=>s.classList.toggle('on',j==i));pb.style.width=(i+1)/N*100+'%';cn.textContent=(i+1)+' / '+N;history.replaceState(null,'','#'+(i+1))}
+addEventListener('resize',fit);fit();
+document.getElementById('nx').onclick=()=>go(i+1);document.getElementById('pv').onclick=()=>go(i-1);
+addEventListener('keydown',e=>{const k=e.key;
+if(k=='ArrowLeft'||k=='PageDown')go(i+1);else if(k=='ArrowRight'||k=='PageUp')go(i-1);
+else if(k=='Home')go(0);else if(k=='End')go(N-1);
+else if(k=='f'||k=='F')document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()});
+let x0=0;addEventListener('touchstart',e=>x0=e.touches[0].clientX);
+addEventListener('touchend',e=>{const d=e.changedTouches[0].clientX-x0;if(Math.abs(d)>50)go(i+(d<0?1:-1))});
+go((parseInt(location.hash.slice(1))||1)-1);
+</script></body></html>
