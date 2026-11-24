@@ -16,7 +16,51 @@
 @media(max-width:760px){.topbar{height:60px}.wordmark{font-size:1rem}.wordmark small{display:none}.top-actions{gap:0}.slide{padding:100px 6vw 105px;min-height:100svh}.slide-index{top:80px;font-size:2.7rem}.grid{grid-template-columns:1fr;gap:35px}.copy{max-width:none}.copy h2{max-width:19em}.lead{margin-top:16px}.features{margin-top:20px;gap:7px}.eyebrow{margin-bottom:13px}.image-window{max-height:48vh}.pain-grid{grid-template-columns:1fr;gap:12px;margin-top:30px}.pain{padding:18px 22px;display:grid;grid-template-columns:38px 1fr;column-gap:15px}.pain .number{grid-row:span 2;font-size:2rem}.pain h3{margin:0 0 3px;font-size:1.15rem}.pain p{font-size:.9rem}.phones{gap:15px}.phone{width:43%;border-width:3px;border-radius:24px;padding:5px}.phone .image-window{height:36vh;border-radius:17px}.wide-title{margin-bottom:26px}.duo{gap:25px;grid-template-columns:1fr}.duo .image-window{max-height:35vh}.dots{gap:7px}.footer-nav{gap:10px}.counter{font-size:.8rem;min-width:45px}.arrow{width:40px;height:40px}.hero-logo{width:230px;margin-bottom:22px}.hero h1{font-size:2.2rem}.studio{font-size:.85rem}.attia{width:80px;height:88px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation:none!important;transition:none!important}}
 @page{size:A4 landscape;margin:0}
-@media print{html,body{background:#0A0F1A!important;color:#F8F9FA!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}html{scroll-padding:0}.topbar,.progress,.footer-nav,.skip,.cta-row,.text-button{display:none!important}.slide{width:297mm;height:210mm;min-height:0;max-height:210mm;padding:17mm 20mm;break-after:page;page-break-after:always;overflow:hidden;display:flex!important;border:0}.slide:last-child{break-after:auto;page-break-after:auto}.slide-index{top:12mm;left:12mm;font-size:30pt}.slide:before{display:none}.reveal{animation:none!important;opacity:1!important;transform:none!important}.grid{grid-template-columns:1fr 1.1fr;gap:14mm}h1{font-size:33pt!important}h2{font-size:27pt!important}.lead{font-size:12pt;margin-top:5mm}.eyebrow{font-size:9pt;margin-bottom:5mm}.features{font-size:10pt;margin-top:6mm;gap:2mm}.tag{font-size:9pt;margin-top:6mm}.hero-logo{width:80mm;height:44mm;object-fit:contain;margin-bottom:5mm}.hero .brandline{font-size:13pt}.image-window,.duo .image-window{max-height:none;height:auto;overflow:visible}.image-window img{width:100%;height:auto;max-height:140mm;object-fit:contain;object-position:top;background:#111}.browser{box-shadow:none}.browser-bar{height:7mm}.caption{font-size:8pt}.pain-grid{grid-template-columns:repeat(3,1fr);gap:5mm;margin-top:12mm}.pain{display:block;padding:8mm}.pain h3{font-size:15pt}.pain p{font-size:11pt}.phones{gap:20mm}.phone{width:62mm;transform:none!important;border-width:1mm;box-shadow:none}.phone .image-window{height:auto;max-height:none;overflow:visible}.phone .image-window img{max-height:117mm;object-fit:contain}.phone figcaption{font-size:9pt;bottom:-8mm}.wide-title{margin-bottom:8mm}.duo{grid-template-columns:1fr 1fr;gap:8mm}.duo .image-window img{max-height:115mm}.attia{width:25mm;height:28mm}.studio{font-size:12pt;margin-bottom:7mm}.contact{display:block!important;margin-top:7mm;padding:3mm 8mm}.contact a{display:block!important;font-size:10pt;padding:1mm}.contact summary{font-size:11pt;list-style:none}.fineprint{font-size:8pt;margin-top:6mm}}
+@media print{
+  /* A small sub-millimetre allowance avoids rounding a 210mm box onto a
+     second sheet. Block pagination keeps flex fragmentation out of the page. */
+  html,body{margin:0!important;padding:0!important;width:297mm;background:#0A0F1A!important;color:#F8F9FA!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  html{scroll-padding:0;scroll-behavior:auto}
+  main{display:block;margin:0;padding:0}
+  .topbar,.progress,.footer-nav,.skip,.cta-row,.text-button{display:none!important}
+  .slide{box-sizing:border-box!important;display:block!important;position:relative;width:297mm!important;height:209mm!important;min-height:0!important;max-height:209mm!important;margin:0!important;padding:12mm 16mm!important;border:0!important;overflow:hidden;break-inside:avoid-page;page-break-inside:avoid;break-after:page;page-break-after:always;background:#0A0F1A!important}
+  .slide:last-child{break-after:auto;page-break-after:auto}
+  .slide>.content{height:100%;min-height:0;display:flex;flex-direction:column;justify-content:center}
+  .slide>.grid{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:10mm;align-items:center}
+  .slide-index{top:8mm;left:8mm;font-size:26pt}
+  .slide:before{display:none}
+  .reveal{animation:none!important;opacity:1!important;transform:none!important}
+  h1{font-size:33pt!important}h2{font-size:26pt!important}
+  .copy{min-width:0}.copy h2{max-width:none}
+  .lead{font-size:12pt;margin-top:5mm}
+  .eyebrow{font-size:9pt;margin-bottom:5mm}
+  .features{font-size:10pt;margin-top:6mm;gap:2mm}
+  .tag{font-size:9pt;margin-top:6mm}
+  .hero-logo{width:95mm;height:52mm;object-fit:contain;margin-bottom:5mm}
+  .hero .brandline{font-size:13pt}
+  .media{min-width:0;min-height:0}
+  .browser{width:100%;margin:0;box-shadow:none;break-inside:avoid;page-break-inside:avoid}
+  .browser-bar{height:7mm}
+  .image-window,.duo .image-window{height:151mm!important;max-height:151mm!important;overflow:hidden}
+  .image-window img{display:block;width:100%!important;height:100%!important;max-height:none!important;object-fit:contain!important;object-position:center;background:#111}
+  .caption{font-size:8pt;padding-top:2mm}
+  .pain-grid{grid-template-columns:repeat(3,1fr);gap:5mm;margin-top:12mm}
+  .pain{display:block;padding:8mm}.pain h3{font-size:15pt}.pain p{font-size:11pt}
+  .wide-title{flex:none;margin:0 auto 7mm;max-width:250mm}
+  .wide-title h2{font-size:25pt!important}.wide-title .lead{margin-top:3mm;font-size:11pt}
+  .phones{flex:1;min-height:0;gap:22mm;align-items:center;padding-bottom:8mm}
+  .phone{flex:none;width:76mm;transform:none!important;border-width:1mm;box-shadow:none;padding:1.5mm;break-inside:avoid;page-break-inside:avoid}
+  .phone .image-window{height:121mm!important;max-height:121mm!important;overflow:hidden}
+  .phone figcaption{font-size:9pt;bottom:-7mm}
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:8mm;flex:1;min-height:0;margin:0 auto;align-items:center;max-width:none}
+  .duo h3{font-size:11pt;margin-bottom:3mm}
+  .duo .image-window{height:118mm!important;max-height:118mm!important}
+  .attia{width:29mm;height:32mm}.studio{font-size:12pt;margin-bottom:7mm}
+  .contact{display:block!important;margin-top:7mm;padding:3mm 8mm}
+  .contact a{display:block!important;font-size:10pt;padding:1mm}
+  .contact summary{font-size:11pt;list-style:none}
+  .fineprint{font-size:8pt;margin-top:6mm}
+}
 </style>
 </head>
 <body>
